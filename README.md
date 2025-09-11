@@ -9,7 +9,6 @@ It allows users to control bulbs, regulate fan speed, monitor motion sensors, an
 - Control 4 bulbs (ON/OFF)
 - Fan ON/OFF + 4-step speed regulation
 - Motion sensor with alarm trigger
-- Voice control integration
 - Timer & scheduling automation
 
 ---
@@ -32,11 +31,6 @@ It allows users to control bulbs, regulate fan speed, monitor motion sensors, an
 - Sprint 3: Motion Sensor + Alarm
 - Sprint 4: Automation & Voice Control
 - Sprint 5: Documentation & Reports
-
----
-
-## 📖 Documentation
-All project reports and proposal drafts are in `docs/`.
 
 ---
 

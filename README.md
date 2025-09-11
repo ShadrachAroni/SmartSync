@@ -1,2 +1,44 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/blswXyO9)
-[![Open in Visual Studio Code](https://classroom.github.com/assets/open-in-vscode-2e0aaae1b6195c2367325f4f02e2d04e9abb55f0b24a779b69b11b9e10269abc.svg)](https://classroom.github.com/online_ide?assignment_repo_id=20148491&assignment_repo_type=AssignmentRepo)
+# SmartSync: Smart Appliance Control System (IoT)
+
+SmartSync is an IoT-based smart home system using Arduino/ESP32 and the **Blynk app**.  
+It allows users to control bulbs, regulate fan speed, monitor motion sensors, and set automation rules via smartphone.
+
+---
+
+## 🚀 Features
+- Control 4 bulbs (ON/OFF)
+- Fan ON/OFF + 4-step speed regulation
+- Motion sensor with alarm trigger
+- Voice control integration
+- Timer & scheduling automation
+
+---
+
+## 🛠️ Tech Stack
+- **Hardware**: ESP32 / NodeMCU, Relays, PIR Sensor, Motor Driver, Fan Regulator
+- **Software**: Arduino IDE, Blynk App, Firebase (optional for logging)
+- **Languages**: C++, Arduino
+
+---
+
+## 📂 Repository Structure
+(Explain folders as shown above)
+
+---
+
+## 📌 Milestones
+- Sprint 1: Hardware Setup & Blynk Connection
+- Sprint 2: Appliance Control
+- Sprint 3: Motion Sensor + Alarm
+- Sprint 4: Automation & Voice Control
+- Sprint 5: Documentation & Reports
+
+---
+
+## 📖 Documentation
+All project reports and proposal drafts are in `docs/`.
+
+---
+
+## 👨‍💻 Contributors
+- Shadrach Aroni (Project Lead)

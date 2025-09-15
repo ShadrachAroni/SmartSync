@@ -15,7 +15,7 @@ It allows users to control bulbs, regulate fan speed, monitor motion sensors, an
 
 ## 🛠️ Tech Stack
 - **Hardware**: ESP32 / NodeMCU, Relays, PIR Sensor, Motor Driver, Fan Regulator
-- **Software**: Arduino IDE, Blynk App, Firebase (optional for logging)
+- **Software**: Arduino IDE, SmartSync App, Firebase (optional for logging)
 - **Languages**: C++, Arduino
 
 ---
@@ -26,7 +26,7 @@ It allows users to control bulbs, regulate fan speed, monitor motion sensors, an
 ---
 
 ## 📌 Milestones
-- Sprint 1: Hardware Setup & Blynk Connection
+- Sprint 1: Hardware Setup & App Connection
 - Sprint 2: Appliance Control
 - Sprint 3: Motion Sensor + Alarm
 - Sprint 4: Automation & Voice Control

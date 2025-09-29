@@ -17,7 +17,7 @@ flutter pub get
 flutter run
 
 
-## BLE & PlatformIO
+## BLE
 
 - Example BLE firmware included (ESP32). Update pins and implement sensor reading logic.
 - Ensure BLE UUIDs match `lib/services/bluetooth_service.dart`.
@@ -38,7 +38,7 @@ flutter run
 
 ## Project Structure
   
-app/
+SmartSync/
 ├── assets/ # Project assets: images, icons, lottie animations, room photos
 │ ├── icons/ # UI icons
 │ │ ├── avatar.png

@@ -1,43 +1,20 @@
-# SmartSync — Smart Home Flutter 
+# SmartSync — IoT Smart Home Prototype
 
-## Setup
+## Overview
 
-1. Clone or create a new Flutter project and copy files into proper structure (`lib/`, `assets/`, etc).
-2. Add your assets to `assets/icons/` and `assets/images/`.
-3. Update `pubspec.yaml` (already provided) and run:
+SmartSync is a Flutter-based IoT prototype that enables users to:
 
+* Control a bulb’s brightness and a fan’s speed.
+* View live temperature readings from an IoT sensor.
+* Monitor security alerts (motion/distance sensors).
+* See logs of device actions and security events, which will be used in machine learning for adaptive scheduling.
+* Manage schedules, settings, and profiles.
 
-flutter pub get
+The mobile app connects to an **ESP32 (BLE)** or **Arduino UNO + HC-05 (Classic Bluetooth)** controller, which interfaces with relays, sensors, and actuators.
 
-4. Replace Supabase credentials in `lib/services/supabase_service.dart`.
-5. Platform-specific: On Android add Bluetooth and location permissions in `AndroidManifest.xml`. On iOS add Bluetooth and location entries in `Info.plist`.
-6. Build & run:
+## File Structure
 
-
-flutter run
-
-
-## BLE
-
-- Example BLE firmware included (ESP32). Update pins and implement sensor reading logic.
-- Ensure BLE UUIDs match `lib/services/bluetooth_service.dart`.
-
-## Supabase
-
-- Create tables (run SQL in the Supabase SQL editor).
-- Use `SupabaseService` helpers for upsert and logs.
-
-## Adaptive Scheduling / ML
-
-- You can implement an Edge Function or a small serverless Python function that trains on `logs` table and outputs schedules. Then call it from the app or via Supabase RPC.
-
-## Notes
-
-- This project uses Riverpod for state, GoRouter for navigation, percent_indicator and animations for UI polish.
-- Replace placeholder icons with proper vector artwork that matches the original mockup.
-
-## Project Structure
-  
+```
 SmartSync/
 ├── assets/ # Project assets: images, icons, lottie animations, room photos
 │ ├── icons/ # UI icons
@@ -100,3 +77,124 @@ SmartSync/
 │ └── temperature_card.dart
 ├── pubspec.yaml # Flutter project configuration
 └── README.md # Project documentation
+```
+
+## Hardware Requirements
+
+* **Option A (Recommended):** ESP32 DevKit V1 (built-in BLE)
+* **Option B:** Arduino UNO/Nano + HC-05 Bluetooth module
+* 2-channel relay module (for bulb + fan)
+* DHT22 or DS18B20 (temperature sensor)
+* PIR motion sensor (HC-SR501)
+* Ultrasonic distance sensor (HC-SR04)
+* Active buzzer (for alerts)
+* Power supply (5V DC, ≥2A)
+* (Optional) DS3231 RTC module for offline scheduling
+* Jumper wires, breadboard, enclosure
+
+⚠️ **Safety Note:** For AC appliances, use relays/SSRs rated for mains loads and consult an electrician.
+
+## Software Requirements
+
+* **Arduino IDE** (with ESP32 board manager URL: `https://dl.espressif.com/dl/package_esp32_index.json`)
+* **Flutter SDK** (stable)
+* **Supabase account** (for logs, profiles, and schedules)
+* **VS Code / Android Studio**
+
+### Flutter Dependencies
+
+* `flutter_blue_plus` or `flutter_reactive_ble` (BLE)
+* `flutter_bluetooth_serial` (HC-05 classic)
+* `supabase_flutter`
+* `flutter_riverpod`
+* `go_router`
+* `percent_indicator`, `lottie`
+
+Run:
+
+```bash
+flutter pub get
+```
+
+## MCU Firmware Setup
+
+1. Open Arduino IDE.
+2. For ESP32: Install ESP32 board definitions, select “ESP32 Dev Module.”
+3. For Arduino UNO + HC-05: Select “Arduino UNO,” connect via COM port.
+4. Upload the provided firmware (`esp32_ble_firmware.ino` or `uno_hc05_firmware.ino`).
+5. Ensure BLE UUIDs match those in `lib/services/bluetooth_service.dart`:
+
+   ```dart
+   static const serviceUuid = "12345678-1234-5678-1234-56789abcdef0";
+   static const cmdCharUuid = "12345678-1234-5678-1234-56789abcdef1";
+   static const telemetryCharUuid = "12345678-1234-5678-1234-56789abcdef2";
+   ```
+
+## Connecting Arduino IDE to Flutter
+
+* **ESP32 (BLE):** Flutter app scans for devices advertising the service UUID and subscribes to telemetry notifications.
+* **HC-05 (Classic):** Pair via phone settings, then connect using `flutter_bluetooth_serial`.
+
+## Supabase Setup
+
+1. Create a Supabase project.
+2. Obtain `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+3. Replace credentials in `lib/services/supabase_service.dart`.
+4. Enable Row-Level Security (RLS) for privacy.
+
+### Database Schema Example
+
+```sql
+create table logs (
+  id bigserial primary key,
+  created_at timestamptz default now(),
+  device_id uuid,
+  event_type text,
+  event text,
+  value jsonb,
+  source text
+);
+
+create table schedules (
+  id bigserial primary key,
+  device_id uuid,
+  user_id uuid,
+  time_of_day time,
+  repeat_days int[],
+  enabled boolean default true,
+  mode text,
+  created_at timestamptz default now()
+);
+```
+
+## Adaptive Scheduling
+
+* Logs are analyzed to detect recurring device usage times.
+* A Supabase Edge Function or external script suggests schedules (e.g., turning on bulb at 18:00 on weekdays).
+* Suggested schedules are stored with `mode='suggested'` and displayed in the app for user approval.
+
+## Running the App
+
+```bash
+flutter run
+```
+
+Ensure your phone has Bluetooth enabled and is paired (for HC-05) or in range (for ESP32 BLE).
+
+## Testing
+
+* Toggle bulb/fan from app → check relay action.
+* View live temperature in app → confirm sensor reading.
+* Trigger PIR motion → buzzer alert + log event.
+* Check Supabase `logs` table for entries.
+
+## Next Steps
+
+* Move prototype wiring to a secure enclosure.
+* Add user authentication with Supabase.
+* Expand adaptive scheduling with ML clustering.
+* Add offline persistence (EEPROM/Preferences + RTC).
+
+---
+
+**Note:** This is a prototype system for academic/learning purposes. For production, ensure compliance with electrical safety standards and data privacy best practices.

@@ -1,4 +1,3 @@
-// lib/screens/home_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -13,7 +12,7 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final devices = ref.watch(devicesProvider); // kept for future use
+    final devices = ref.watch(devicesProvider); // reserved for future use
     final themeMode = ref.watch(themeModeProvider);
     final scaffoldKey = GlobalKey<ScaffoldState>();
 
@@ -23,7 +22,6 @@ class HomeScreen extends ConsumerWidget {
       bottomNavigationBar: const BottomNav(),
       body: SafeArea(
         child: Container(
-          // subtle background gradient for nicer look & feel
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
@@ -36,29 +34,36 @@ class HomeScreen extends ConsumerWidget {
           ),
           child: Column(
             children: [
-              _buildHeader(context, scaffoldKey, themeMode),
+              _Header(scaffoldKey: scaffoldKey, themeMode: themeMode),
               const SizedBox(height: 12),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 18.0),
-                child: _buildSectionHeader(context),
+                child: _SectionHeader(),
               ),
               const SizedBox(height: 8),
-              Expanded(child: _buildRoomsGrid()),
+              const Expanded(child: _RoomsGrid()),
             ],
           ),
         ),
       ),
-      floatingActionButton: _buildFloatingButtons(context, ref, themeMode),
+      floatingActionButton: _FloatingButtons(themeMode: themeMode),
     );
   }
+}
 
-  Widget _buildHeader(BuildContext context,
-      GlobalKey<ScaffoldState> scaffoldKey, ThemeMode themeMode) {
+/// header (menu + greeting + avatar)
+class _Header extends StatelessWidget {
+  final GlobalKey<ScaffoldState> scaffoldKey;
+  final ThemeMode themeMode;
+  const _Header({required this.scaffoldKey, required this.themeMode});
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 14),
       child: Row(
         children: [
-          // menu button (rounded)
+          // menu button
           InkWell(
             borderRadius: BorderRadius.circular(12),
             onTap: () => scaffoldKey.currentState?.openDrawer(),
@@ -82,7 +87,7 @@ class HomeScreen extends ConsumerWidget {
 
           const SizedBox(width: 12),
 
-          // greeting + subtitle
+          // greeting
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -114,9 +119,9 @@ class HomeScreen extends ConsumerWidget {
 
           const SizedBox(width: 12),
 
-          // avatar with subtle border
+          // avatar
           GestureDetector(
-            onTap: () => GoRouter.of(context).go('/settings'),
+            onTap: () => context.go('/settings'),
             child: Container(
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
@@ -146,11 +151,14 @@ class HomeScreen extends ConsumerWidget {
       ),
     );
   }
+}
 
-  Widget _buildSectionHeader(BuildContext context) {
+/// section header (title + search)
+class _SectionHeader extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
     return Row(
       children: [
-        // Title + subtitle
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -166,11 +174,9 @@ class HomeScreen extends ConsumerWidget {
             ],
           ),
         ),
-
-        // Search bar icon (opens search route or toggles search UI)
         InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: () => GoRouter.of(context).go('/search'),
+          onTap: () => context.go('/search'),
           child: Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
@@ -189,9 +195,14 @@ class HomeScreen extends ConsumerWidget {
       ],
     );
   }
+}
 
-  Widget _buildRoomsGrid() {
-    // Static list for now; convert to dynamic later if needed.
+/// grid of rooms
+class _RoomsGrid extends StatelessWidget {
+  const _RoomsGrid();
+
+  @override
+  Widget build(BuildContext context) {
     const rooms = [
       {
         'title': 'Living Room',
@@ -241,15 +252,15 @@ class HomeScreen extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          int crossAxisCount = 2;
-          double spacing = 12;
-          double totalSpacing = spacing * (crossAxisCount - 1);
-          double itemWidth =
+          const crossAxisCount = 2;
+          const spacing = 12.0;
+          final totalSpacing = spacing * (crossAxisCount - 1);
+          final itemWidth =
               (constraints.maxWidth - totalSpacing) / crossAxisCount;
-          double itemHeight = (constraints.maxHeight -
+          final itemHeight = (constraints.maxHeight -
                   (spacing * (rooms.length / crossAxisCount))) /
               (rooms.length / crossAxisCount);
-          double aspectRatio = itemWidth / itemHeight;
+          final aspectRatio = itemWidth / itemHeight;
 
           return GridView.count(
             physics: const BouncingScrollPhysics(),
@@ -271,9 +282,15 @@ class HomeScreen extends ConsumerWidget {
       ),
     );
   }
+}
 
-  Widget _buildFloatingButtons(
-      BuildContext context, WidgetRef ref, ThemeMode themeMode) {
+/// floating action buttons
+class _FloatingButtons extends ConsumerWidget {
+  final ThemeMode themeMode;
+  const _FloatingButtons({required this.themeMode});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final bg = Theme.of(context).colorScheme.primary;
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -299,7 +316,7 @@ class HomeScreen extends ConsumerWidget {
         FloatingActionButton.small(
           heroTag: 'connectFab',
           backgroundColor: bg,
-          onPressed: () => GoRouter.of(context).go('/connect'),
+          onPressed: () => context.go('/connect'),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           child: Image.asset(
@@ -316,7 +333,7 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-/// Drawer kept here to keep HomeScreen focused.
+/// Drawer rewritten with GoRouter
 class _AppDrawer extends StatelessWidget {
   const _AppDrawer();
 
@@ -331,27 +348,42 @@ class _AppDrawer extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.home),
               title: const Text('Home'),
-              onTap: () => Navigator.pop(context),
+              onTap: () {
+                Navigator.pop(context);
+                context.go('/');
+              },
             ),
             ListTile(
               leading: const Icon(Icons.history),
               title: const Text('Logs'),
-              onTap: () => Navigator.pushNamed(context, '/logs'),
+              onTap: () {
+                Navigator.pop(context);
+                context.go('/logs');
+              },
             ),
             ListTile(
               leading: const Icon(Icons.bluetooth),
               title: const Text('Device Connect'),
-              onTap: () => Navigator.pushNamed(context, '/connect'),
+              onTap: () {
+                Navigator.pop(context);
+                context.go('/connect');
+              },
             ),
             ListTile(
               leading: const Icon(Icons.security),
               title: const Text('Security'),
-              onTap: () => Navigator.pushNamed(context, '/security'),
+              onTap: () {
+                Navigator.pop(context);
+                context.go('/security');
+              },
             ),
             ListTile(
               leading: const Icon(Icons.settings),
               title: const Text('Settings'),
-              onTap: () => Navigator.pushNamed(context, '/settings'),
+              onTap: () {
+                Navigator.pop(context);
+                context.go('/settings');
+              },
             ),
           ],
         ),

@@ -1,0 +1,54 @@
+name: smartsync
+description: Smart Home UI
+publish_to: "none"
+version: 0.0.1
+
+environment:
+  sdk: ">=2.18.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.5
+  flutter_riverpod: ^2.3.6
+  go_router: ^7.0.0
+  supabase_flutter: ^1.4.0
+  flutter_blue_plus: ^1.36.6
+  animations: ^2.0.6
+  percent_indicator: ^4.2.2
+  flutter_svg: ^1.1.6
+  lottie: ^2.2.0
+  intl: ^0.18.1
+  collection: ^1.17.0
+  sign_in_with_apple: ^7.0.1
+  webview_flutter: ^4.10.0
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/menu.png
+    - assets/icons/avatar.png
+    - assets/icons/bulb.png
+    - assets/icons/fan.png
+    - assets/icons/tv.png
+    - assets/icons/sensor.png
+    - assets/icons/bluetooth.png
+    - assets/icons/temperature.png
+    - assets/images/onboarding1.png
+    - assets/images/onboarding2.png
+    - assets/images/onboarding3.png
+    - assets/rooms/living_room.jpg
+    - assets/rooms/kitchen.jpg
+    - assets/rooms/office.jpg
+    - assets/rooms/bedroom.jpg
+    - assets/rooms/bathroom.jpg
+    - assets/rooms/dining_room.jpg
+
+
+    

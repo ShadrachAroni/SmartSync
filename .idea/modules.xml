@@ -2,7 +2,8 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/SmartSync.iml" filepath="$PROJECT_DIR$/.idea/SmartSync.iml" />
+      <module fileurl="file://$PROJECT_DIR$/smarthome.iml" filepath="$PROJECT_DIR$/smarthome.iml" />
+      <module fileurl="file://$PROJECT_DIR$/android/smarthome_android.iml" filepath="$PROJECT_DIR$/android/smarthome_android.iml" />
     </modules>
   </component>
 </project>

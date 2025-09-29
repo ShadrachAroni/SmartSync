@@ -1,38 +1,102 @@
-# SmartSync: Smart Appliance Control System (IoT)
+# SmartSync — Smart Home Flutter 
 
-SmartSync is an IoT-based smart home system using Arduino/ESP32 and the **Blynk app**.  
-It allows users to control bulbs, regulate fan speed, monitor motion sensors, and set automation rules via smartphone.
+## Setup
 
----
+1. Clone or create a new Flutter project and copy files into proper structure (`lib/`, `assets/`, etc).
+2. Add your assets to `assets/icons/` and `assets/images/`.
+3. Update `pubspec.yaml` (already provided) and run:
 
-## 🚀 Features
-- Control 4 bulbs (ON/OFF)
-- Fan ON/OFF + 4-step speed regulation
-- Motion sensor with alarm trigger
-- Timer & scheduling automation
 
----
+flutter pub get
 
-## 🛠️ Tech Stack
-- **Hardware**: ESP32 / NodeMCU, Relays, PIR Sensor, Motor Driver, Fan Regulator
-- **Software**: Arduino IDE, SmartSync App, Firebase (optional for logging)
-- **Languages**: C++, Arduino
+4. Replace Supabase credentials in `lib/services/supabase_service.dart`.
+5. Platform-specific: On Android add Bluetooth and location permissions in `AndroidManifest.xml`. On iOS add Bluetooth and location entries in `Info.plist`.
+6. Build & run:
 
----
 
-## 📂 Repository Structure
-(Explain folders as shown above)
+flutter run
 
----
 
-## 📌 Milestones
-- Sprint 1: Hardware Setup & App Connection
-- Sprint 2: Appliance Control
-- Sprint 3: Motion Sensor + Alarm
-- Sprint 4: Automation & Voice Control
-- Sprint 5: Documentation & Reports
+## BLE & PlatformIO
 
----
+- Example BLE firmware included (ESP32). Update pins and implement sensor reading logic.
+- Ensure BLE UUIDs match `lib/services/bluetooth_service.dart`.
 
-## 👨‍💻 Contributors
-- Shadrach Aroni (Project Lead)
+## Supabase
+
+- Create tables (run SQL in the Supabase SQL editor).
+- Use `SupabaseService` helpers for upsert and logs.
+
+## Adaptive Scheduling / ML
+
+- You can implement an Edge Function or a small serverless Python function that trains on `logs` table and outputs schedules. Then call it from the app or via Supabase RPC.
+
+## Notes
+
+- This project uses Riverpod for state, GoRouter for navigation, percent_indicator and animations for UI polish.
+- Replace placeholder icons with proper vector artwork that matches the original mockup.
+
+## Project Structure
+  
+app/
+├── assets/ # Project assets: images, icons, lottie animations, room photos
+│ ├── icons/ # UI icons
+│ │ ├── avatar.png
+│ │ ├── bluetooth.png
+│ │ ├── bulb.png
+│ │ ├── devices.png
+│ │ ├── device_placeholder.png
+│ │ ├── fan.png
+│ │ ├── home.png
+│ │ ├── menu.png
+│ │ ├── sensor.png
+│ │ ├── Temperature.png
+│ │ └── tv.png
+│ ├── images/ # Onboarding and other images
+│ │ ├── onboarding1.png
+│ │ ├── onboarding2.png
+│ │ └── onboarding3.png
+│ ├── lottie/ # Lottie animation files
+│ │ ├── fan.json
+│ │ └── onboarding_lively.json
+│ └── rooms/ # Room images
+│ ├── bathroom.jpg
+│ ├── bedroom.jpg
+│ ├── dining_room.jpg
+│ ├── kitchen.jpg
+│ ├── living_room.jpg
+│ └── office.jpg
+├── lib/ # Dart source code
+│ ├── app_theme.dart # Theme configuration
+│ ├── main.dart # App entry point
+│ ├── routes.dart # App routes configuration
+│ ├── models/ # Data models
+│ │ └── device.dart
+│ ├── providers/ # Riverpod providers for state management
+│ │ ├── auth_provider.dart
+│ │ ├── device_provider.dart
+│ │ └── theme_mode_provider.dart
+│ ├── screens/ # UI screens
+│ │ ├── device_connection_screen.dart
+│ │ ├── device_detail_screen.dart
+│ │ ├── home_screen.dart
+│ │ ├── logs_screen.dart
+│ │ ├── onboarding_screen.dart
+│ │ ├── room_detail_screen.dart
+│ │ ├── security_screen.dart
+│ │ └── settings_screen.dart
+│ ├── services/ # Services like Bluetooth, temperature, Supabase
+│ │ ├── bluetooth_service.dart
+│ │ ├── supabase_service.dart
+│ │ └── temperature_service.dart
+│ └── widgets/ # Reusable widgets
+│ ├── animated_fan.dart
+│ ├── animated_temperature_gauge.dart
+│ ├── bottom_nav.dart
+│ ├── device_connection_card.dart
+│ ├── device_tile.dart
+│ ├── micro_interactions.dart
+│ ├── room_card.dart
+│ └── temperature_card.dart
+├── pubspec.yaml # Flutter project configuration
+└── README.md # Project documentation

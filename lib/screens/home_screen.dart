@@ -254,7 +254,7 @@ class _RoomsGrid extends StatelessWidget {
         builder: (context, constraints) {
           const crossAxisCount = 2;
           const spacing = 12.0;
-          final totalSpacing = spacing * (crossAxisCount - 1);
+          const totalSpacing = spacing * (crossAxisCount - 1);
           final itemWidth =
               (constraints.maxWidth - totalSpacing) / crossAxisCount;
           final itemHeight = (constraints.maxHeight -

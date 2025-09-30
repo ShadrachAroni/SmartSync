@@ -1,5 +1,4 @@
 import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -73,8 +72,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     super.dispose();
   }
 
-  void _goToHome() => GoRouter.of(context).go('/');
-  void _goToConnect() => GoRouter.of(context).go('/connect');
+  void _goToAuth() => GoRouter.of(context).go('/login');
 
   @override
   Widget build(BuildContext context) {
@@ -108,7 +106,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                     children: [
                       const Spacer(),
                       TextButton(
-                        onPressed: _goToHome,
+                        onPressed: _goToAuth,
                         child: const Text('Skip'),
                       )
                     ],
@@ -140,7 +138,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            // Decorative art area with layered images + frosted card
+                            // Decorative art area
                             AnimatedBuilder(
                               animation: _pulseController,
                               builder: (context, child) {
@@ -158,7 +156,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                                       child: Stack(
                                         alignment: Alignment.center,
                                         children: [
-                                          // soft blurred blob behind (larger)
                                           Container(
                                             height: 260,
                                             width: 260,
@@ -182,8 +179,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                                               ],
                                             ),
                                           ),
-
-                                          // angled, semi-transparent image layer (parallax feel)
                                           Positioned(
                                             left: 8,
                                             top: 18,
@@ -200,8 +195,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                                               ),
                                             ),
                                           ),
-
-                                          // main frosted tile containing the image (rounded)
                                           ClipRRect(
                                             borderRadius:
                                                 BorderRadius.circular(28),
@@ -222,89 +215,36 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                                                         .withOpacity(0.12),
                                                   ),
                                                 ),
-                                                child: Stack(
-                                                  alignment: Alignment.center,
-                                                  children: [
-                                                    // Slight drop-shadowed main artwork, clipped inside circle to give contrast
-                                                    Container(
-                                                      height: 160,
-                                                      width: 160,
-                                                      decoration: BoxDecoration(
-                                                        borderRadius:
-                                                            BorderRadius
-                                                                .circular(20),
-                                                        boxShadow: [
-                                                          BoxShadow(
-                                                            color: Colors.black
-                                                                .withOpacity(
-                                                                    0.12),
-                                                            blurRadius: 18,
-                                                            offset:
-                                                                const Offset(
-                                                                    0, 8),
-                                                          )
-                                                        ],
-                                                      ),
-                                                      child: ClipRRect(
-                                                        borderRadius:
-                                                            BorderRadius
-                                                                .circular(16),
-                                                        child: Image.asset(
-                                                          page.imageAsset,
-                                                          fit: BoxFit.cover,
-                                                        ),
-                                                      ),
+                                                child: Container(
+                                                  height: 160,
+                                                  width: 160,
+                                                  decoration: BoxDecoration(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            20),
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color: Colors.black
+                                                            .withOpacity(0.12),
+                                                        blurRadius: 18,
+                                                        offset:
+                                                            const Offset(0, 8),
+                                                      )
+                                                    ],
+                                                  ),
+                                                  child: ClipRRect(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            16),
+                                                    child: Image.asset(
+                                                      page.imageAsset,
+                                                      fit: BoxFit.cover,
                                                     ),
-
-                                                    // subtle overlay icon-like circle for depth
-                                                    Positioned(
-                                                      right: -10,
-                                                      bottom: -10,
-                                                      child: Container(
-                                                        height: 56,
-                                                        width: 56,
-                                                        decoration:
-                                                            BoxDecoration(
-                                                          shape:
-                                                              BoxShape.circle,
-                                                          gradient:
-                                                              LinearGradient(
-                                                            begin: Alignment
-                                                                .topLeft,
-                                                            end: Alignment
-                                                                .bottomRight,
-                                                            colors: [
-                                                              page.gradient[0]
-                                                                  .withOpacity(
-                                                                      0.9),
-                                                              page.gradient[1]
-                                                                  .withOpacity(
-                                                                      0.9),
-                                                            ],
-                                                          ),
-                                                          border: Border.all(
-                                                            color: Colors.white
-                                                                .withOpacity(
-                                                                    0.08),
-                                                          ),
-                                                        ),
-                                                        child: Center(
-                                                          child: Icon(
-                                                            Icons.auto_awesome,
-                                                            size: 22,
-                                                            color: _iconColorForGradient(
-                                                                page.gradient),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ],
+                                                  ),
                                                 ),
                                               ),
                                             ),
                                           ),
-
-                                          // floating little badge (page index) for affordance
                                           Positioned(
                                             top: 6,
                                             left: 6,
@@ -351,7 +291,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
                             const SizedBox(height: 12),
 
-                            // Subtitle card for better legibility
+                            // Subtitle
                             ConstrainedBox(
                               constraints: const BoxConstraints(maxWidth: 640),
                               child: Text(
@@ -366,7 +306,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
                             const SizedBox(height: 28),
 
-                            // Buttons in frosted glass bar
+                            // Single Get Started button
                             Padding(
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 6.0),
@@ -381,33 +321,26 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                                       color: Colors.white.withOpacity(0.12),
                                       borderRadius: BorderRadius.circular(14),
                                     ),
-                                    child: Row(
-                                      children: [
-                                        Expanded(
-                                          child: ElevatedButton.icon(
-                                            onPressed: _goToConnect,
-                                            icon: const Icon(Icons.bluetooth),
-                                            label: const Text('Connect Device'),
-                                            style: ElevatedButton.styleFrom(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      vertical: 14),
-                                            ),
+                                    child: SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton(
+                                        onPressed: _goToAuth,
+                                        style: ElevatedButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(
+                                              vertical: 16),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
                                           ),
                                         ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: OutlinedButton(
-                                            onPressed: _goToHome,
-                                            style: OutlinedButton.styleFrom(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      vertical: 14),
-                                            ),
-                                            child: const Text('Explore App'),
+                                        child: const Text(
+                                          'Get Started',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600,
                                           ),
                                         ),
-                                      ],
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -420,7 +353,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                   ),
                 ),
 
-                // Bottom: dots + hint
+                // Bottom dots
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 18),
                   child: Column(
@@ -468,7 +401,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     );
   }
 
-  // simple heuristic to choose an icon color that contrasts with the page gradient
   Color _iconColorForGradient(List<Color> g) {
     final base = g.last;
     return base.computeLuminance() > 0.6 ? Colors.deepPurple : Colors.white;

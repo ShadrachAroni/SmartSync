@@ -12,7 +12,7 @@ dependencies:
   cupertino_icons: ^1.0.5
   flutter_riverpod: ^2.5.1
   go_router: ^7.0.0
-  supabase_flutter: ^1.4.0
+  supabase_flutter: ^2.10.2
   flutter_blue_plus: ^1.36.6
   animations: ^2.0.6
   percent_indicator: ^4.2.2
@@ -20,9 +20,10 @@ dependencies:
   lottie: ^2.2.0
   intl: ^0.18.1
   collection: ^1.17.0
-  sign_in_with_apple: ^7.0.1
+  sign_in_with_apple: 5.0.0
   webview_flutter: ^4.10.0
   shared_preferences: ^2.3.2
+  google_fonts: 4.0.4
 
 
 dev_dependencies:

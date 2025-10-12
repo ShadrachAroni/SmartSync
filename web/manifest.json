@@ -1,6 +1,6 @@
 {
-    "name": "smarthome",
-    "short_name": "smarthome",
+    "name": "smartsync",
+    "short_name": "smartsync",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

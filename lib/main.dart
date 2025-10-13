@@ -15,30 +15,30 @@ import 'package:workmanager/workmanager.dart';
 import 'app_config.dart';
 import 'services/notification_service.dart';
 import 'services/log_service.dart';
-import 'services/adaptive_scheduler.dart'; // NEW
+import 'services/adaptive_scheduler.dart';
 import 'theme/theme_provider.dart';
 import 'theme/themes.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'screens/auth/login_screen.dart';
+import 'screens/auth/reset_password_screen.dart';
 import 'screens/home/home_shell.dart';
 import 'screens/home/bluetooth_screen.dart';
+
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 bool get _isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
 Timer? _desktopTimer;
 
-// WorkManager dispatcher must be top-level and entry-point in release.
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, input) async {
     try {
       await Hive.initFlutter();
       await NotificationService.ensureInitialized();
-      // Run adaptive background step (evaluates and reschedules)
       await AdaptiveScheduler.onBackgroundRun(success: true);
       return Future.value(true);
     } catch (_) {
-      // On failure, reschedule with backoff
       await AdaptiveScheduler.onBackgroundRun(success: false);
       return Future.value(false);
     }
@@ -48,25 +48,21 @@ void callbackDispatcher() {
 Future<void> _initDeepLinks() async {
   try {
     final links = AppLinks();
-    // Subscribing ensures plugin channels are registered early.
     links.uriLinkStream.listen((_) {});
-  } catch (_) {
-    // Ignore on unsupported platforms.
-  }
+  } catch (_) {}
 }
 
 Future<void> _initBackgroundScheduling() async {
   if (_isMobile) {
     await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
   }
-  // Start adaptive chain (mobile uses WorkManager, desktop uses Timer)
   await AdaptiveScheduler.init();
 }
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await _initDeepLinks(); // app_links early for recovery
+  await _initDeepLinks();
 
   await Hive.initFlutter();
   await LogService.init();
@@ -78,8 +74,14 @@ Future<void> main() async {
     anonKey: AppConfig.supabaseAnonKey,
   );
 
-  // Optional: listen for auth events (e.g., passwordRecovery handled in UI)
-  Supabase.instance.client.auth.onAuthStateChange.listen((_) {});
+  // Listen for password recovery and route to reset screen
+  Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+    if (data.event == AuthChangeEvent.passwordRecovery) {
+      navigatorKey.currentState?.push(MaterialPageRoute(
+        builder: (_) => const ResetPasswordScreen(),
+      ));
+    }
+  });
 
   await _initBackgroundScheduling();
 
@@ -102,6 +104,7 @@ class _SmartSyncAppState extends State<SmartSyncApp> {
   Widget build(BuildContext context) {
     final theme = context.watch<ThemeProvider>();
     return MaterialApp(
+      navigatorKey: navigatorKey, // <-- Add this
       title: 'SmartSync',
       theme: lightTheme,
       darkTheme: darkTheme,
@@ -111,7 +114,9 @@ class _SmartSyncAppState extends State<SmartSyncApp> {
       routes: {
         '/home': (_) => const HomeShell(),
         '/login': (_) => const LoginScreen(),
-        '/bluetooth': (_) => const BluetoothScreen(), // keeps scan page
+        '/bluetooth': (_) => const BluetoothScreen(),
+        '/reset-password': (_) =>
+            const ResetPasswordScreen(), // for pushNamed if needed
       },
     );
   }

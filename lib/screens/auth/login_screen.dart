@@ -69,10 +69,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _sendReset() async {
     try {
-      await SupabaseService.sendResetPasswordEmail(email.text.trim());
+      // Use your actual redirectTo value, matching your Supabase Auth URL config and app deep link
+      await Supabase.instance.client.auth.resetPasswordForEmail(
+        email.text.trim(),
+        redirectTo:
+            'io.smartsync.app://reset-callback/', // <-- match your deep link
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Password reset email sent')));
+          const SnackBar(content: Text('Password reset email sent')),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -169,8 +175,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             backgroundColor: const Color(0xFF8C5BFF),
                           ),
                           onPressed: loading ? null : _login,
-                          child:
-                              Text(loading ? 'Please wait...' : 'Get Started'),
+                          child: Text(loading ? 'Please wait...' : 'Login'),
                         ),
                       ),
                       const SizedBox(height: 14),

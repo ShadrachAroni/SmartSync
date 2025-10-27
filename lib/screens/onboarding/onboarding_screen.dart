@@ -17,7 +17,7 @@ class OnboardingScreen extends StatelessWidget {
     return Scaffold(
       body: Stack(
         children: [
-          Container(decoration: BoxDecoration(gradient: gradient)),
+          Container(decoration: const BoxDecoration(gradient: gradient)),
           // Decorative concentric rings
           Positioned.fill(
             child: CustomPaint(painter: _RingsPainter()),

@@ -56,8 +56,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       final res = await Supabase.instance.client.auth
           .updateUser(UserAttributes(password: pass.text.trim()));
       if (res.user != null) {
-        if (mounted)
+        if (mounted) {
           Navigator.of(context).pop(); // back to previous (e.g., Login)
+        }
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Password updated')));
       }

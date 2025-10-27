@@ -59,7 +59,7 @@ class _SignupScreenState extends State<SignupScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          Container(decoration: BoxDecoration(gradient: gradient)),
+          Container(decoration: const BoxDecoration(gradient: gradient)),
           Positioned(
             top: 60,
             left: 0,

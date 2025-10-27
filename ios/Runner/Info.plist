@@ -60,6 +60,7 @@
 		<key>CFBundleURLSchemes</key>
 		<array>
 		<string>smartsync</string>
+		<string>io.smartsync.app</string>
 		</array>
 	</dict>
 	</array>

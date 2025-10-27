@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/supabase_service.dart';
 import '../../auth/login_screen.dart';
-import '../../home/home_shell.dart';
-import '../../home/home_shell.dart' show HomeShell;
 
 class SettingsTab extends StatelessWidget {
   const SettingsTab({super.key});
@@ -36,13 +34,61 @@ class SettingsTab extends StatelessWidget {
                       icon: Icons.lock_reset_outlined,
                       title: 'Change password',
                       onTap: () => _changePassword(context)),
-                  _tile(context,
-                      icon: Icons.key_outlined,
-                      title: 'Forgot password', onTap: () async {
-                    await SupabaseService.sendResetPasswordEmail(email);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Reset email sent')));
-                  }),
+                  _tile(
+                    context,
+                    icon: Icons.key_outlined,
+                    title: 'Forgot password',
+                    onTap: () async {
+                      try {
+                        // If account email is empty, prompt for one
+                        String targetEmail = email;
+                        if (targetEmail.isEmpty) {
+                          final controller = TextEditingController();
+                          final entered = await showDialog<String>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Reset Password'),
+                              content: TextField(
+                                controller: controller,
+                                decoration: const InputDecoration(
+                                    labelText: 'Enter your email'),
+                                keyboardType: TextInputType.emailAddress,
+                              ),
+                              actions: [
+                                TextButton(
+                                    onPressed: () => Navigator.pop(ctx),
+                                    child: const Text('Cancel')),
+                                FilledButton(
+                                    onPressed: () => Navigator.pop(
+                                        ctx, controller.text.trim()),
+                                    child: const Text('Send')),
+                              ],
+                            ),
+                          );
+                          if (entered == null || entered.isEmpty) return;
+                          targetEmail = entered;
+                        }
+
+                        await Supabase.instance.client.auth
+                            .resetPasswordForEmail(
+                          targetEmail,
+                          redirectTo:
+                              'io.smartsync.app://reset-callback/', // must match your Supabase Auth URL config
+                        );
+
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Reset email sent')),
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context)
+                              .showSnackBar(SnackBar(content: Text('$e')));
+                        }
+                      }
+                    },
+                  ),
                 ],
                 cs),
             _section(

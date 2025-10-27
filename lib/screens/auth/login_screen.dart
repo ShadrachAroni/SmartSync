@@ -99,7 +99,7 @@ class _LoginScreenState extends State<LoginScreen> {
       resizeToAvoidBottomInset: true,
       body: Stack(
         children: [
-          Container(decoration: BoxDecoration(gradient: gradient)),
+          Container(decoration: const BoxDecoration(gradient: gradient)),
           _headerLogo(),
           SafeArea(
             child: Align(

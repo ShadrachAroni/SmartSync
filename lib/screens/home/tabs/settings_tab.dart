@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/supabase_service.dart';
 import '../../auth/login_screen.dart';
-import '../../home/home_shell.dart' show HomeShell;
 
 class SettingsTab extends StatelessWidget {
   const SettingsTab({super.key});

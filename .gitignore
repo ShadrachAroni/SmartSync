@@ -1,6 +1,81 @@
-.pio
+# =========================
+# Flutter (mobile app)
+# =========================
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/.packages
+app/.pub-cache/
+app/.idea/
+app/.gradle/
+app/build/
+app/ios/Pods/
+app/ios/Flutter/Flutter.framework
+app/ios/Flutter/Flutter.podspec
+app/android/.gradle/
+app/android/app/build/
+app/pubspec.lock
+
+# Flutter generated files
+app/generated_plugin_registrant.dart
+
+# macOS & Windows generated
+app/macos/Flutter/ephemeral/
+app/windows/runner/Release/
+app/windows/runner/Debug/
+app/linux/runner/
+app/web/.dart_tool/
+
+# =========================
+# ESP32 / PlatformIO firmware
+# =========================
+firmware/.pio/
+firmware/.vscode/
+firmware/.idea/
+firmware/build/
+firmware/cmake-build-*/
+firmware/platformio.ini.save
+
+# =========================
+# Common IDE and system files
+# =========================
+.vscode/
 .vscode/.browse.c_cpp.db*
 .vscode/c_cpp_properties.json
 .vscode/launch.json
-.vscode/ipch
-a
+.vscode/ipch/
+.idea/
+*.code-workspace
+
+# =========================
+# OS generated files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Secrets and tokens
+# =========================
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+personal_access_token
+.env
+.env.*
+*.keystore
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# Python virtual environments
+# =========================
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pio 

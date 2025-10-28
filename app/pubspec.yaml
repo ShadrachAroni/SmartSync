@@ -1,0 +1,79 @@
+name: smartsync_app
+description: Smart home automation for elderly care
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Firebase
+  firebase_core: ^2.24.0
+  firebase_auth: ^4.15.0
+  cloud_firestore: ^4.13.0
+  firebase_storage: ^11.5.0
+  firebase_messaging: ^14.7.0
+  firebase_analytics: ^10.7.0
+  
+  # Bluetooth
+  flutter_blue_plus: ^1.30.0
+  
+  # State Management
+  flutter_riverpod: ^2.4.9
+  
+  # Navigation
+  go_router: ^12.1.0
+  
+  # UI Components
+  flutter_svg: ^2.0.9
+  lottie: ^2.7.0
+  percent_indicator: ^4.2.3
+  syncfusion_flutter_charts: ^24.1.41
+  shimmer: ^3.0.0
+  
+  # Utilities
+  intl: ^0.18.1
+  shared_preferences: ^2.2.2
+  path_provider: ^2.1.1
+  permission_handler: ^11.1.0
+  device_info_plus: ^9.1.1
+  connectivity_plus: ^5.0.2
+  
+  # Security
+  flutter_secure_storage: ^9.0.0
+  
+  # HTTP & JSON
+  http: ^1.1.0
+  dio: ^5.4.0
+  json_annotation: ^4.8.1
+  
+  # Icons
+  cupertino_icons: ^1.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  build_runner: ^2.4.7
+  json_serializable: ^6.7.1
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/animations/
+    - assets/models/
+  
+  fonts:
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto-Regular.ttf
+        - asset: assets/fonts/Roboto-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Roboto-Medium.ttf
+          weight: 500

@@ -1,0 +1,5 @@
+adafruit/RTClib@^2.1.1
+h2zero/NimBLE-Arduino@^1.4.1
+adafruit/DHT sensor library@^1.4.4
+bblanchon/ArduinoJson@^6.21.3
+adafruit/Adafruit Unified Sensor@^1.1.9

@@ -75,6 +75,7 @@ class BluetoothService {
       Logger.info('Connecting to ${device.advName}...');
 
       await device.connect(
+        license: flutter_blue.License.free,
         timeout: BLEConstants.bleConnectionTimeout,
         autoConnect: false,
       );

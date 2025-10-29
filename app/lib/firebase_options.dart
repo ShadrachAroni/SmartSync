@@ -52,7 +52,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCKh5eHHC7rY5IVKDbmilg65YkD4Et_wLE',
-    appId: '1:611436526513:android:720f93e57cabd2dac65b90',
+    appId: '1:611436526513:android:9e5ca12cef6d2296c65b90',
     messagingSenderId: '611436526513',
     projectId: 'smartsync-cf370',
     storageBucket: 'smartsync-cf370.firebasestorage.app',
@@ -60,11 +60,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyB8Nz2Lx3SXGHVNZwvbkZdokMUoGO5DsvA',
-    appId: '1:611436526513:ios:726f542fcb6c88c4c65b90',
+    appId: '1:611436526513:ios:69331fd4bbd0dda4c65b90',
     messagingSenderId: '611436526513',
     projectId: 'smartsync-cf370',
     storageBucket: 'smartsync-cf370.firebasestorage.app',
-    iosBundleId: 'com.example.app',
+    iosBundleId: 'com.example.newApp',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -85,4 +85,5 @@ class DefaultFirebaseOptions {
     storageBucket: 'smartsync-cf370.firebasestorage.app',
     measurementId: 'G-GMGQB28RYR',
   );
+
 }

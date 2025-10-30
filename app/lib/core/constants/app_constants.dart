@@ -1,12 +1,13 @@
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 class AppConstants {
   // App Info
   static const String appName = 'SmartSync';
   static const String appVersion = '1.0.0';
   static const String appTagline = 'Smart Home for Elderly Care';
 
-  // API Keys (Store in environment variables in production)
-  static const String firebaseApiKey =
-      'AIzaSyCKh5eHHC7rY5IVKDbmilg65YkD4Et_wLE';
+  // API Keys (Loaded from environment variables)
+  static String get firebaseApiKey => dotenv.env['FIREBASE_API_KEY'] ?? '';
 
   // Timeouts
   static const Duration connectionTimeout = Duration(seconds: 30);

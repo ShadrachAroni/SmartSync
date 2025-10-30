@@ -5,7 +5,8 @@ class AppConstants {
   static const String appTagline = 'Smart Home for Elderly Care';
 
   // API Keys (Store in environment variables in production)
-  static const String firebaseApiKey = 'YOUR_API_KEY';
+  static const String firebaseApiKey =
+      'AIzaSyCKh5eHHC7rY5IVKDbmilg65YkD4Et_wLE';
 
   // Timeouts
   static const Duration connectionTimeout = Duration(seconds: 30);

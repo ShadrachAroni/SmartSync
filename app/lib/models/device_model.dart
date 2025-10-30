@@ -1,61 +1,110 @@
-import 'package:json_annotation/json_annotation.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 
-part 'device_model.g.dart';
+enum DeviceType {
+  light,
+  fan,
+  airConditioner,
+  camera,
+  tv,
+  vacuum,
+  sensor,
+}
 
-@JsonSerializable()
 class DeviceModel {
-  final String deviceId;
-  final String userId;
+  final String id;
   final String name;
-  final String type;
-  final String location;
-  final String firmwareVersion;
-  final DateTime createdAt;
+  final DeviceType type;
+  final String roomId;
+  final bool isOn;
+  final int value; // 0-100 for lights, fan speed, etc.
+  final bool isOnline;
   final DateTime lastSeen;
-  final bool online;
-  final int? batteryLevel;
+  final Map<String, dynamic> metadata;
 
   DeviceModel({
-    required this.deviceId,
-    required this.userId,
+    required this.id,
     required this.name,
     required this.type,
-    required this.location,
-    required this.firmwareVersion,
-    required this.createdAt,
+    required this.roomId,
+    this.isOn = false,
+    this.value = 0,
+    this.isOnline = false,
     required this.lastSeen,
-    required this.online,
-    this.batteryLevel,
+    this.metadata = const {},
   });
 
-  factory DeviceModel.fromJson(Map<String, dynamic> json) =>
-      _$DeviceModelFromJson(json);
+  factory DeviceModel.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return DeviceModel(
+      id: doc.id,
+      name: data['name'] ?? '',
+      type: DeviceType.values.firstWhere(
+        (e) => e.name == data['type'],
+        orElse: () => DeviceType.sensor,
+      ),
+      roomId: data['roomId'] ?? '',
+      isOn: data['isOn'] ?? false,
+      value: data['value'] ?? 0,
+      isOnline: data['isOnline'] ?? false,
+      lastSeen: (data['lastSeen'] as Timestamp).toDate(),
+      metadata: data['metadata'] ?? {},
+    );
+  }
 
-  Map<String, dynamic> toJson() => _$DeviceModelToJson(this);
+  Map<String, dynamic> toFirestore() {
+    return {
+      'name': name,
+      'type': type.name,
+      'roomId': roomId,
+      'isOn': isOn,
+      'value': value,
+      'isOnline': isOnline,
+      'lastSeen': Timestamp.fromDate(lastSeen),
+      'metadata': metadata,
+    };
+  }
 
   DeviceModel copyWith({
-    String? deviceId,
-    String? userId,
+    String? id,
     String? name,
-    String? type,
-    String? location,
-    String? firmwareVersion,
-    DateTime? createdAt,
+    DeviceType? type,
+    String? roomId,
+    bool? isOn,
+    int? value,
+    bool? isOnline,
     DateTime? lastSeen,
-    bool? online,
-    int? batteryLevel,
+    Map<String, dynamic>? metadata,
   }) {
     return DeviceModel(
-      deviceId: deviceId ?? this.deviceId,
-      userId: userId ?? this.userId,
+      id: id ?? this.id,
       name: name ?? this.name,
       type: type ?? this.type,
-      location: location ?? this.location,
-      firmwareVersion: firmwareVersion ?? this.firmwareVersion,
-      createdAt: createdAt ?? this.createdAt,
+      roomId: roomId ?? this.roomId,
+      isOn: isOn ?? this.isOn,
+      value: value ?? this.value,
+      isOnline: isOnline ?? this.isOnline,
       lastSeen: lastSeen ?? this.lastSeen,
-      online: online ?? this.online,
-      batteryLevel: batteryLevel ?? this.batteryLevel,
+      metadata: metadata ?? this.metadata,
     );
+  }
+
+  IconData get icon {
+    switch (type) {
+      case DeviceType.light:
+        return Icons.lightbulb_outline;
+      case DeviceType.fan:
+        return Icons.air;
+      case DeviceType.airConditioner:
+        return Icons.ac_unit;
+      case DeviceType.camera:
+        return Icons.videocam;
+      case DeviceType.tv:
+        return Icons.tv;
+      case DeviceType.vacuum:
+        return Icons.cleaning_services;
+      case DeviceType.sensor:
+        return Icons.sensors;
+    }
   }
 }

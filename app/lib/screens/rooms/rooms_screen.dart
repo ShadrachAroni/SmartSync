@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
 
-class DeviceScanScreen extends StatelessWidget {
-  const DeviceScanScreen({super.key});
+class RoomsScreen extends StatelessWidget {
+  const RoomsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Add Device'),
+        title: const Text('Rooms'),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
         elevation: 0,
       ),
       body: const Center(
-        child: Text('Device Scan Screen - Coming in Part 4'),
+        child: Text('Rooms Screen - Coming in Part 4'),
       ),
     );
   }

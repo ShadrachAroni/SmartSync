@@ -7,25 +7,6 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:611436526513:android:720f93e57cabd2dac65b90",
-        "android_client_info": {
-          "package_name": "com.example.app"
-        }
-      },
-      "oauth_client": [],
-      "api_key": [
-        {
-          "current_key": "AIzaSyCKh5eHHC7rY5IVKDbmilg65YkD4Et_wLE"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": []
-        }
-      }
-    },
-    {
-      "client_info": {
         "mobilesdk_app_id": "1:611436526513:android:9e5ca12cef6d2296c65b90",
         "android_client_info": {
           "package_name": "com.smartsync.smartsync_app"

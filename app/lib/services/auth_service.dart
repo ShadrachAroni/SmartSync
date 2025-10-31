@@ -24,10 +24,11 @@ class AuthService {
         password: password,
       );
 
-      // Create user document
-      if (credential.user != null) {
+      // Create Firestore user document
+      final user = credential.user;
+      if (user != null) {
         final userModel = UserModel(
-          id: credential.user!.uid,
+          id: user.uid,
           name: name,
           email: email,
           createdAt: DateTime.now(),
@@ -35,16 +36,47 @@ class AuthService {
 
         await _firestore
             .collection('users')
-            .doc(credential.user!.uid)
+            .doc(user.uid)
             .set(userModel.toFirestore());
 
         // Send verification email
-        await credential.user!.sendEmailVerification();
+        await user.sendEmailVerification();
       }
 
       return credential;
+    } on FirebaseAuthException catch (e) {
+      // Map Firebase errors to human-readable messages
+      throw FirebaseAuthException(
+        code: e.code,
+        message: _mapAuthError(e),
+      );
     } catch (e) {
-      rethrow;
+      // Handles AppCheck / network / JSON / unknown issues
+      throw FirebaseAuthException(
+        code: 'unknown',
+        message:
+            'Unexpected sign-up failure. Please check your connection or App Check configuration.',
+      );
+    }
+  }
+
+  String _mapAuthError(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'weak-password':
+        return 'Password is too weak. Use a mix of letters and numbers.';
+      case 'email-already-in-use':
+        return 'This email is already registered.';
+      case 'invalid-email':
+        return 'Invalid email format.';
+      case 'operation-not-allowed':
+        return 'Email/password sign-in is not enabled in Firebase Console.';
+      case 'network-request-failed':
+        return 'Network error. Please check your internet connection.';
+      case 'app-check-failed':
+      case 'app-not-authorized':
+        return 'App Check validation failed. Add your debug token in Firebase Console.';
+      default:
+        return e.message ?? 'Failed to create account. Please try again.';
     }
   }
 
@@ -58,35 +90,29 @@ class AuthService {
         email: email,
         password: password,
       );
-    } catch (e) {
-      rethrow;
+    } on FirebaseAuthException catch (e) {
+      throw FirebaseAuthException(
+        code: e.code,
+        message: _mapAuthError(e),
+      );
     }
   }
 
-  // Sign out
-  Future<void> signOut() async {
-    await _auth.signOut();
-  }
+  Future<void> signOut() async => await _auth.signOut();
 
-  // Get user data
   Future<UserModel?> getUserData(String uid) async {
     try {
       final doc = await _firestore.collection('users').doc(uid).get();
-      if (doc.exists) {
-        return UserModel.fromFirestore(doc);
-      }
-      return null;
-    } catch (e) {
+      return doc.exists ? UserModel.fromFirestore(doc) : null;
+    } catch (_) {
       return null;
     }
   }
 
-  // Update user data
   Future<void> updateUserData(String uid, Map<String, dynamic> data) async {
     await _firestore.collection('users').doc(uid).update(data);
   }
 
-  // Reset password
   Future<void> resetPassword(String email) async {
     await _auth.sendPasswordResetEmail(email: email);
   }

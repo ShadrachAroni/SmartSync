@@ -9,6 +9,7 @@ import 'core/theme/app_theme.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'providers/auth_provider.dart';
+import 'package:flutter/foundation.dart' show kDebugMode, kProfileMode;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,10 +27,26 @@ Future<void> main() async {
   }
 
   // ✅ Enable Firebase App Check
-  await FirebaseAppCheck.instance.activate(
-    androidProvider: AndroidProvider.debug,
-    appleProvider: AppleProvider.debug,
-  );
+  try {
+    await FirebaseAppCheck.instance.activate(
+      androidProvider:
+          kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
+      appleProvider:
+          kDebugMode ? AppleProvider.debug : AppleProvider.deviceCheck,
+    );
+    debugPrint('✅ Firebase App Check initialized successfully');
+  } catch (e) {
+    debugPrint('⚠️ App Check activation failed — falling back to Debug: $e');
+    await FirebaseAppCheck.instance
+        .activate(androidProvider: AndroidProvider.debug);
+  }
+
+  FirebaseAppCheck.instance.getToken(false).then((token) {
+    debugPrint(
+        '✅ App Check token detected (${kDebugMode ? "Debug" : "Production"} mode)');
+  }).catchError((e) {
+    debugPrint('⚠️ App Check token fetch failed: $e');
+  });
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(

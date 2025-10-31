@@ -85,5 +85,4 @@ class DefaultFirebaseOptions {
     storageBucket: 'smartsync-cf370.firebasestorage.app',
     measurementId: 'G-GMGQB28RYR',
   );
-
 }

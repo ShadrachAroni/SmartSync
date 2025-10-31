@@ -18,7 +18,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
@@ -80,28 +79,20 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     return null;
   }
 
-  Future<void> _handleSignup() async {
-    // Validate form
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+  Future<void> _handleSignup({bool retrying = false}) async {
+    if (!_formKey.currentState!.validate()) return;
 
-    // Check terms acceptance
     if (!_acceptTerms) {
-      _showMessage(
-        'Please accept the Terms and Conditions to continue',
-        isError: true,
-      );
+      _showMessage('Please accept the Terms and Conditions to continue',
+          isError: true);
       return;
     }
 
-    // Start loading
     setState(() => _isLoading = true);
 
     try {
       final authService = ref.read(authServiceProvider);
 
-      // Create user account
       await authService.signUpWithEmail(
         _emailController.text.trim(),
         _passwordController.text,
@@ -109,47 +100,95 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       );
 
       if (!mounted) return;
-
-      // Show success dialog
       await _showSuccessDialog();
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
-      _handleFirebaseError(e);
+
+      final errorMessage = _getFirebaseErrorMessage(e);
+      _showMessage(errorMessage, isError: true);
+
+      // If app check or network issue, show retry option
+      if (_isRetryableError(e)) {
+        await _showRetryDialog(errorMessage);
+      }
     } catch (e) {
       if (!mounted) return;
       _showMessage('An unexpected error occurred. Please try again.',
           isError: true);
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _handleFirebaseError(FirebaseAuthException e) {
-    String message;
-
+  String _getFirebaseErrorMessage(FirebaseAuthException e) {
+    // Map Firebase error codes to user-friendly messages
     switch (e.code) {
       case 'weak-password':
-        message = 'The password provided is too weak.';
-        break;
+        return 'The password provided is too weak.';
       case 'email-already-in-use':
-        message = 'An account already exists with this email.';
-        break;
+        return 'An account already exists with this email.';
       case 'invalid-email':
-        message = 'The email address is invalid.';
-        break;
+        return 'The email address is invalid.';
       case 'operation-not-allowed':
-        message = 'Email/password accounts are not enabled.';
-        break;
+        return 'Email/password accounts are not enabled.';
       case 'network-request-failed':
-        message = 'Network error. Please check your connection.';
-        break;
+        return 'Network error. Please check your connection.';
+      case 'app-check-failed':
+      case 'app-not-authorized':
+      case 'invalid-app-credential':
+      case 'internal-error':
+        return 'Sign-up failed: Please check your internet or Firebase setup.';
       default:
-        message = 'Failed to create account. Please try again.';
+        return e.message ?? 'Failed to create account. Please try again.';
     }
+  }
 
-    _showMessage(message, isError: true);
+  bool _isRetryableError(FirebaseAuthException e) {
+    const retryableCodes = [
+      'network-request-failed',
+      'app-check-failed',
+      'app-not-authorized',
+      'invalid-app-credential',
+      'internal-error',
+    ];
+    return retryableCodes.contains(e.code);
+  }
+
+  Future<void> _showRetryDialog(String message) async {
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Sign-up Failed',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+        ),
+        content: Text(
+          '$message\n\nWould you like to try again?',
+          style: const TextStyle(fontSize: 15),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _handleSignup(retrying: true);
+            },
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('Retry'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00BFA5),
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showMessage(String message, {bool isError = false}) {
@@ -280,12 +319,8 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 20),
-
-                // Header
                 _buildHeader(),
                 const SizedBox(height: 40),
-
-                // Full Name Field
                 _buildTextField(
                   controller: _nameController,
                   label: 'Full Name',
@@ -295,8 +330,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                   textInputAction: TextInputAction.next,
                 ),
                 const SizedBox(height: 20),
-
-                // Email Field
                 _buildTextField(
                   controller: _emailController,
                   label: 'Email Address',
@@ -307,8 +340,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                   textInputAction: TextInputAction.next,
                 ),
                 const SizedBox(height: 20),
-
-                // Password Field
                 _buildTextField(
                   controller: _passwordController,
                   label: 'Password',
@@ -330,8 +361,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                   ),
                 ),
                 const SizedBox(height: 20),
-
-                // Confirm Password Field
                 _buildTextField(
                   controller: _confirmPasswordController,
                   label: 'Confirm Password',
@@ -355,16 +384,10 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-
-                // Terms & Conditions
                 _buildTermsCheckbox(),
                 const SizedBox(height: 32),
-
-                // Sign Up Button
                 _buildSignupButton(),
                 const SizedBox(height: 24),
-
-                // Login Link
                 _buildLoginLink(),
                 const SizedBox(height: 32),
               ],
@@ -525,7 +548,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                         ),
                         recognizer: TapGestureRecognizer()
                           ..onTap = () {
-                            // TODO: Show Terms & Conditions
                             _showMessage('Terms & Conditions coming soon');
                           },
                       ),
@@ -539,7 +561,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                         ),
                         recognizer: TapGestureRecognizer()
                           ..onTap = () {
-                            // TODO: Show Privacy Policy
                             _showMessage('Privacy Policy coming soon');
                           },
                       ),

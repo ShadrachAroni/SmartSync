@@ -1,70 +1,88 @@
-import 'dart:typed_data';
-import 'package:flutter/services.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/sensor_data.dart';
 import '../core/utils/logger.dart';
+import '../models/sensor_data.dart';
 
-/// ML Service for TensorFlow Lite model inference
-/// Handles schedule prediction and anomaly detection
+/// ML Service for SmartSync
+///
+/// Handles ML inference via Firebase Cloud Functions
+/// No local TFLite models needed - all inference on server
 class MLService {
   static final MLService _instance = MLService._internal();
   factory MLService() => _instance;
   MLService._internal();
 
-  // TFLite interpreter would go here (commented out for now)
-  // late Interpreter _scheduleInterpreter;
-  // late Interpreter _anomalyInterpreter;
-
-  bool _isInitialized = false;
+  final FirebaseFunctions _functions = FirebaseFunctions.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  /// Initialize ML models
+  bool _isInitialized = false;
+
+  /// Initialize ML Service
   Future<void> initialize() async {
     if (_isInitialized) return;
 
     try {
       Logger.info('Initializing ML Service...');
 
-      // TODO: Uncomment when tflite_flutter is properly configured
-      // _scheduleInterpreter = await _loadModel('assets/models/schedule_predictor.tflite');
-      // _anomalyInterpreter = await _loadModel('assets/models/anomaly_detector.tflite');
+      // Check if models are deployed
+      final config =
+          await _firestore.collection('system_config').doc('ml_models').get();
+
+      if (config.exists) {
+        final models = config.data()?['models'] as Map<String, dynamic>?;
+
+        if (models != null) {
+          Logger.success('ML models available:');
+          models.forEach((name, info) {
+            Logger.info('  - $name: ${info['currentVersion']}');
+          });
+        }
+      } else {
+        Logger.warning('No ML models found in Firestore');
+        Logger.info('Deploy models: python ml/scripts/deploy_model.py');
+      }
 
       _isInitialized = true;
       Logger.success('ML Service initialized');
     } catch (e) {
       Logger.error('ML initialization failed: $e');
-      // Continue without ML features
     }
   }
 
-  /// Load TFLite model from assets
-  // Future<Interpreter> _loadModel(String path) async {
-  //   final data = await rootBundle.load(path);
-  //   return Interpreter.fromBuffer(data.buffer.asUint8List());
-  // }
-
   /// Predict optimal schedules based on historical data
+  ///
+  /// Calls Cloud Function for server-side inference
   Future<List<SchedulePrediction>> predictSchedules(
     String userId,
     String deviceId,
   ) async {
     try {
-      // Fetch last 90 days of data
-      final logs = await _fetchHistoricalLogs(userId, deviceId, 90);
+      Logger.info('Requesting schedule prediction...');
 
-      if (logs.length < 100) {
-        Logger.warning(
-            'Insufficient data for prediction (${logs.length} records)');
-        return [];
+      // Call Cloud Function
+      final callable = _functions.httpsCallable('predictSchedule');
+      final result = await callable.call<Map<String, dynamic>>({
+        'userId': userId,
+        'deviceId': deviceId,
+      });
+
+      if (result.data['success'] == true) {
+        final schedules = result.data['schedules'] as List;
+
+        return schedules
+            .map((s) => SchedulePrediction(
+                  dayOfWeek: s['hour'] ~/ 24 % 7 + 1,
+                  hour: s['hour'] as int,
+                  minute: s['minute'] as int,
+                  deviceType: s['deviceType'] as String,
+                  value: s['value'] as int,
+                  confidence: (s['confidence'] as num).toDouble(),
+                  reason: 'AI predicted based on your usage patterns',
+                ))
+            .toList();
       }
 
-      // Prepare features
-      final features = _prepareScheduleFeatures(logs);
-
-      // Run inference (mock for now)
-      final predictions = _mockSchedulePrediction(features);
-
-      return predictions;
+      return [];
     } catch (e) {
       Logger.error('Schedule prediction failed: $e');
       return [];
@@ -72,274 +90,149 @@ class MLService {
   }
 
   /// Detect anomalies in user activity
+  ///
+  /// Note: Anomaly detection runs automatically every 6 hours via Cloud Scheduler
+  /// This method checks for recent anomaly alerts
   Future<AnomalyReport?> detectAnomalies(
     String userId,
     Duration window,
   ) async {
     try {
-      // Fetch recent data
-      final logs = await _fetchRecentLogs(userId, window);
+      final cutoff = DateTime.now().subtract(window);
 
-      if (logs.isEmpty) return null;
+      // Query recent alerts
+      final snapshot = await _firestore
+          .collection('alerts')
+          .where('userId', isEqualTo: userId)
+          .where('type', isEqualTo: 'health')
+          .where('timestamp', isGreaterThan: Timestamp.fromDate(cutoff))
+          .orderBy('timestamp', descending: true)
+          .get();
 
-      // Prepare features
-      final features = _prepareAnomalyFeatures(logs);
+      if (snapshot.docs.isEmpty) {
+        return AnomalyReport(
+          timestamp: DateTime.now(),
+          anomalies: [],
+          overallScore: 0.0,
+        );
+      }
 
-      // Run inference (mock for now)
-      final report = _mockAnomalyDetection(features);
+      final anomalies = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return Anomaly(
+          type: _parseAnomalyType(data['data']?['anomalyType']),
+          severity: data['severity'] ?? 'low',
+          message: data['message'] ?? '',
+          timestamp: (data['timestamp'] as Timestamp).toDate(),
+          confidence: 0.85,
+        );
+      }).toList();
 
-      return report;
+      return AnomalyReport(
+        timestamp: DateTime.now(),
+        anomalies: anomalies,
+        overallScore: anomalies.length > 0 ? 0.75 : 0.0,
+      );
     } catch (e) {
-      Logger.error('Anomaly detection failed: $e');
+      Logger.error('Anomaly detection check failed: $e');
       return null;
     }
   }
 
-  /// Fetch historical sensor logs
-  Future<List<SensorData>> _fetchHistoricalLogs(
-    String userId,
-    String deviceId,
-    int days,
-  ) async {
-    final cutoff = DateTime.now().subtract(Duration(days: days));
-
-    final snapshot = await _firestore
-        .collection('sensor_logs')
-        .where('userId', isEqualTo: userId)
-        .where('deviceId', isEqualTo: deviceId)
-        .where('timestamp', isGreaterThan: Timestamp.fromDate(cutoff))
-        .orderBy('timestamp', descending: true)
-        .limit(10000)
-        .get();
-
-    return snapshot.docs.map((doc) => SensorData.fromJson(doc.data())).toList();
-  }
-
-  /// Fetch recent logs for anomaly detection
-  Future<List<SensorData>> _fetchRecentLogs(
-    String userId,
-    Duration window,
-  ) async {
-    final cutoff = DateTime.now().subtract(window);
-
-    final snapshot = await _firestore
-        .collection('sensor_logs')
-        .where('userId', isEqualTo: userId)
-        .where('timestamp', isGreaterThan: Timestamp.fromDate(cutoff))
-        .orderBy('timestamp', descending: true)
-        .limit(1000)
-        .get();
-
-    return snapshot.docs.map((doc) => SensorData.fromJson(doc.data())).toList();
-  }
-
-  /// Prepare features for schedule prediction
-  Map<String, dynamic> _prepareScheduleFeatures(List<SensorData> logs) {
-    // Group by day of week and hour
-    final hourlyActivity = <int, Map<int, List<SensorData>>>{};
-
-    for (var log in logs) {
-      final day = log.timestamp.weekday; // 1-7
-      final hour = log.timestamp.hour; // 0-23
-
-      hourlyActivity.putIfAbsent(day, () => {});
-      hourlyActivity[day]!.putIfAbsent(hour, () => []);
-      hourlyActivity[day]![hour]!.add(log);
+  AnomalyType _parseAnomalyType(String? type) {
+    switch (type) {
+      case 'extended_inactivity':
+        return AnomalyType.inactivity;
+      case 'excessive_night_activity':
+        return AnomalyType.unusualActivity;
+      case 'temperature_extreme':
+        return AnomalyType.temperatureExtreme;
+      default:
+        return AnomalyType.suddenChange;
     }
-
-    // Calculate features
-    final features = <String, dynamic>{
-      'hourlyActivity': hourlyActivity,
-      'totalLogs': logs.length,
-      'avgTemperature': _calculateAverage(logs.map((l) => l.temperature)),
-      'avgHumidity': _calculateAverage(logs.map((l) => l.humidity)),
-    };
-
-    return features;
-  }
-
-  /// Prepare features for anomaly detection
-  Map<String, dynamic> _prepareAnomalyFeatures(List<SensorData> logs) {
-    final now = DateTime.now();
-    final last24h =
-        logs.where((l) => now.difference(l.timestamp).inHours <= 24).toList();
-
-    return {
-      'motionEvents': last24h.where((l) => l.motionDetected).length,
-      'avgTemperature': _calculateAverage(last24h.map((l) => l.temperature)),
-      'tempDeviation': _calculateStdDev(last24h.map((l) => l.temperature)),
-      'nightActivity': _countNightActivity(last24h),
-      'lastActivity': logs.isNotEmpty ? logs.first.timestamp : null,
-    };
-  }
-
-  /// Mock schedule prediction (replace with actual TFLite inference)
-  List<SchedulePrediction> _mockSchedulePrediction(
-      Map<String, dynamic> features) {
-    final predictions = <SchedulePrediction>[];
-
-    // Example: Predict common usage patterns
-    final hourlyActivity =
-        features['hourlyActivity'] as Map<int, Map<int, List<SensorData>>>;
-
-    for (var day = 1; day <= 7; day++) {
-      if (!hourlyActivity.containsKey(day)) continue;
-
-      for (var hour = 0; hour < 24; hour++) {
-        final logs = hourlyActivity[day]?[hour] ?? [];
-        if (logs.isEmpty) continue;
-
-        // Calculate frequency
-        final frequency = logs.length / 90.0; // Over 90 days
-        final confidence = (frequency * 100).clamp(0, 100);
-
-        if (confidence >= 30) {
-          // Suggest schedule if used frequently
-          final avgFanSpeed =
-              _calculateAverage(logs.map((l) => l.fanSpeed.toDouble()));
-          final avgLedBrightness =
-              _calculateAverage(logs.map((l) => l.ledBrightness.toDouble()));
-
-          predictions.add(SchedulePrediction(
-            dayOfWeek: day,
-            hour: hour,
-            minute: 0,
-            deviceType: avgFanSpeed > 50 ? 'fan' : 'led',
-            value: avgFanSpeed > 50
-                ? avgFanSpeed.round()
-                : avgLedBrightness.round(),
-            confidence: confidence.toDouble(),
-            reason: 'You frequently use this device at this time',
-          ));
-        }
-      }
-    }
-
-    // Sort by confidence
-    predictions.sort((a, b) => b.confidence.compareTo(a.confidence));
-
-    return predictions.take(10).toList();
-  }
-
-  /// Mock anomaly detection (replace with actual TFLite inference)
-  AnomalyReport _mockAnomalyDetection(Map<String, dynamic> features) {
-    final anomalies = <Anomaly>[];
-
-    // Check for inactivity
-    final lastActivity = features['lastActivity'] as DateTime?;
-    if (lastActivity != null) {
-      final hoursSinceActivity =
-          DateTime.now().difference(lastActivity).inHours;
-      if (hoursSinceActivity > 12) {
-        anomalies.add(Anomaly(
-          type: AnomalyType.inactivity,
-          severity: hoursSinceActivity > 24 ? 'high' : 'medium',
-          message: 'No activity detected for $hoursSinceActivity hours',
-          timestamp: DateTime.now(),
-          confidence: 0.95,
-        ));
-      }
-    }
-
-    // Check for unusual night activity
-    final nightActivity = features['nightActivity'] as int;
-    if (nightActivity > 5) {
-      anomalies.add(Anomaly(
-        type: AnomalyType.unusualActivity,
-        severity: 'medium',
-        message: 'Unusual nighttime activity detected ($nightActivity events)',
-        timestamp: DateTime.now(),
-        confidence: 0.85,
-      ));
-    }
-
-    // Check for temperature extremes
-    final avgTemp = features['avgTemperature'] as double;
-    if (avgTemp < 18 || avgTemp > 32) {
-      anomalies.add(Anomaly(
-        type: AnomalyType.temperatureExtreme,
-        severity: avgTemp < 15 || avgTemp > 35 ? 'high' : 'medium',
-        message:
-            'Temperature outside comfort range: ${avgTemp.toStringAsFixed(1)}°C',
-        timestamp: DateTime.now(),
-        confidence: 0.90,
-      ));
-    }
-
-    return AnomalyReport(
-      timestamp: DateTime.now(),
-      anomalies: anomalies,
-      overallScore: anomalies.isEmpty
-          ? 0.0
-          : anomalies.map((a) => a.confidence).reduce((a, b) => a + b) /
-              anomalies.length,
-    );
-  }
-
-  /// Helper: Calculate average
-  double _calculateAverage(Iterable<double> values) {
-    if (values.isEmpty) return 0;
-    return values.reduce((a, b) => a + b) / values.length;
-  }
-
-  /// Helper: Calculate standard deviation
-  double _calculateStdDev(Iterable<double> values) {
-    if (values.isEmpty) return 0;
-    final mean = _calculateAverage(values);
-    final variance =
-        values.map((v) => (v - mean) * (v - mean)).reduce((a, b) => a + b) /
-            values.length;
-    return variance.sqrt();
-  }
-
-  /// Helper: Count night activity (22:00 - 06:00)
-  int _countNightActivity(List<SensorData> logs) {
-    return logs.where((log) {
-      final hour = log.timestamp.hour;
-      return (hour >= 22 || hour < 6) && log.motionDetected;
-    }).length;
   }
 
   /// Get analytics insights
   Future<AnalyticsInsights> getInsights(String userId, int days) async {
-    final logs = await _fetchHistoricalLogs(userId, '', days);
+    try {
+      final cutoff = DateTime.now().subtract(Duration(days: days));
 
+      // Fetch sensor logs
+      final snapshot = await _firestore
+          .collection('sensor_logs')
+          .where('userId', isEqualTo: userId)
+          .where('timestamp', isGreaterThan: Timestamp.fromDate(cutoff))
+          .orderBy('timestamp', descending: true)
+          .limit(1000)
+          .get();
+
+      if (snapshot.docs.isEmpty) {
+        return _getDefaultInsights();
+      }
+
+      final logs =
+          snapshot.docs.map((doc) => SensorData.fromJson(doc.data())).toList();
+
+      // Calculate statistics
+      final avgTemp =
+          logs.map((l) => l.temperature).reduce((a, b) => a + b) / logs.length;
+      final avgHumidity =
+          logs.map((l) => l.humidity).reduce((a, b) => a + b) / logs.length;
+      final motionEvents = logs.where((l) => l.motionDetected).length;
+      final avgFan =
+          logs.map((l) => l.fanSpeed.toDouble()).reduce((a, b) => a + b) /
+              logs.length;
+      final avgLed =
+          logs.map((l) => l.ledBrightness.toDouble()).reduce((a, b) => a + b) /
+              logs.length;
+
+      // Find peak usage hour
+      final hourCounts = <int, int>{};
+      for (var log in logs) {
+        final hour = log.timestamp.hour;
+        hourCounts[hour] = (hourCounts[hour] ?? 0) + 1;
+      }
+      final peakHour =
+          hourCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+
+      // Estimate energy
+      double energy = 0;
+      for (var log in logs) {
+        energy += (log.fanSpeed / 255.0) * 0.05; // Fan: 50W max
+        energy += (log.ledBrightness / 255.0) * 0.01; // LED: 10W max
+      }
+
+      return AnalyticsInsights(
+        totalLogs: logs.length,
+        avgTemperature: avgTemp,
+        avgHumidity: avgHumidity,
+        motionEvents: motionEvents,
+        avgFanUsage: avgFan,
+        avgLightUsage: avgLed,
+        peakUsageHour: peakHour,
+        energyConsumption: energy,
+      );
+    } catch (e) {
+      Logger.error('Failed to get insights: $e');
+      return _getDefaultInsights();
+    }
+  }
+
+  AnalyticsInsights _getDefaultInsights() {
     return AnalyticsInsights(
-      totalLogs: logs.length,
-      avgTemperature: _calculateAverage(logs.map((l) => l.temperature)),
-      avgHumidity: _calculateAverage(logs.map((l) => l.humidity)),
-      motionEvents: logs.where((l) => l.motionDetected).length,
-      avgFanUsage: _calculateAverage(logs.map((l) => l.fanSpeed.toDouble())),
-      avgLightUsage:
-          _calculateAverage(logs.map((l) => l.ledBrightness.toDouble())),
-      peakUsageHour: _findPeakUsageHour(logs),
-      energyConsumption: _estimateEnergyConsumption(logs),
+      totalLogs: 0,
+      avgTemperature: 22.0,
+      avgHumidity: 50.0,
+      motionEvents: 0,
+      avgFanUsage: 0.0,
+      avgLightUsage: 0.0,
+      peakUsageHour: 12,
+      energyConsumption: 0.0,
     );
   }
 
-  int _findPeakUsageHour(List<SensorData> logs) {
-    final hourCounts = <int, int>{};
-    for (var log in logs) {
-      hourCounts[log.timestamp.hour] =
-          (hourCounts[log.timestamp.hour] ?? 0) + 1;
-    }
-    return hourCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key;
-  }
-
-  double _estimateEnergyConsumption(List<SensorData> logs) {
-    double total = 0;
-    for (var log in logs) {
-      // Simplified energy calculation
-      total += (log.fanSpeed / 255.0) * 0.05; // Fan: 50W max
-      total += (log.ledBrightness / 255.0) * 0.01; // LED: 10W max
-    }
-    return total;
-  }
-
   void dispose() {
-    // Close interpreters
-    // _scheduleInterpreter.close();
-    // _anomalyInterpreter.close();
+    // Cleanup if needed
   }
 }
 
@@ -434,9 +327,4 @@ class AnalyticsInsights {
     required this.peakUsageHour,
     required this.energyConsumption,
   });
-}
-
-// Add sqrt extension for double
-extension on double {
-  double sqrt() => this >= 0 ? this.sign * (this.abs()).toDouble() : double.nan;
 }

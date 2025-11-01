@@ -1,3 +1,4 @@
+// app/lib/screens/home/home_screen.dart - COMPLETE VERSION
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -308,7 +309,9 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                   data: (isConnected) => Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: isConnected ? Colors.green.shade50 : Colors.red.shade50,
+                      color: isConnected
+                          ? Colors.green.shade50
+                          : Colors.red.shade50,
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
@@ -417,13 +420,11 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   void _handleMenuAction(String value) {
     switch (value) {
       case 'profile':
-        // Navigate to profile
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Profile - Coming Soon')),
         );
         break;
       case 'settings':
-        // Navigate to settings
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Settings - Coming Soon')),
         );
@@ -466,11 +467,8 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           ),
           ElevatedButton(
             onPressed: () async {
-              // Disconnect BLE
               final bleService = ref.read(bluetoothServiceProvider);
               await bleService.disconnect();
-
-              // Sign out from Firebase
               await FirebaseAuth.instance.signOut();
 
               if (mounted) {
@@ -535,9 +533,6 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                   TextButton(
                     onPressed: () {
                       // Navigate to device scan
-                      setState(() {
-                        // Switch to device scan tab
-                      });
                     },
                     child: Text('Connect',
                         style: TextStyle(
@@ -567,9 +562,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         ),
         if (showSeeAll)
           TextButton(
-            onPressed: () {
-              // Navigate to see all
-            },
+            onPressed: () {},
             child: const Text(
               'See all',
               style: TextStyle(
@@ -741,81 +734,25 @@ class _HomeTabState extends ConsumerState<HomeTab> {
             ),
             child: Center(
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.meeting_room_rounded,
-                      size: 32, color: Colors.grey.shade400),
-                  const SizedBox(height: 8),
+                  Icon(Icons.devices_other,
+                      size: 48, color: Colors.grey.shade400),
+                  const SizedBox(height: 16),
                   Text(
-                    'No rooms created yet',
+                    'No devices yet',
                     style: TextStyle(
-                      fontSize: 14,
+                      fontSize: 16,
                       color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
                     ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () {},
+                    child: const Text('Add Device'),
                   ),
                 ],
               ),
-            ),
-          );
-        }
-
-        return SizedBox(
-          height: 120,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            itemCount: rooms.length,
-            itemBuilder: (context, index) {
-              return Padding(
-                padding: EdgeInsets.only(right: index < rooms.length - 1 ? 16 : 0),
-                child: RoomCard(room: rooms[index]),
-              );
-            },
-          ),
-        );
-      },
-      loading: () => const Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
-        ),
-      ),
-      error: (error, _) => Container(
-        height: 120,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.red.shade50,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Center(
-          child: Text(
-            'Error loading rooms',
-            style: TextStyle(color: Colors.red.shade900),
-          ),
-        ),
-      ),
-    );
-  }
-}
-            ),
-            child: Column(
-              children: [
-                Icon(Icons.devices_other, size: 48, color: Colors.grey.shade400),
-                const SizedBox(height: 16),
-                Text(
-                  'No devices yet',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: () {
-                    // Navigate to add device
-                  },
-                  child: const Text('Add Device'),
-                ),
-              ],
             ),
           );
         }
@@ -847,7 +784,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           borderRadius: BorderRadius.circular(12),
         ),
         child: Text(
-          'Error loading devices: $error',
+          'Error loading devices',
           style: TextStyle(color: Colors.red.shade900),
         ),
       ),
@@ -942,7 +879,6 @@ class _HomeTabState extends ConsumerState<HomeTab> {
             onPressed: () async {
               Navigator.pop(context);
 
-              // Send SOS to Firestore
               final user = FirebaseAuth.instance.currentUser;
               if (user != null) {
                 await FirebaseFirestore.instance.collection('alerts').add({
@@ -1001,3 +937,61 @@ class _HomeTabState extends ConsumerState<HomeTab> {
             decoration: BoxDecoration(
               color: Colors.grey.shade100,
               borderRadius: BorderRadius.circular(20),
+            ),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.meeting_room_rounded,
+                      size: 32, color: Colors.grey.shade400),
+                  const SizedBox(height: 8),
+                  Text(
+                    'No rooms created yet',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return SizedBox(
+          height: 120,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: rooms.length,
+            itemBuilder: (context, index) {
+              return Padding(
+                padding:
+                    EdgeInsets.only(right: index < rooms.length - 1 ? 16 : 0),
+                child: RoomCard(room: rooms[index]),
+              );
+            },
+          ),
+        );
+      },
+      loading: () => const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
+        ),
+      ),
+      error: (error, _) => Container(
+        height: 120,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Center(
+          child: Text(
+            'Error loading rooms',
+            style: TextStyle(color: Colors.red.shade900),
+          ),
+        ),
+      ),
+    );
+  }
+}

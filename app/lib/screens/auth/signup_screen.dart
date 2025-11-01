@@ -81,7 +81,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
   Future<void> _handleSignup({bool retrying = false}) async {
     if (!_formKey.currentState!.validate()) return;
-
     if (!_acceptTerms) {
       _showMessage('Please accept the Terms and Conditions to continue',
           isError: true);
@@ -89,27 +88,29 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     }
 
     setState(() => _isLoading = true);
-
     try {
       final authService = ref.read(authServiceProvider);
-
       await authService.signUpWithEmail(
         _emailController.text.trim(),
         _passwordController.text,
         _nameController.text.trim(),
       );
-
       if (!mounted) return;
       await _showSuccessDialog();
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
 
-      final errorMessage = _getFirebaseErrorMessage(e);
-      _showMessage(errorMessage, isError: true);
+      // Special handling for email-already-in-use
+      if (e.code == 'email-already-in-use') {
+        await _showEmailExistsDialog();
+      } else {
+        final errorMessage = _getFirebaseErrorMessage(e);
+        _showMessage(errorMessage, isError: true);
 
-      // If app check or network issue, show retry option
-      if (_isRetryableError(e)) {
-        await _showRetryDialog(errorMessage);
+        // If app check or network issue, show retry option
+        if (_isRetryableError(e)) {
+          await _showRetryDialog(errorMessage);
+        }
       }
     } catch (e) {
       if (!mounted) return;
@@ -118,6 +119,99 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+// Add this new method to show dialog for existing email
+  Future<void> _showEmailExistsDialog() async {
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(
+              Icons.error_outline,
+              color: Colors.orange.shade700,
+              size: 28,
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Email Already Registered',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'An account with the email',
+              style: TextStyle(
+                fontSize: 15,
+                color: Colors.grey.shade700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _emailController.text.trim(),
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF00BFA5),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'already exists.',
+              style: TextStyle(
+                fontSize: 15,
+                color: Colors.grey.shade700,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Would you like to:',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade800,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.edit),
+            label: const Text('Use Different Email'),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.grey.shade700,
+            ),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop(); // Close dialog
+              Navigator.of(context).pop(); // Go back to login screen
+            },
+            icon: const Icon(Icons.login, size: 18),
+            label: const Text('Go to Login'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00BFA5),
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+        actionsAlignment: MainAxisAlignment.spaceBetween,
+      ),
+    );
   }
 
   String _getFirebaseErrorMessage(FirebaseAuthException e) {

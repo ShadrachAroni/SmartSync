@@ -9,24 +9,25 @@ import 'core/theme/app_theme.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'providers/auth_provider.dart';
-import 'package:flutter/foundation.dart' show kDebugMode, kProfileMode;
+import 'package:flutter/foundation.dart' show kDebugMode;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Load environment variables
   await dotenv.load(fileName: ".env");
 
-  // ✅ Initialize Firebase only once
+  // Initialize Firebase only once
   if (Firebase.apps.isEmpty) {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    print('✅ Firebase initialized: ${Firebase.app().name}');
+    debugPrint('✅ Firebase initialized: ${Firebase.app().name}');
   } else {
-    print('⚠️ Firebase already initialized');
+    debugPrint('⚠️ Firebase already initialized');
   }
 
-  // ✅ Enable Firebase App Check
+  // Enable Firebase App Check
   try {
     await FirebaseAppCheck.instance.activate(
       androidProvider:
@@ -41,13 +42,7 @@ Future<void> main() async {
         .activate(androidProvider: AndroidProvider.debug);
   }
 
-  FirebaseAppCheck.instance.getToken(false).then((token) {
-    debugPrint(
-        '✅ App Check token detected (${kDebugMode ? "Debug" : "Production"} mode)');
-  }).catchError((e) {
-    debugPrint('⚠️ App Check token fetch failed: $e');
-  });
-
+  // Set system UI overlay style
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -117,6 +112,14 @@ class SplashScreen extends StatelessWidget {
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF00BFA5),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Smart Home for Elderly Care',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade600,
               ),
             ),
             const SizedBox(height: 60),

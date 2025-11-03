@@ -1,37 +1,126 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:smartsync_app/core/constants/colors.dart';
+import '../../screens/onboarding/onboarding_screen.dart';
+import '../../screens/auth/login_screen.dart';
+import '../../screens/auth/signup_screen.dart';
+import '../../screens/auth/forgot_password_screen.dart';
+import '../../screens/home/home_screen.dart';
+import '../../screens/devices/device_scan_screen.dart';
+import '../../screens/analytics/analytics_screen.dart';
+import '../../screens/rooms/rooms_screen.dart';
+import '../../screens/rooms/room_detail_screen.dart';
+import '../../screens/rooms/add_room_screen.dart';
+import '../../screens/settings/settings_screen.dart';
 
+/// Route names as constants
 class Routes {
+  // Auth routes
   static const String splash = '/';
+  static const String onboarding = '/onboarding';
   static const String login = '/login';
   static const String signup = '/signup';
-  static const String emailVerification = '/email-verification';
-  static const String bluetoothLogin = '/bluetooth-login';
   static const String forgotPassword = '/forgot-password';
 
+  // Main app routes
   static const String home = '/home';
   static const String deviceScan = '/device-scan';
-  static const String deviceControl = '/device-control';
-  static const String schedules = '/schedules';
-  static const String addSchedule = '/add-schedule';
   static const String analytics = '/analytics';
-  static const String alerts = '/alerts';
+  static const String rooms = '/rooms';
+  static const String roomDetail = '/room-detail';
+  static const String addRoom = '/add-room';
   static const String settings = '/settings';
-  static const String profile = '/profile';
-  static const String caregivers = '/caregivers';
+
+  // Prevent instantiation
+  Routes._();
 }
 
+/// App route generator
 class AppRoutes {
-  static Map<String, WidgetBuilder> get routes => {
-        Routes.splash: (context) => const SplashScreen(),
-        Routes.login: (context) => const LoginScreen(),
-        Routes.home: (context) => const HomeScreen(),
-        // Add other routes as you create screens
-      };
+  /// Generate route based on RouteSettings
+  static Route<dynamic> generateRoute(RouteSettings settings) {
+    switch (settings.name) {
+      case Routes.splash:
+        return MaterialPageRoute(
+          builder: (_) => const SplashScreen(),
+          settings: settings,
+        );
+
+      case Routes.onboarding:
+        return MaterialPageRoute(
+          builder: (_) => const OnboardingScreen(),
+          settings: settings,
+        );
+
+      case Routes.login:
+        return MaterialPageRoute(
+          builder: (_) => const LoginScreen(),
+          settings: settings,
+        );
+
+      case Routes.signup:
+        return MaterialPageRoute(
+          builder: (_) => const SignupScreen(),
+          settings: settings,
+        );
+
+      case Routes.forgotPassword:
+        return MaterialPageRoute(
+          builder: (_) => const ForgotPasswordScreen(),
+          settings: settings,
+        );
+
+      case Routes.home:
+        return MaterialPageRoute(
+          builder: (_) => const HomeScreen(),
+          settings: settings,
+        );
+
+      case Routes.deviceScan:
+        return MaterialPageRoute(
+          builder: (_) => const DeviceScanScreen(),
+          settings: settings,
+        );
+
+      case Routes.analytics:
+        return MaterialPageRoute(
+          builder: (_) => const AnalyticsScreen(),
+          settings: settings,
+        );
+
+      case Routes.rooms:
+        return MaterialPageRoute(
+          builder: (_) => const RoomsScreen(),
+          settings: settings,
+        );
+
+      case Routes.addRoom:
+        return MaterialPageRoute(
+          builder: (_) => const AddRoomScreen(),
+          settings: settings,
+        );
+
+      case Routes.settings:
+        return MaterialPageRoute(
+          builder: (_) => const SettingsScreen(),
+          settings: settings,
+        );
+
+      default:
+        return MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('Error')),
+            body: Center(
+              child: Text('No route defined for ${settings.name}'),
+            ),
+          ),
+        );
+    }
+  }
+
+  /// Prevent instantiation
+  AppRoutes._();
 }
 
-// FIXED: Splash Screen with Navigation Logic
+/// Splash Screen with proper navigation logic
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -48,33 +137,18 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _initializeApp() async {
     try {
-      // Show splash screen for minimum 2 seconds
+      // Show splash for minimum 2 seconds
       await Future.delayed(const Duration(seconds: 2));
 
       if (!mounted) return;
 
-      // Check authentication state
-      final user = FirebaseAuth.instance.currentUser;
-
-      if (user != null) {
-        // User is logged in
-        if (user.emailVerified) {
-          // Email verified, go to home
-          Navigator.of(context).pushReplacementNamed(Routes.home);
-        } else {
-          // Email not verified, prompt verification
-          Navigator.of(context).pushReplacementNamed(Routes.emailVerification);
-        }
-      } else {
-        // No user logged in, go to login screen
-        Navigator.of(context).pushReplacementNamed(Routes.login);
-      }
+      // Navigate based on auth state
+      // Note: Auth state checking is handled in main.dart
+      // This splash is just for initial app loading
+      Navigator.of(context).pushReplacementNamed(Routes.onboarding);
     } catch (e) {
       debugPrint('Splash initialization error: $e');
-
       if (!mounted) return;
-
-      // On error, show dialog and allow retry
       _showErrorDialog(e.toString());
     }
   }
@@ -84,6 +158,9 @@ class _SplashScreenState extends State<SplashScreen> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
         title: Row(
           children: [
             Icon(Icons.error_outline, color: Colors.red[700]),
@@ -117,15 +194,19 @@ class _SplashScreenState extends State<SplashScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _initializeApp(); // Retry initialization
+              _initializeApp(); // Retry
             },
             child: const Text('RETRY'),
           ),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              Navigator.of(context).pushReplacementNamed(Routes.login);
+              Navigator.of(context).pushReplacementNamed(Routes.onboarding);
             },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00BFA5),
+              foregroundColor: Colors.white,
+            ),
             child: const Text('CONTINUE'),
           ),
         ],
@@ -145,24 +226,24 @@ class _SplashScreenState extends State<SplashScreen> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.1),
+                color: const Color(0xFF00BFA5).withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                Icons.home,
+              child: const Icon(
+                Icons.home_rounded,
                 size: 80,
-                color: AppColors.primary,
+                color: Color(0xFF00BFA5),
               ),
             ),
             const SizedBox(height: 32),
 
             // App Name
-            Text(
+            const Text(
               'SmartSync',
               style: TextStyle(
                 fontSize: 36,
                 fontWeight: FontWeight.bold,
-                color: AppColors.primary,
+                color: Color(0xFF00BFA5),
                 letterSpacing: 1.2,
               ),
             ),
@@ -180,12 +261,12 @@ class _SplashScreenState extends State<SplashScreen> {
             const SizedBox(height: 60),
 
             // Loading Indicator
-            SizedBox(
+            const SizedBox(
               width: 40,
               height: 40,
               child: CircularProgressIndicator(
                 strokeWidth: 3,
-                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
               ),
             ),
             const SizedBox(height: 16),
@@ -196,213 +277,6 @@ class _SplashScreenState extends State<SplashScreen> {
               style: TextStyle(
                 fontSize: 14,
                 color: Colors.grey[500],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// Login Screen Placeholder
-class LoginScreen extends StatelessWidget {
-  const LoginScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Logo
-              Icon(Icons.home, size: 80, color: AppColors.primary),
-              const SizedBox(height: 16),
-
-              // Title
-              Text(
-                'Welcome to SmartSync',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              Text(
-                'Login to continue',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey[600],
-                ),
-              ),
-              const SizedBox(height: 48),
-
-              // Email field (placeholder)
-              TextField(
-                decoration: InputDecoration(
-                  labelText: 'Email',
-                  prefixIcon: const Icon(Icons.email),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // Password field (placeholder)
-              TextField(
-                obscureText: true,
-                decoration: InputDecoration(
-                  labelText: 'Password',
-                  prefixIcon: const Icon(Icons.lock),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Login button (placeholder)
-              ElevatedButton(
-                onPressed: () {
-                  // TODO: Implement login logic
-                  // For now, just navigate to home
-                  Navigator.of(context).pushReplacementNamed(Routes.home);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  'LOGIN',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // Sign up link
-              TextButton(
-                onPressed: () {
-                  // TODO: Navigate to signup
-                },
-                child: Text(
-                  'Don\'t have an account? Sign Up',
-                  style: TextStyle(color: AppColors.primary),
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              // Bluetooth login
-              OutlinedButton.icon(
-                onPressed: () {
-                  // TODO: Navigate to bluetooth login
-                },
-                icon: const Icon(Icons.bluetooth),
-                label: const Text('Login with Device'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// Home Screen Placeholder
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('SmartSync Home'),
-        backgroundColor: AppColors.primary,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications),
-            onPressed: () {
-              // TODO: Navigate to alerts
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              // TODO: Navigate to settings
-            },
-          ),
-        ],
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(30),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.home,
-                size: 100,
-                color: AppColors.primary,
-              ),
-            ),
-            const SizedBox(height: 32),
-            const Text(
-              'Welcome to SmartSync!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Your smart home dashboard',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[600],
-              ),
-            ),
-            const SizedBox(height: 48),
-            ElevatedButton.icon(
-              onPressed: () {
-                // Sign out
-                FirebaseAuth.instance.signOut();
-                Navigator.of(context).pushReplacementNamed(Routes.login);
-              },
-              icon: const Icon(Icons.logout),
-              label: const Text('LOGOUT'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 16,
-                ),
               ),
             ),
           ],

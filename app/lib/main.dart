@@ -6,8 +6,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'firebase_options.dart';
 import 'core/theme/app_theme.dart';
-import 'screens/onboarding/onboarding_screen.dart';
+import 'core/constants/routes.dart';
 import 'screens/home/home_screen.dart';
+import 'screens/onboarding/onboarding_screen.dart';
 import 'providers/auth_provider.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 
@@ -68,11 +69,26 @@ class SmartSyncApp extends ConsumerWidget {
       title: 'SmartSync',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
+
+      // ✅ Use onGenerateRoute for internal navigation
+      onGenerateRoute: AppRoutes.generateRoute,
+
+      // ✅ Use home widget for auth-based initial screen
+      // This takes precedence and handles authentication logic
       home: authState.when(
         data: (user) {
           if (user == null) {
+            // Not logged in - show onboarding
             return const OnboardingScreen();
           }
+
+          if (!user.emailVerified) {
+            // Email not verified - show onboarding/login
+            // User can verify and login again
+            return const OnboardingScreen();
+          }
+
+          // Logged in and verified - show home
           return const HomeScreen();
         },
         loading: () => const SplashScreen(),
@@ -82,6 +98,7 @@ class SmartSyncApp extends ConsumerWidget {
   }
 }
 
+/// Minimal Splash Screen (only shows during auth state loading)
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
 

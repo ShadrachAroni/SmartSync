@@ -74,8 +74,8 @@ flutter:
     - assets/icons/
     - assets/animations/
     - assets/models/
-    - assets/models/schedule_predictor.tflite
-    - assets/models/anomaly_detector.tflite
+    #- assets/models/schedule_predictor.tflite
+    #- assets/models/anomaly_detector.tflite
   
   fonts:
     - family: Roboto

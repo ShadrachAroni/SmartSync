@@ -364,7 +364,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
                     setState(() => _allDevicesOn = value);
                     _toggleAllDevices(value);
                   },
-                  activeColor: const Color(0xFF00BFA5),
+                  activeThumbColor: const Color(0xFF00BFA5),
                 ),
               ],
             ),
@@ -544,7 +544,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
             onChanged: (value) {
               // TODO: Update device state
             },
-            activeColor: const Color(0xFF00BFA5),
+            activeThumbColor: const Color(0xFF00BFA5),
           ),
         ],
       ),
@@ -635,10 +635,10 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
                 onPressed: () {
                   // TODO: Manage automations
                 },
-                child: const Text('Manage'),
                 style: TextButton.styleFrom(
                   foregroundColor: const Color(0xFF00BFA5),
                 ),
+                child: const Text('Manage'),
               ),
             ],
           ),
@@ -719,7 +719,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
             onChanged: (value) {
               // TODO: Toggle automation
             },
-            activeColor: const Color(0xFF00BFA5),
+            activeThumbColor: const Color(0xFF00BFA5),
           ),
         ],
       ),

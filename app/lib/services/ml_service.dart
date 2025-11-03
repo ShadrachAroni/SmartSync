@@ -131,7 +131,7 @@ class MLService {
       return AnomalyReport(
         timestamp: DateTime.now(),
         anomalies: anomalies,
-        overallScore: anomalies.length > 0 ? 0.75 : 0.0,
+        overallScore: anomalies.isNotEmpty ? 0.75 : 0.0,
       );
     } catch (e) {
       Logger.error('Anomaly detection check failed: $e');

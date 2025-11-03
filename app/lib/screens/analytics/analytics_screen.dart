@@ -3,8 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import '../../services/ml_service.dart';
-import '../../services/firebase_service.dart';
-import '../../models/sensor_data.dart';
 
 // ==================== PROVIDERS ====================
 final mlServiceProvider = Provider((ref) => MLService());

@@ -440,11 +440,11 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
               onPressed: () {
                 setState(() {});
               },
-              child: const Text('Retry'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red.shade600,
                 foregroundColor: Colors.white,
               ),
+              child: const Text('Retry'),
             ),
           ],
         ),
@@ -496,6 +496,6 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
 
   int _getActiveDeviceCount(RoomModel room) {
     // TODO: Implement actual active device count from Firebase
-    return room.deviceIds.length > 0 ? 1 : 0;
+    return room.deviceIds.isNotEmpty ? 1 : 0;
   }
 }

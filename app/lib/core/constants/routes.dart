@@ -9,7 +9,9 @@ import '../../screens/analytics/analytics_screen.dart';
 import '../../screens/rooms/rooms_screen.dart';
 import '../../screens/rooms/room_detail_screen.dart';
 import '../../screens/rooms/add_room_screen.dart';
+import '../../screens/rooms/edit_room_screen.dart';
 import '../../screens/settings/settings_screen.dart';
+import '../../models/room_model.dart';
 
 /// Route names as constants
 class Routes {
@@ -27,6 +29,7 @@ class Routes {
   static const String rooms = '/rooms';
   static const String roomDetail = '/room-detail';
   static const String addRoom = '/add-room';
+  static const String editRoom = '/edit-room';
   static const String settings = '/settings';
 
   // Prevent instantiation
@@ -92,9 +95,31 @@ class AppRoutes {
           settings: settings,
         );
 
+      case Routes.roomDetail:
+        // Extract room argument
+        final room = settings.arguments as RoomModel?;
+        if (room == null) {
+          return _errorRoute('Room data is required');
+        }
+        return MaterialPageRoute(
+          builder: (_) => RoomDetailScreen(room: room),
+          settings: settings,
+        );
+
       case Routes.addRoom:
         return MaterialPageRoute(
           builder: (_) => const AddRoomScreen(),
+          settings: settings,
+        );
+
+      case Routes.editRoom:
+        // Extract room argument
+        final room = settings.arguments as RoomModel?;
+        if (room == null) {
+          return _errorRoute('Room data is required');
+        }
+        return MaterialPageRoute(
+          builder: (_) => EditRoomScreen(room: room),
           settings: settings,
         );
 
@@ -105,15 +130,69 @@ class AppRoutes {
         );
 
       default:
-        return MaterialPageRoute(
-          builder: (_) => Scaffold(
-            appBar: AppBar(title: const Text('Error')),
-            body: Center(
-              child: Text('No route defined for ${settings.name}'),
+        return _errorRoute('No route defined for ${settings.name}');
+    }
+  }
+
+  /// Error route helper
+  static Route<dynamic> _errorRoute(String message) {
+    return MaterialPageRoute(
+      builder: (_) => Scaffold(
+        appBar: AppBar(
+          title: const Text('Error'),
+          backgroundColor: Colors.red.shade600,
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 64,
+                  color: Colors.red.shade300,
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Navigation Error',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red.shade700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 32),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    // Try to go back, or navigate to home
+                    Navigator.of(_).popUntil((route) => route.isFirst);
+                  },
+                  icon: const Icon(Icons.home),
+                  label: const Text('Go Home'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red.shade600,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        );
-    }
+        ),
+      ),
+    );
   }
 
   /// Prevent instantiation

@@ -7,7 +7,7 @@ import '../../models/device_model.dart';
 import '../../services/firebase_service.dart';
 import '../../screens/widgets/device_card.dart';
 import '../../screens/widgets/custom_slider.dart';
-import 'edit_room_screen.dart';
+import '../../core/constants/routes.dart'; // ✅ ADDED
 
 // Provider for room devices
 final roomDevicesProvider =
@@ -138,11 +138,11 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
         IconButton(
           icon: const Icon(Icons.edit_rounded, color: Colors.white),
           onPressed: () {
-            Navigator.push(
+            // ✅ FIXED: Use named route
+            Navigator.pushNamed(
               context,
-              MaterialPageRoute(
-                builder: (context) => EditRoomScreen(room: widget.room),
-              ),
+              Routes.editRoom,
+              arguments: widget.room,
             );
           },
         ),
@@ -745,11 +745,11 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
             icon: Icons.edit_rounded,
             title: 'Edit Room',
             onTap: () {
-              Navigator.push(
+              // ✅ FIXED: Use named route
+              Navigator.pushNamed(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => EditRoomScreen(room: widget.room),
-                ),
+                Routes.editRoom,
+                arguments: widget.room,
               );
             },
           ),

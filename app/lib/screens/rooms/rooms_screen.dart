@@ -7,6 +7,7 @@ import '../../models/device_model.dart';
 import '../../services/firebase_service.dart';
 import 'room_detail_screen.dart';
 import 'add_room_screen.dart';
+import '../../core/constants/routes.dart';
 
 // Provider for rooms
 final roomsProvider = StreamProvider<List<RoomModel>>((ref) {
@@ -172,11 +173,10 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
   Widget _buildRoomCard(RoomModel room) {
     return GestureDetector(
       onTap: () {
-        Navigator.push(
+        Navigator.pushNamed(
           context,
-          MaterialPageRoute(
-            builder: (context) => RoomDetailScreen(room: room),
-          ),
+          Routes.roomDetail,
+          arguments: room,
         );
       },
       child: Container(

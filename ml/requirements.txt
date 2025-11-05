@@ -1,93 +1,88 @@
-# SmartSync ML Requirements
-# Python 3.9+ required
+# ============================================================
+# SmartSync ML Requirements (Python 3.10)
+# Fully compatible with TensorFlow GPU 2.15.1 + CUDA 12.x
+# ============================================================
 
 # ==================== CORE ML FRAMEWORKS ====================
-tensorflow>=2.15.0,<2.16.0        # Core ML framework 
-tensorflowjs>=4.13.0                # For Cloud Functions deployment
-tensorflow-decision-forests>=1.8.1
+#tensorflow[and-cuda]==2.15.1         # GPU-enabled TensorFlow build
+tensorflow==2.15.1 
+tensorflow-decision-forests==1.8.1   # For tree-based models
+tensorflowjs==4.22.0                 # TensorFlow JS model export
 
 # ==================== DATA PROCESSING ====================
-numpy>=1.23.0,<2.0.0                # Numerical computing
-pandas>=2.0.0,<3.0.0                # Data manipulation
-scikit-learn>=1.2.0,<2.0.0          # ML utilities & preprocessing
-scipy>=1.10.0                       # Scientific computing
+numpy>=1.25.2,<2.0.0                 # Numerical computing
+pandas>=2.1.0,<3.0.0                 # Data manipulation
+scikit-learn>=1.3.0,<2.0.0           # ML utilities & preprocessing
+scipy>=1.11.0,<2.0.0                 # Scientific computing
 
 # ==================== VISUALIZATION ====================
-matplotlib>=3.7.0                   # Plotting
-seaborn>=0.12.0                     # Statistical visualizations
-plotly>=5.14.0                      # Interactive plots
+matplotlib>=3.7.2                    # Plotting
+seaborn>=0.12.2                      # Statistical visualizations
+plotly>=5.18.0                       # Interactive plots
 
 # ==================== FIREBASE ====================
-firebase-admin>=6.5.0               # Firebase Admin SDK
-google-cloud-firestore>=2.14.0      # Firestore client
-google-cloud-storage>=2.10.0         # Cloud Storage for models
+firebase-admin>=6.5.0
+google-cloud-firestore>=2.14.0
+google-cloud-storage>=2.10.0
 
 # ==================== DATA COLLECTION ====================
-kaggle>=1.5.16                      # Kaggle dataset downloads
-requests>=2.31.0                    # HTTP requests
-beautifulsoup4>=4.12.0              # Web scraping (if needed)
+kaggle>=1.6.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
 
 # ==================== JUPYTER NOTEBOOKS ====================
-jupyter>=1.0.0                      # Jupyter notebook
-ipykernel>=6.23.0                   # Jupyter kernel
-ipywidgets>=8.0.6                   # Interactive widgets
-notebook>=6.5.4                     # Notebook interface
+jupyter>=1.0.0
+ipykernel>=6.25.0
+ipywidgets>=8.1.0
+notebook>=7.0.0
 
 # ==================== MODEL OPTIMIZATION ====================
-keras-tuner>=1.4.7                  # Hyperparameter tuning
-optuna>=3.1.0                       # Advanced optimization (optional)
+keras-tuner>=1.4.7
+optuna>=3.1.0
 
 # ==================== UTILITIES ====================
-tqdm>=4.65.0                        # Progress bars
-python-dateutil>=2.8.2              # Date handling
-pytz>=2023.3                        # Timezone support
-pyyaml>=6.0                         # YAML config files
-
-# ==================== MACHINE LEARNING EXTRAS ====================
-joblib>=1.2.0                       # Model serialization
-
-# ==================== TIME SERIES (Optional) ====================
-# Uncomment if adding advanced time series features
-# statsmodels>=0.14.0               # Time series analysis
-# prophet>=1.1.4                    # Facebook Prophet forecasting
+tqdm>=4.65.0
+python-dateutil>=2.8.2
+pytz>=2023.3
+pyyaml>=6.0
+joblib>=1.3.2
 
 # ==================== TESTING ====================
-pytest>=7.3.1                       # Testing framework
-pytest-cov>=4.1.0                   # Coverage reports
-pytest-mock>=3.10.0                 # Mocking utilities
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.10.0
 
 # ==================== CODE QUALITY ====================
-black>=23.3.0                       # Code formatting
-flake8>=6.0.0                       # Linting
-mypy>=1.10.1                         # Type checking
-pylint>=2.17.4                      # Code analysis
+black>=23.3.0
+flake8>=6.1.0
+mypy>=1.10.1
+pylint>=2.17.5
 
 # ==================== DOCUMENTATION ====================
-sphinx>=7.0.1                       # Documentation generation
-sphinx-rtd-theme>=1.2.2             # ReadTheDocs theme
+sphinx>=7.2.0
+sphinx-rtd-theme>=1.3.0
 
 # ==================== CLOUD DEPLOYMENT ====================
-google-cloud-functions>=1.14.0      # Cloud Functions utilities
-google-cloud-aiplatform>=1.64.0     # Vertex AI (optional)
+google-cloud-functions>=1.14.0
+google-cloud-aiplatform>=1.64.0
 
 # ==================== PERFORMANCE MONITORING ====================
-memory-profiler>=0.61.0             # Memory usage profiling
-psutil>=5.9.5                       # System monitoring
+memory-profiler>=0.61.0
+psutil>=5.9.5
 
 # ==================== ADDITIONAL TOOLS ====================
-python-dotenv>=1.0.0                # Environment variables
-click>=8.0.4,<8.1.8                       # CLI utilities
-rich>=13.4.2                        # Beautiful terminal output
+python-dotenv>=1.0.0
+click>=8.1.7
+rich>=13.7.0
 
 # ==================== COMPATIBILITY ====================
-# Pin versions for reproducibility
-protobuf>=4.23.0,<4.25.0        # Protocol buffers
-h5py>=3.8.0                         # HDF5 file format
-pillow>=9.5.0                       # Image processing
-
+protobuf>=4.24.0,<5.0.0
+h5py>=3.9.0
+pillow>=10.0.0
 google-api-core==2.17.0
 googleapis-common-protos==1.63.2
 grpcio==1.62.2
 grpcio-status==1.62.2
 fastapi>=0.103.0
-starlette<0.47,>=0.19
+starlette>=0.27.0,<0.47
+typing-extensions>=4.12.2

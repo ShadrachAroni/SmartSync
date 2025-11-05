@@ -1,2 +1,6 @@
 serviceAccountKey.json
-/data
+data/processed
+data/raw
+data/synthetic
+.venv310
+tf-gpu

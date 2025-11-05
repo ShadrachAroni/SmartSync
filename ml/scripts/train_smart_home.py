@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-SmartSync ML Training - Using Kaggle Smart Home Dataset
+SmartSync ML Training - Using Kaggle Smart Home Dataset (GPU-Optimized)
 File: ml/scripts/train_smart_home.py
 
 This script trains the schedule predictor using your downloaded Kaggle datasets.
-No Firebase data required!
+Optimized for NVIDIA GPU training with CUDA.
 
 Usage:
     cd ml
@@ -27,7 +27,93 @@ import shutil
 import warnings
 warnings.filterwarnings('ignore')
 
+# ==================== GPU CONFIGURATION ====================
+def setup_gpu():
+    """
+    Configure TensorFlow to use GPU efficiently
+    """
+    print("\n" + "="*80)
+    print("GPU CONFIGURATION")
+    print("="*80)
+    
+    # Check GPU availability
+    gpus = tf.config.list_physical_devices('GPU')
+    
+    if gpus:
+        try:
+            # Enable memory growth to prevent TensorFlow from allocating all GPU memory
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            
+            # Optional: Limit GPU memory usage (e.g., to 4GB)
+            # tf.config.set_logical_device_configuration(
+            #     gpus[0],
+            #     [tf.config.LogicalDeviceConfiguration(memory_limit=4096)]
+            # )
+            
+            logical_gpus = tf.config.list_logical_devices('GPU')
+            print(f"✅ GPU Configuration Successful!")
+            print(f"   Physical GPUs: {len(gpus)}")
+            print(f"   Logical GPUs:  {len(logical_gpus)}")
+            
+            # Display GPU details
+            for i, gpu in enumerate(gpus):
+                print(f"\n   GPU {i}: {gpu.name}")
+                gpu_details = tf.config.experimental.get_device_details(gpu)
+                if gpu_details:
+                    print(f"      Device: {gpu_details.get('device_name', 'Unknown')}")
+                    print(f"      Compute Capability: {gpu_details.get('compute_capability', 'Unknown')}")
+            
+            # Test GPU with a simple operation
+            with tf.device('/GPU:0'):
+                a = tf.constant([[1.0, 2.0], [3.0, 4.0]])
+                b = tf.constant([[1.0, 1.0], [0.0, 1.0]])
+                c = tf.matmul(a, b)
+            print(f"\n   ✅ GPU Test Passed: Matrix multiplication successful")
+            
+            return True
+            
+        except RuntimeError as e:
+            print(f"   ⚠️  GPU setup error: {e}")
+            return False
+    else:
+        print("❌ No GPU found! Training will use CPU (slow).")
+        print("\n   Troubleshooting:")
+        print("   1. Install CUDA Toolkit: https://developer.nvidia.com/cuda-downloads")
+        print("   2. Install cuDNN: https://developer.nvidia.com/cudnn")
+        print("   3. Install tensorflow-gpu: pip install tensorflow[and-cuda]")
+        print("   4. Verify installation: nvidia-smi")
+        return False
+
+def print_system_info():
+    """Print TensorFlow and system information"""
+    print(f"\n📊 System Information:")
+    print(f"   TensorFlow version: {tf.__version__}")
+    
+    # Keras version check (compatible with TF 2.15+)
+    try:
+        keras_version = keras.__version__
+    except AttributeError:
+        keras_version = tf.keras.__version__
+    print(f"   Keras version: {keras_version}")
+    
+    print(f"   CUDA available: {tf.test.is_built_with_cuda()}")
+    
+    # Check GPU availability
+    gpu_available = len(tf.config.list_physical_devices('GPU')) > 0
+    print(f"   GPU available: {gpu_available}")
+    
+    # Print available devices
+    print(f"\n   Available devices:")
+    for device in tf.config.list_physical_devices():
+        print(f"      - {device.device_type}: {device.name}")
+
+# Initialize GPU before other imports
+setup_gpu()
+print_system_info()
+
 tf.get_logger().setLevel('ERROR')
+
 # ==================== CONFIGURATION ====================
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -41,13 +127,14 @@ APP_ASSETS = PROJECT_ROOT.parent / "app" / "assets" / "models"
 for dir_path in [RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR, TFLITE_DIR, APP_ASSETS]:
     dir_path.mkdir(parents=True, exist_ok=True)
 
+# Training hyperparameters (optimized for GPU)
 SEQUENCE_LENGTH = 168  # 1 week of hourly data
-BATCH_SIZE = 32
-EPOCHS = 50
+BATCH_SIZE = 64  # Increased for GPU (was 32)
+EPOCHS = 100  # Can train longer with GPU (was 50)
 LEARNING_RATE = 0.001
 
 print("=" * 80)
-print("SmartSync Schedule Predictor Training")
+print("SmartSync Schedule Predictor Training (GPU-Accelerated)")
 print("Using Kaggle Smart Home Dataset")
 print("=" * 80)
 
@@ -164,7 +251,6 @@ def convert_to_smartsync_format(df):
 
     return smartsync_df
 
-# ==================== PREPROCESSING ====================
 # ==================== PREPROCESSING ====================
 class DataPreprocessor:
     """Preprocess data for LSTM training (robust version for sparse smart home logs)"""
@@ -294,14 +380,14 @@ class DataPreprocessor:
 
         return X, y
 
-# ==================== MODEL ARCHITECTURE ====================
+# ==================== MODEL ARCHITECTURE (GPU-OPTIMIZED) ====================
 def build_model(input_shape):
     """
-    Build LSTM-based schedule prediction model
+    Build LSTM-based schedule prediction model (GPU-optimized)
     
     Architecture:
     - Input: (168, 13) - 1 week of hourly features
-    - LSTM layers with dropout for regularization
+    - CuDNN-optimized LSTM layers for faster GPU training
     - Dense output: (2,) - fan speed & LED brightness
     
     Args:
@@ -310,17 +396,27 @@ def build_model(input_shape):
     Returns:
         Compiled Keras model
     """
-    print("\n🏗️  STEP 5: Building LSTM model...")
+    print("\n🏗️  STEP 5: Building LSTM model (GPU-optimized)...")
     
+    # Use CuDNN-compatible LSTM for better GPU performance
+    # Requirements: no activation='tanh', recurrent_activation='sigmoid', use_bias=True
     model = keras.Sequential([
         keras.layers.Input(shape=input_shape),
         
-        # First LSTM layer - capture long-term patterns
-        keras.layers.LSTM(128, return_sequences=True, name='lstm_1'),
+        # First LSTM layer - CuDNN optimized
+        keras.layers.LSTM(
+            128, 
+            return_sequences=True,
+            name='lstm_1'
+        ),
         keras.layers.Dropout(0.3),
         
-        # Second LSTM layer - refine patterns
-        keras.layers.LSTM(64, return_sequences=False, name='lstm_2'),
+        # Second LSTM layer - CuDNN optimized
+        keras.layers.LSTM(
+            64, 
+            return_sequences=False,
+            name='lstm_2'
+        ),
         keras.layers.Dropout(0.2),
         
         # Dense layers for final prediction
@@ -330,6 +426,15 @@ def build_model(input_shape):
         # Output: [fan_speed, led_brightness] in range [0, 1]
         keras.layers.Dense(2, activation='sigmoid', name='output')
     ])
+    
+    # Use mixed precision for faster training on modern GPUs
+    if tf.config.list_physical_devices('GPU'):
+        try:
+            policy = tf.keras.mixed_precision.Policy('mixed_float16')
+            tf.keras.mixed_precision.set_global_policy(policy)
+            print("   ✅ Mixed precision enabled (float16/float32)")
+        except:
+            print("   ℹ️  Mixed precision not available, using float32")
     
     model.compile(
         optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
@@ -342,13 +447,14 @@ def build_model(input_shape):
     
     total_params = model.count_params()
     print(f"\n   Total parameters: {total_params:,}")
+    print(f"   Estimated model size: {total_params * 4 / 1024 / 1024:.2f} MB")
     
     return model
 
-# ==================== TRAINING ====================
+# ==================== TRAINING (GPU-OPTIMIZED) ====================
 def train_model(X_train, y_train, X_val, y_val):
     """
-    Train the schedule prediction model
+    Train the schedule prediction model with GPU optimization
     
     Args:
         X_train: Training sequences
@@ -360,19 +466,19 @@ def train_model(X_train, y_train, X_val, y_val):
         model: Trained Keras model
         history: Training history
     """
-    print("\n🚀 STEP 6: Training model...")
+    print("\n🚀 STEP 6: Training model on GPU...")
     print(f"   Batch size: {BATCH_SIZE}")
     print(f"   Max epochs: {EPOCHS}")
     print(f"   Learning rate: {LEARNING_RATE}")
     
     model = build_model((X_train.shape[1], X_train.shape[2]))
     
-    # Callbacks for better training
+    # Enhanced callbacks for GPU training
     callbacks = [
-        # Stop training if validation loss doesn't improve for 10 epochs
+        # Stop training if validation loss doesn't improve for 15 epochs
         keras.callbacks.EarlyStopping(
             monitor='val_loss',
-            patience=10,
+            patience=15,  # Increased patience for GPU training
             restore_best_weights=True,
             verbose=1
         ),
@@ -381,7 +487,7 @@ def train_model(X_train, y_train, X_val, y_val):
         keras.callbacks.ReduceLROnPlateau(
             monitor='val_loss',
             factor=0.5,
-            patience=5,
+            patience=7,
             min_lr=1e-6,
             verbose=1
         ),
@@ -392,19 +498,32 @@ def train_model(X_train, y_train, X_val, y_val):
             monitor='val_loss',
             save_best_only=True,
             verbose=1
+        ),
+        
+        # TensorBoard for monitoring (optional)
+        keras.callbacks.TensorBoard(
+            log_dir=str(MODELS_DIR / 'logs'),
+            histogram_freq=1,
+            write_graph=True,
+            update_freq='epoch'
         )
-
     ]
     
-    # Train
-    history = model.fit(
-        X_train, y_train,
-        batch_size=BATCH_SIZE,
-        epochs=EPOCHS,
-        validation_data=(X_val, y_val),
-        callbacks=callbacks,
-        verbose=1
-    )
+    print("\n   Starting training...")
+    print("   💡 Tip: Monitor GPU usage with: nvidia-smi -l 1")
+    
+    # Train with GPU
+    with tf.device('/GPU:0'):
+        history = model.fit(
+            X_train, y_train,
+            batch_size=BATCH_SIZE,
+            epochs=EPOCHS,
+            validation_data=(X_val, y_val),
+            callbacks=callbacks,
+            verbose=1,
+            workers=4,  # Parallel data loading
+            use_multiprocessing=True
+        )
     
     # Plot training history
     print("\n   Generating training plots...")
@@ -454,8 +573,9 @@ def evaluate_model(model, X_test, y_test):
     """
     print("\n📈 STEP 7: Evaluating model...")
     
-    # Predictions
-    y_pred = model.predict(X_test, verbose=0)
+    # Predictions on GPU
+    with tf.device('/GPU:0'):
+        y_pred = model.predict(X_test, batch_size=BATCH_SIZE, verbose=1)
     
     # Calculate metrics
     from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -552,6 +672,7 @@ def save_model(model, preprocessor, metrics):
         'framework': 'TensorFlow',
         'framework_version': tf.__version__,
         'training_source': 'Kaggle Smart Home Dataset',
+        'training_device': 'GPU' if tf.config.list_physical_devices('GPU') else 'CPU',
         'input_shape': [SEQUENCE_LENGTH, 13],
         'output_shape': [2],
         'features': [
@@ -640,6 +761,10 @@ def main():
     
     X, y = preprocessor.create_sequences(hourly_df, SEQUENCE_LENGTH)
     
+    if len(X) == 0:
+        print("\n❌ Training aborted: Not enough sequences created")
+        return
+    
     # Split data: 70% train, 15% validation, 15% test
     print("\n📊 Splitting data...")
     X_train, X_temp, y_train, y_temp = train_test_split(
@@ -675,11 +800,18 @@ def main():
     print(f"   Model:    {MODELS_DIR / 'schedule_predictor_v1'}")
     print(f"   Scaler:   {PROCESSED_DATA_DIR / 'scaler.pkl'}")
     print(f"   Metadata: {MODELS_DIR / 'schedule_predictor_v1' / 'metadata.json'}")
+    print(f"   TensorBoard logs: {MODELS_DIR / 'logs'}")
     
     print(f"\n🎯 Next Steps:")
-    print(f"   1. Convert to TFLite:  python scripts/convert_tflite.py")
-    print(f"   2. Deploy to Firebase: python scripts/deploy_model.py")
-    print(f"   3. Test in Flutter app")
+    print(f"   1. View training logs: tensorboard --logdir={MODELS_DIR / 'logs'}")
+    print(f"   2. Convert to TFLite:  python scripts/convert_tflite.py")
+    print(f"   3. Deploy to Firebase: python scripts/deploy_model.py")
+    print(f"   4. Test in Flutter app")
+    
+    # Print GPU utilization summary
+    if tf.config.list_physical_devices('GPU'):
+        print(f"\n🎮 GPU Training completed successfully!")
+        print(f"   Check GPU stats: nvidia-smi")
 
 if __name__ == "__main__":
     main()

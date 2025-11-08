@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- General app identifiers and info -->
+    <!-- ==================== GENERAL APP INFO ==================== -->
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
@@ -34,6 +34,7 @@
     <key>UIMainStoryboardFile</key>
     <string>Main</string>
 
+    <!-- ==================== ORIENTATION SUPPORT ==================== -->
     <!-- Supported orientations for iPhone -->
     <key>UISupportedInterfaceOrientations</key>
     <array>
@@ -51,20 +52,150 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
-    <!-- Performance and input settings -->
+    <!-- ==================== PERFORMANCE SETTINGS ==================== -->
     <key>CADisableMinimumFrameDurationOnPhone</key>
     <true/>
     <key>UIApplicationSupportsIndirectInputEvents</key>
     <true/>
+    <key>UIViewControllerBasedStatusBarAppearance</key>
+    <false/>
 
-    <!-- Bluetooth Permissions -->
+    <!-- ==================== BLUETOOTH PERMISSIONS ==================== -->
+    <!-- iOS 13+ Bluetooth Permission (REQUIRED) -->
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>SmartSync needs Bluetooth to connect to your smart home devices</string>
+    <string>SmartSync needs Bluetooth access to connect and control your smart home devices, including sensors, lights, and fans. This enables real-time monitoring and automation for elderly care.</string>
+    
+    <!-- iOS 12 and below (Legacy) -->
     <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>SmartSync needs Bluetooth to control your devices</string>
+    <string>SmartSync needs Bluetooth access to connect and control your smart home devices for elderly care monitoring.</string>
 
-    <!-- Location Permission (required for BLE scanning on iOS) -->
+    <!-- ==================== LOCATION PERMISSIONS ==================== -->
+    <!-- Location is required for BLE scanning on iOS 12 and below -->
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>SmartSync needs location permission to scan for Bluetooth devices</string>
+    <string>SmartSync uses your location to find nearby Bluetooth devices. Your location data is not stored or shared. This is required by iOS for Bluetooth device discovery.</string>
+    
+    <!-- Optional: For background BLE connection -->
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>SmartSync needs location access to maintain Bluetooth connections even when the app is in background, ensuring continuous monitoring for elderly safety.</string>
+    
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>SmartSync needs location access to scan for nearby Bluetooth devices and maintain connections for continuous elderly care monitoring.</string>
+
+    <!-- ==================== CAMERA PERMISSION ==================== -->
+    <!-- For future QR code device pairing -->
+    <key>NSCameraUsageDescription</key>
+    <string>SmartSync needs camera access to scan QR codes for quick device pairing and setup.</string>
+
+    <!-- ==================== MICROPHONE PERMISSION ==================== -->
+    <!-- For future voice commands -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>SmartSync needs microphone access for voice commands to control your smart home devices hands-free.</string>
+
+    <!-- ==================== LOCAL NETWORK PERMISSION ==================== -->
+    <!-- For mDNS device discovery (iOS 14+) -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>SmartSync needs local network access to discover and communicate with smart home devices on your Wi-Fi network.</string>
+    
+    <!-- Bonjour services for local network discovery -->
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_smartsync._tcp</string>
+        <string>_http._tcp</string>
+    </array>
+
+    <!-- ==================== PHOTO LIBRARY PERMISSION ==================== -->
+    <!-- For uploading device/room images -->
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>SmartSync needs access to your photo library to set room images and device photos.</string>
+    
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>SmartSync needs permission to save captured images to your photo library.</string>
+
+    <!-- ==================== BACKGROUND MODES ==================== -->
+    <!-- CRITICAL for maintaining BLE connections -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <!-- Bluetooth Central (REQUIRED for BLE) -->
+        <string>bluetooth-central</string>
+        <!-- Bluetooth Peripheral (if app acts as peripheral) -->
+        <string>bluetooth-peripheral</string>
+        <!-- Push Notifications -->
+        <string>remote-notification</string>
+        <!-- Background Fetch for periodic updates -->
+        <string>fetch</string>
+        <!-- Background Processing -->
+        <string>processing</string>
+    </array>
+
+    <!-- ==================== FIREBASE CONFIGURATION ==================== -->
+    <key>FirebaseAppDelegateProxyEnabled</key>
+    <false/>
+
+    <!-- ==================== APP TRANSPORT SECURITY ==================== -->
+    <!-- Allow HTTP connections for local device communication -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <!-- Allow all insecure loads (only for development) -->
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+        <!-- Stricter production configuration -->
+        <!--
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+        <key>NSExceptionDomains</key>
+        <dict>
+            <key>localhost</key>
+            <dict>
+                <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+            </dict>
+        </dict>
+        -->
+    </dict>
+
+    <!-- ==================== NOTIFICATION SETTINGS ==================== -->
+    <!-- Allow remote notifications -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>remote-notification</string>
+    </array>
+
+    <!-- ==================== ADDITIONAL iOS 14+ PRIVACY ==================== -->
+    <!-- User tracking (for analytics - optional) -->
+    <key>NSUserTrackingUsageDescription</key>
+    <string>SmartSync would like to track your activity to provide personalized analytics and improve the app experience.</string>
+
+    <!-- ==================== ACCESSIBILITY ==================== -->
+    <!-- Support for accessibility features -->
+    <key>UIRequiresFullScreen</key>
+    <false/>
+    
+    <!-- Support for dark mode -->
+    <key>UIUserInterfaceStyle</key>
+    <string>Automatic</string>
+
+    <!-- ==================== SIRI INTEGRATION (Future) ==================== -->
+    <!-- Uncomment when adding Siri support -->
+    <!--
+    <key>NSSiriUsageDescription</key>
+    <string>SmartSync needs Siri access to control your devices with voice commands.</string>
+    -->
+
+    <!-- ==================== HEALTH KIT (Future) ==================== -->
+    <!-- Uncomment if adding health monitoring -->
+    <!--
+    <key>NSHealthShareUsageDescription</key>
+    <string>SmartSync would like to access health data to provide better elderly care monitoring.</string>
+    <key>NSHealthUpdateUsageDescription</key>
+    <string>SmartSync would like to update health records with activity data.</string>
+    -->
+
+    <!-- ==================== MOTION & FITNESS (Future) ==================== -->
+    <!-- Uncomment if adding motion detection -->
+    <!--
+    <key>NSMotionUsageDescription</key>
+    <string>SmartSync needs motion data to detect falls and unusual activity patterns.</string>
+    -->
+
 </dict>
 </plist>

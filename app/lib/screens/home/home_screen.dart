@@ -1,8 +1,10 @@
-// app/lib/screens/home/home_screen.dart - COMPLETE VERSION
+// app/lib/screens/home/home_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../../providers/auth_provider.dart';
 import '../../services/firebase_service.dart';
 import '../../services/bluetooth_service.dart';
@@ -17,51 +19,39 @@ import '../rooms/rooms_screen.dart';
 import '../devices/device_scan_screen.dart';
 import '../analytics/analytics_screen.dart';
 import '../auth/login_screen.dart';
+import '../../core/constants/routes.dart'; // <-- Ensure you import the routes
 
 // ==================== PROVIDERS ====================
+
 final firebaseServiceProvider = Provider((ref) => FirebaseService());
 final bluetoothServiceProvider = Provider((ref) => BluetoothService());
-
-// Stream provider for user devices
-final userDevicesProvider = StreamProvider.family<List<DeviceModel>, String>(
-  (ref, userId) {
-    final firebaseService = ref.watch(firebaseServiceProvider);
-    return firebaseService.getUserDevices(userId);
-  },
-);
-
-// Stream provider for user rooms
-final userRoomsProvider = StreamProvider.family<List<RoomModel>, String>(
-  (ref, userId) {
-    final firebaseService = ref.watch(firebaseServiceProvider);
-    return firebaseService.getUserRooms(userId);
-  },
-);
-
-// Stream provider for sensor data
+final userDevicesProvider =
+    StreamProvider.family<List<DeviceModel>, String>((ref, userId) {
+  final firebaseService = ref.watch(firebaseServiceProvider);
+  return firebaseService.getUserDevices(userId);
+});
+final userRoomsProvider =
+    StreamProvider.family<List<RoomModel>, String>((ref, userId) {
+  final firebaseService = ref.watch(firebaseServiceProvider);
+  return firebaseService.getUserRooms(userId);
+});
 final sensorDataProvider = StreamProvider<SensorData?>((ref) {
   final bluetoothService = ref.watch(bluetoothServiceProvider);
   return bluetoothService.sensorDataStream;
 });
-
-// BLE connection state provider
 final bleConnectionProvider = StreamProvider<bool>((ref) {
   final bluetoothService = ref.watch(bluetoothServiceProvider);
   return bluetoothService.connectionStream;
 });
-
-// Energy consumption provider
-final energyConsumptionProvider = FutureProvider.family<double, String>(
-  (ref, userId) async {
-    final firebaseService = ref.watch(firebaseServiceProvider);
-    return await firebaseService.getTodayEnergyConsumption(userId);
-  },
-);
+final energyConsumptionProvider =
+    FutureProvider.family<double, String>((ref, userId) async {
+  final firebaseService = ref.watch(firebaseServiceProvider);
+  return await firebaseService.getTodayEnergyConsumption(userId);
+});
 
 // ==================== HOME SCREEN ====================
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
-
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
@@ -69,22 +59,38 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = const [
-    HomeTab(),
-    RoomsScreen(),
-    DeviceScanScreen(),
-    AnalyticsScreen(),
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _screens[_currentIndex],
-      bottomNavigationBar: _buildBottomNavigationBar(),
+      body: _getCurrentScreen(context),
+      bottomNavigationBar: _buildBottomNav(context),
     );
   }
 
-  Widget _buildBottomNavigationBar() {
+  // ------------ Routing Logic -------------
+  Widget _getCurrentScreen(BuildContext context) {
+    switch (_currentIndex) {
+      case 0:
+        return const HomeTab();
+      case 1:
+        return const RoomsScreen();
+      case 2:
+        return const DeviceScanScreen();
+      case 3:
+        // Instead of directly returning AnalyticsScreen, route using Navigator per the routing setup
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Navigator.of(context).pushNamed(Routes.analytics);
+          setState(() {
+            _currentIndex = 0;
+          });
+        });
+        return const HomeTab();
+      default:
+        return const HomeTab();
+    }
+  }
+
+  Widget _buildBottomNav(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -102,10 +108,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildNavItem(Icons.home_rounded, 'Home', 0),
-              _buildNavItem(Icons.meeting_room_rounded, 'Rooms', 1),
-              _buildNavItem(Icons.add_circle_rounded, 'Add', 2, isCenter: true),
-              _buildNavItem(Icons.bar_chart_rounded, 'Stats', 3),
+              _buildNavItem(Icons.home_rounded, 'Home', 0, context),
+              _buildNavItem(Icons.meeting_room_rounded, 'Rooms', 1, context),
+              _buildNavItem(Icons.add_circle_rounded, 'Add', 2, context,
+                  isCenter: true),
+              _buildNavItem(Icons.bar_chart_rounded, 'Stats', 3, context),
             ],
           ),
         ),
@@ -113,12 +120,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildNavItem(IconData icon, String label, int index,
-      {bool isCenter = false}) {
+  Widget _buildNavItem(
+    IconData icon,
+    String label,
+    int index,
+    BuildContext context, {
+    bool isCenter = false,
+  }) {
     final isSelected = _currentIndex == index;
-
     return GestureDetector(
-      onTap: () => setState(() => _currentIndex = index),
+      onTap: () {
+        if (index == 3) {
+          Navigator.of(context).pushNamed(Routes.analytics);
+        } else {
+          setState(() => _currentIndex = index);
+        }
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
@@ -156,7 +173,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-// ==================== ENHANCED HOME TAB ====================
+// ==================== HOME TAB ====================
+
 class HomeTab extends ConsumerStatefulWidget {
   const HomeTab({super.key});
 
@@ -168,57 +186,45 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
-    final currentUserAsync = ref.watch(currentUserProvider);
-    final bleConnection = ref.watch(bleConnectionProvider);
-    final sensorData = ref.watch(sensorDataProvider);
 
     if (user == null) {
       return const Center(child: Text('Please login'));
     }
+
+    final currentUserAsync = ref.watch(currentUserProvider);
+    final bleConnection = ref.watch(bleConnectionProvider);
+    final sensorData = ref.watch(sensorDataProvider);
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
-            // App Bar with BLE status
-            _buildEnhancedAppBar(currentUserAsync, bleConnection),
-
-            // Content
+            _buildAppBar(currentUserAsync, bleConnection),
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // BLE Connection Status Banner
-                    _buildBLEStatusBanner(bleConnection),
+                    _buildBLEBanner(bleConnection),
                     const SizedBox(height: 16),
-
-                    // Energy Consumption Card (Real-time)
                     _buildEnergyCard(user.uid),
                     const SizedBox(height: 24),
-
-                    // Environmental Sensors (Real-time from BLE)
                     _buildSectionHeader('Environmental Status'),
                     const SizedBox(height: 16),
                     _buildSensorGrid(sensorData),
                     const SizedBox(height: 24),
-
-                    // Quick Device Controls (Real-time from Firebase)
                     _buildSectionHeader('Quick Controls'),
                     const SizedBox(height: 16),
                     _buildDeviceGrid(user.uid),
                     const SizedBox(height: 24),
-
-                    // Emergency SOS Button
                     _buildSOSButton(),
                     const SizedBox(height: 24),
-
-                    // Rooms Preview (Real-time from Firebase)
                     _buildSectionHeader('My Rooms', showSeeAll: true),
                     const SizedBox(height: 16),
                     _buildRoomsList(user.uid),
+                    const SizedBox(height: 32),
                   ],
                 ),
               ),
@@ -229,8 +235,12 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     );
   }
 
-  Widget _buildEnhancedAppBar(
-      AsyncValue currentUserAsync, AsyncValue<bool> bleConnection) {
+  // ==================== APP BAR ====================
+
+  Widget _buildAppBar(
+    AsyncValue currentUserAsync,
+    AsyncValue<bool> bleConnection,
+  ) {
     return SliverAppBar(
       expandedHeight: 140,
       floating: false,
@@ -244,175 +254,195 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           child: currentUserAsync.when(
             data: (userData) => Row(
               children: [
-                // User Avatar
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF00BFA5), Color(0xFF00897B)],
-                    ),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF00BFA5).withOpacity(0.3),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Center(
+                _buildAvatar(userData?.profileImageUrl, userData?.name ?? 'U'),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildWelcomeText(userData?.name ?? 'User'),
+                ),
+                _buildBLEIndicator(bleConnection),
+                const SizedBox(width: 8),
+                _buildNotificationButton(),
+                const SizedBox(width: 8),
+                _buildMenuButton(),
+              ],
+            ),
+            loading: () => const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation(Color(0xFF00BFA5)),
+              ),
+            ),
+            error: (_, __) => const SizedBox(),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAvatar(String? imageUrl, String name) {
+    return Container(
+      width: 50,
+      height: 50,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF00BFA5), Color(0xFF00897B)],
+        ),
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00BFA5).withOpacity(0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: imageUrl != null
+          ? ClipOval(
+              child: Image.network(
+                imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Center(
                     child: Text(
-                      userData?.name.substring(0, 1).toUpperCase() ?? 'U',
+                      name.substring(0, 1).toUpperCase(),
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
                     ),
-                  ),
+                  );
+                },
+              ),
+            )
+          : Center(
+              child: Text(
+                name.substring(0, 1).toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
                 ),
-                const SizedBox(width: 16),
-
-                // Welcome Text
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Welcome back,',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        userData?.name.split(' ').first ?? 'User',
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
-                          height: 1.2,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-
-                // BLE Connection Indicator
-                bleConnection.when(
-                  data: (isConnected) => Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: isConnected
-                          ? Colors.green.shade50
-                          : Colors.red.shade50,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.bluetooth_rounded,
-                      color: isConnected ? Colors.green : Colors.red,
-                      size: 20,
-                    ),
-                  ),
-                  loading: () => const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  error: (_, __) => const SizedBox(),
-                ),
-                const SizedBox(width: 8),
-
-                // Notification Bell
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    shape: BoxShape.circle,
-                  ),
-                  child: IconButton(
-                    icon: Icon(Icons.notifications_outlined,
-                        color: Colors.grey.shade700, size: 22),
-                    onPressed: () {
-                      // Navigate to notifications
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-
-                // Menu with Logout
-                PopupMenuButton<String>(
-                  icon: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(Icons.more_vert,
-                        color: Colors.grey.shade700, size: 22),
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  offset: const Offset(0, 55),
-                  elevation: 8,
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: 'profile',
-                      child: Row(
-                        children: [
-                          Icon(Icons.person_outline,
-                              color: Colors.grey.shade700, size: 20),
-                          const SizedBox(width: 12),
-                          const Text('Profile'),
-                        ],
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'settings',
-                      child: Row(
-                        children: [
-                          Icon(Icons.settings_outlined,
-                              color: Colors.grey.shade700, size: 20),
-                          const SizedBox(width: 12),
-                          const Text('Settings'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuDivider(),
-                    PopupMenuItem(
-                      value: 'logout',
-                      child: Row(
-                        children: [
-                          Icon(Icons.logout_rounded,
-                              color: Colors.red.shade600, size: 20),
-                          const SizedBox(width: 12),
-                          Text('Logout',
-                              style: TextStyle(color: Colors.red.shade600)),
-                        ],
-                      ),
-                    ),
-                  ],
-                  onSelected: _handleMenuAction,
-                ),
-              ],
-            ),
-            loading: () => const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
               ),
             ),
-            error: (_, __) => const SizedBox(),
+    );
+  }
+
+  Widget _buildWelcomeText(String name) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          'Welcome back,',
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.grey.shade600,
+            fontWeight: FontWeight.w400,
           ),
         ),
+        const SizedBox(height: 4),
+        Text(
+          name.split(' ').first,
+          style: const TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+            height: 1.2,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBLEIndicator(AsyncValue<bool> bleConnection) {
+    return bleConnection.when(
+      data: (isConnected) => Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: isConnected ? Colors.green.shade50 : Colors.red.shade50,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          Icons.bluetooth_rounded,
+          color: isConnected ? Colors.green : Colors.red,
+          size: 20,
+        ),
+      ),
+      loading: () => const SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+      error: (_, __) => const SizedBox(),
+    );
+  }
+
+  Widget _buildNotificationButton() {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        shape: BoxShape.circle,
+      ),
+      child: IconButton(
+        icon: Icon(
+          Icons.notifications_outlined,
+          color: Colors.grey.shade700,
+          size: 22,
+        ),
+        onPressed: () {},
+      ),
+    );
+  }
+
+  Widget _buildMenuButton() {
+    return PopupMenuButton<String>(
+      icon: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          Icons.more_vert,
+          color: Colors.grey.shade700,
+          size: 22,
+        ),
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      offset: const Offset(0, 55),
+      elevation: 8,
+      itemBuilder: (context) => [
+        _buildMenuItem(
+            'profile', Icons.person_outline, 'Profile', Colors.grey.shade700),
+        _buildMenuItem('settings', Icons.settings_outlined, 'Settings',
+            Colors.grey.shade700),
+        const PopupMenuDivider(),
+        _buildMenuItem(
+            'logout', Icons.logout_rounded, 'Logout', Colors.red.shade600),
+      ],
+      onSelected: _handleMenuAction,
+    );
+  }
+
+  PopupMenuItem<String> _buildMenuItem(
+    String value,
+    IconData icon,
+    String label,
+    Color color,
+  ) {
+    return PopupMenuItem<String>(
+      value: value,
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 12),
+          Text(label, style: TextStyle(color: color)),
+        ],
       ),
     );
   }
@@ -448,8 +478,11 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                 color: Colors.red.shade50,
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.logout_rounded,
-                  color: Colors.red.shade600, size: 24),
+              child: Icon(
+                Icons.logout_rounded,
+                color: Colors.red.shade600,
+                size: 24,
+              ),
             ),
             const SizedBox(width: 12),
             const Text('Logout'),
@@ -462,8 +495,10 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Cancel',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 16)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
+            ),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -482,8 +517,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
               backgroundColor: Colors.red.shade600,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+                  borderRadius: BorderRadius.circular(12)),
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             ),
             child: const Text('Logout', style: TextStyle(fontSize: 16)),
@@ -493,7 +527,9 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     );
   }
 
-  Widget _buildBLEStatusBanner(AsyncValue<bool> bleConnection) {
+  // ==================== BLE BANNER ====================
+
+  Widget _buildBLEBanner(AsyncValue<bool> bleConnection) {
     return bleConnection.when(
       data: (isConnected) => !isConnected
           ? Container(
@@ -505,8 +541,11 @@ class _HomeTabState extends ConsumerState<HomeTab> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.bluetooth_disabled,
-                      color: Colors.orange.shade700, size: 24),
+                  Icon(
+                    Icons.bluetooth_disabled,
+                    color: Colors.orange.shade700,
+                    size: 24,
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -531,13 +570,14 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                     ),
                   ),
                   TextButton(
-                    onPressed: () {
-                      // Navigate to device scan
-                    },
-                    child: Text('Connect',
-                        style: TextStyle(
-                            color: Colors.orange.shade700,
-                            fontWeight: FontWeight.bold)),
+                    onPressed: () {},
+                    child: Text(
+                      'Connect',
+                      style: TextStyle(
+                        color: Colors.orange.shade700,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -547,6 +587,8 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       error: (_, __) => const SizedBox.shrink(),
     );
   }
+
+  // ==================== SECTION HEADER ====================
 
   Widget _buildSectionHeader(String title, {bool showSeeAll = false}) {
     return Row(
@@ -575,31 +617,27 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     );
   }
 
+  // ==================== ENERGY CARD ====================
+
   Widget _buildEnergyCard(String userId) {
     final energyAsync = ref.watch(energyConsumptionProvider(userId));
-
     return energyAsync.when(
       data: (consumption) => EnergyCard(
         consumption: consumption,
         status: 'System performing well',
       ),
-      loading: () => const EnergyCard(
-        consumption: 0,
-        status: 'Loading...',
-      ),
-      error: (_, __) => const EnergyCard(
-        consumption: 0,
-        status: 'Error loading data',
-      ),
+      loading: () => const EnergyCard(consumption: 0, status: 'Loading...'),
+      error: (_, __) =>
+          const EnergyCard(consumption: 0, status: 'Error loading data'),
     );
   }
+
+  // ==================== SENSOR GRID ====================
 
   Widget _buildSensorGrid(AsyncValue<SensorData?> sensorDataAsync) {
     return sensorDataAsync.when(
       data: (sensorData) {
-        if (sensorData == null) {
-          return _buildDefaultSensorGrid();
-        }
+        if (sensorData == null) return _buildDefaultSensorGrid();
 
         return GridView.count(
           shrinkWrap: true,
@@ -607,7 +645,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           crossAxisCount: 2,
           crossAxisSpacing: 16,
           mainAxisSpacing: 16,
-          childAspectRatio: 1.4,
+          childAspectRatio: 1.5,
           children: [
             SensorCard(
               icon: Icons.thermostat_rounded,
@@ -656,7 +694,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       crossAxisCount: 2,
       crossAxisSpacing: 16,
       mainAxisSpacing: 16,
-      childAspectRatio: 1.4,
+      childAspectRatio: 1.5,
       children: [
         SensorCard(
           icon: Icons.thermostat_rounded,
@@ -720,41 +758,15 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     return 'Far';
   }
 
+  // ==================== DEVICE GRID ====================
+
   Widget _buildDeviceGrid(String userId) {
     final devicesAsync = ref.watch(userDevicesProvider(userId));
 
     return devicesAsync.when(
       data: (devices) {
         if (devices.isEmpty) {
-          return Container(
-            padding: const EdgeInsets.all(40),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Center(
-              child: Column(
-                children: [
-                  Icon(Icons.devices_other,
-                      size: 48, color: Colors.grey.shade400),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No devices yet',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey.shade600,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: () {},
-                    child: const Text('Add Device'),
-                  ),
-                ],
-              ),
-            ),
-          );
+          return _buildEmptyDevices();
         }
 
         return GridView.builder(
@@ -767,29 +779,64 @@ class _HomeTabState extends ConsumerState<HomeTab> {
             childAspectRatio: 1.1,
           ),
           itemCount: devices.length > 4 ? 4 : devices.length,
-          itemBuilder: (context, index) {
-            return DeviceCard(device: devices[index]);
-          },
+          itemBuilder: (context, index) => DeviceCard(device: devices[index]),
         );
       },
       loading: () => const Center(
         child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
+          valueColor: AlwaysStoppedAnimation(Color(0xFF00BFA5)),
         ),
       ),
       error: (error, _) => Container(
+        height: 120,
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: Colors.red.shade50,
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Text(
-          'Error loading devices',
-          style: TextStyle(color: Colors.red.shade900),
+        child: Center(
+          child: Text(
+            'Error loading devices',
+            style: TextStyle(color: Colors.red.shade900),
+          ),
         ),
       ),
     );
   }
+
+  Widget _buildEmptyDevices() {
+    return Container(
+      padding: const EdgeInsets.all(40),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.devices_other, size: 48, color: Colors.grey.shade400),
+            const SizedBox(height: 16),
+            Text(
+              'No devices yet',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () {},
+              child: const Text('Add Device'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==================== SOS BUTTON ====================
 
   Widget _buildSOSButton() {
     return Container(
@@ -858,8 +905,11 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                 color: Colors.red.shade50,
                 shape: BoxShape.circle,
               ),
-              child:
-                  Icon(Icons.emergency, color: Colors.red.shade600, size: 28),
+              child: Icon(
+                Icons.emergency,
+                color: Colors.red.shade600,
+                size: 28,
+              ),
             ),
             const SizedBox(width: 12),
             const Text('Emergency Alert'),
@@ -872,8 +922,10 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Cancel',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 16)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
+            ),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -888,34 +940,34 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                   'timestamp': FieldValue.serverTimestamp(),
                   'message': 'Emergency assistance requested',
                 });
-              }
 
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Row(
-                      children: [
-                        Icon(Icons.check_circle, color: Colors.white),
-                        SizedBox(width: 12),
-                        Expanded(
-                            child: Text('Emergency alert sent to caregivers!')),
-                      ],
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Row(
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.white),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text('Emergency alert sent to caregivers!'),
+                          ),
+                        ],
+                      ),
+                      backgroundColor: Colors.green.shade600,
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
-                    backgroundColor: Colors.green.shade600,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                );
+                  );
+                }
               }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red.shade600,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+                  borderRadius: BorderRadius.circular(12)),
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
             child: const Text('Send Alert', style: TextStyle(fontSize: 16)),
@@ -925,37 +977,15 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     );
   }
 
+  // ==================== ROOMS LIST ====================
+
   Widget _buildRoomsList(String userId) {
     final roomsAsync = ref.watch(userRoomsProvider(userId));
 
     return roomsAsync.when(
       data: (rooms) {
         if (rooms.isEmpty) {
-          return Container(
-            height: 120,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.meeting_room_rounded,
-                      size: 32, color: Colors.grey.shade400),
-                  const SizedBox(height: 8),
-                  Text(
-                    'No rooms created yet',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
+          return _buildEmptyRooms();
         }
 
         return SizedBox(
@@ -965,31 +995,78 @@ class _HomeTabState extends ConsumerState<HomeTab> {
             itemCount: rooms.length,
             itemBuilder: (context, index) {
               return Padding(
-                padding:
-                    EdgeInsets.only(right: index < rooms.length - 1 ? 16 : 0),
+                padding: EdgeInsets.only(
+                  right: index < rooms.length - 1 ? 16 : 0,
+                ),
                 child: RoomCard(room: rooms[index]),
               );
             },
           ),
         );
       },
-      loading: () => const Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
+      loading: () => _buildLoadingRooms(),
+      error: (error, _) => _buildErrorRooms(),
+    );
+  }
+
+  Widget _buildEmptyRooms() {
+    return Container(
+      height: 120,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.meeting_room_rounded,
+              size: 32,
+              color: Colors.grey.shade400,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'No rooms created yet',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
         ),
       ),
-      error: (error, _) => Container(
-        height: 120,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.red.shade50,
-          borderRadius: BorderRadius.circular(12),
+    );
+  }
+
+  Widget _buildLoadingRooms() {
+    return Container(
+      height: 120,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation(Color(0xFF00BFA5)),
         ),
-        child: Center(
-          child: Text(
-            'Error loading rooms',
-            style: TextStyle(color: Colors.red.shade900),
-          ),
+      ),
+    );
+  }
+
+  Widget _buildErrorRooms() {
+    return Container(
+      height: 120,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Center(
+        child: Text(
+          'Error loading rooms',
+          style: TextStyle(color: Colors.red.shade900),
         ),
       ),
     );

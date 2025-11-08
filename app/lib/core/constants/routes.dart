@@ -1,3 +1,4 @@
+// app/lib/core/constants/routes.dart
 import 'package:flutter/material.dart';
 import '../../screens/onboarding/onboarding_screen.dart';
 import '../../screens/auth/login_screen.dart';
@@ -5,7 +6,7 @@ import '../../screens/auth/signup_screen.dart';
 import '../../screens/auth/forgot_password_screen.dart';
 import '../../screens/home/home_screen.dart';
 import '../../screens/devices/device_scan_screen.dart';
-import '../../screens/analytics/analytics_screen.dart';
+import '../../screens/analytics/analytics_screen.dart'; // ✅ ADDED
 import '../../screens/rooms/rooms_screen.dart';
 import '../../screens/rooms/room_detail_screen.dart';
 import '../../screens/rooms/add_room_screen.dart';
@@ -83,7 +84,7 @@ class AppRoutes {
           settings: settings,
         );
 
-      case Routes.analytics:
+      case Routes.analytics: // ✅ ADDED
         return MaterialPageRoute(
           builder: (_) => const AnalyticsScreen(),
           settings: settings,
@@ -174,7 +175,6 @@ class AppRoutes {
                 const SizedBox(height: 32),
                 ElevatedButton.icon(
                   onPressed: () {
-                    // Try to go back, or navigate to home
                     Navigator.of(_).popUntil((route) => route.isFirst);
                   },
                   icon: const Icon(Icons.home),

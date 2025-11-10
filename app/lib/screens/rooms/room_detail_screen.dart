@@ -5,8 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/room_model.dart';
 import '../../models/device_model.dart';
 import '../../services/firebase_service.dart';
-import '../../screens/widgets/device_card.dart';
-import '../../screens/widgets/custom_slider.dart';
 import '../../core/constants/routes.dart'; // ✅ ADDED
 
 // Provider for room devices

@@ -17,7 +17,6 @@ import '../widgets/sensor_card.dart';
 import '../widgets/room_card.dart';
 import '../rooms/rooms_screen.dart';
 import '../devices/device_scan_screen.dart';
-import '../analytics/analytics_screen.dart';
 import '../auth/login_screen.dart';
 import '../../core/constants/routes.dart'; // <-- Ensure you import the routes
 

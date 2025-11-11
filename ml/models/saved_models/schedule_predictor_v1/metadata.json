@@ -1,0 +1,44 @@
+{
+  "model_version": "1.0.0",
+  "trained_date": "2025-11-11T14:02:25.318990",
+  "sequence_length": 24,
+  "batch_size": 32,
+  "epochs": 100,
+  "learning_rate": 0.001,
+  "metrics": {
+    "mae": 0.08872061942223787,
+    "rmse": 0.11641708412445274,
+    "r2": -28.16228190634943,
+    "mae_fan": 0.016681704215076292,
+    "mae_led": 0.16075953462939932
+  },
+  "framework": "TensorFlow",
+  "framework_version": "2.15.1",
+  "input_features": [
+    "temperature_mean",
+    "temperature_max",
+    "temperature_min",
+    "temperature_std",
+    "humidity_mean",
+    "humidity_std",
+    "motionDetected_sum",
+    "distance_mean",
+    "hour_sin",
+    "hour_cos",
+    "day_sin",
+    "day_cos",
+    "is_weekend",
+    "is_night"
+  ],
+  "output_targets": [
+    "fanSpeed_mean",
+    "ledBrightness_mean"
+  ],
+  "input_shape": [
+    24,
+    14
+  ],
+  "output_shape": [
+    2
+  ]
+}

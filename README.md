@@ -469,9 +469,7 @@ See [Issues](https://github.com/yourusername/smartsync/issues) for full list.
 - [ ] Insurance integration
 - [ ] Enterprise features
 
-## 📄 License
 
-This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 👥 Team
 
@@ -491,21 +489,19 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 
 ## 📞 Support
 
-- **Email**: support@smartsync.com
-- **Discord**: [Join our community](https://discord.gg/smartsync)
-- **Documentation**: [docs.smartsync.com](https://docs.smartsync.com)
-- **Issues**: [GitHub Issues](https://github.com/yourusername/smartsync/issues)
+- **Email**: shadracking7@gmail.com
+- **Issues**: [GitHub Issues](https://github.com/ShadrachAroni/smartsync/issues)
 
 ## 📊 Project Status
 
-![GitHub last commit](https://img.shields.io/github/last-commit/yourusername/smartsync)
-![GitHub issues](https://img.shields.io/github/issues/yourusername/smartsync)
-![GitHub pull requests](https://img.shields.io/github/issues-pr/yourusername/smartsync)
-![GitHub stars](https://img.shields.io/github/stars/yourusername/smartsync)
+![GitHub last commit](https://img.shields.io/github/last-commit/ShadrachAroni/smartsync)
+![GitHub issues](https://img.shields.io/github/issues/ShadrachAroni/smartsync)
+![GitHub pull requests](https://img.shields.io/github/issues-pr/ShadrachAroni/smartsync)
+![GitHub stars](https://img.shields.io/github/stars/ShadrachAroni/smartsync)
 
 ## 🌟 Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=yourusername/smartsync&type=Date)](https://star-history.com/#yourusername/smartsync&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=ShadrachAroni/smartsync&type=Date)](https://star-history.com/#ShadrachAroni/smartsync&Date)
 
 ---
 
@@ -513,6 +509,6 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 
 **Built with ❤️ for elderly care and independent living**
 
-[Website](https://smartsync.com) • [Documentation](https://docs.smartsync.com) • [Community](https://discord.gg/smartsync)
+[Website](https://smartsync.com) • [Documentation](https://docs.smartsync.com)
 
 </div>

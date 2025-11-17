@@ -6,6 +6,9 @@ class SchedulePrediction {
   final int value;
   final double confidence;
   final String reason;
+  final String? deviceId;
+  final String? deviceName;
+  final String? roomId;
 
   const SchedulePrediction({
     required this.dayOfWeek,
@@ -15,6 +18,9 @@ class SchedulePrediction {
     required this.value,
     required this.confidence,
     required this.reason,
+    this.deviceId,
+    this.deviceName,
+    this.roomId,
   });
 
   String get dayName {

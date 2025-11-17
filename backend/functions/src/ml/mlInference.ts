@@ -57,6 +57,10 @@ interface Schedule {
   mode: string;
   confidence: number;
   createdAt: FirebaseFirestore.FieldValue;
+  deviceId?: string;
+  deviceName?: string;
+  roomId?: string;
+  reason?: string;
 }
 
 // ==================== CONFIGURATION ====================
@@ -321,40 +325,79 @@ function preprocessScheduleInput(logs: SensorLog[], scaler: ScalerParams): tf.Te
 /**
  * Post-process model output into schedule suggestions
  */
-function postprocessPrediction(prediction: number[][]): Schedule[] {
-  // Model outputs [fanSpeed, ledBrightness] in range [0, 1]
-  const fanSpeed = Math.round(Math.max(0, Math.min(100, prediction[0][0] * 100)));
-  const ledBrightness = Math.round(Math.max(0, Math.min(100, prediction[0][1] * 100)));
+async function buildScheduleSuggestions(
+  userId: string,
+  prediction: number[][]
+): Promise<Schedule[]> {
+  const devicesSnapshot = await db.collection('devices')
+    .where('userId', '==', userId)
+    .get();
+
+  if (devicesSnapshot.empty) {
+    console.log('⚠️  No devices found for user, skipping schedule suggestions');
+    return [];
+  }
+
+  const devices = devicesSnapshot.docs.map(doc => ({
+    id: doc.id,
+    ...(doc.data() as any)
+  }));
+
+  const fanDevice = devices.find(device => device.type === 'fan');
+  const lightDevice = devices.find(device => device.type === 'light');
+
+  if (!fanDevice && !lightDevice) {
+    console.log('⚠️  User has no controllable fan/light devices');
+    return [];
+  }
 
   const nextHour = new Date();
   nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
 
-  return [
-    {
-      name: 'AI Suggested: Fan Control',
+  const fanSpeed = Math.round(Math.max(0, Math.min(100, prediction[0][0] * 100)));
+  const ledBrightness = Math.round(Math.max(0, Math.min(100, prediction[0][1] * 100)));
+
+  const suggestions: Schedule[] = [];
+
+  if (fanDevice) {
+    suggestions.push({
+      name: `AI Suggested: ${fanDevice.name}`,
       deviceType: 'fan',
+      deviceId: fanDevice.id,
+      deviceName: fanDevice.name,
+      roomId: fanDevice.roomId ?? '',
       value: fanSpeed,
       hour: nextHour.getHours(),
-      minute: 0,
-      days: [0, 1, 2, 3, 4, 5, 6], // All days
-      enabled: false, // User must manually enable
+      minute: nextHour.getMinutes(),
+      days: [0, 1, 2, 3, 4, 5, 6],
+      enabled: false,
       mode: 'suggested',
       confidence: 0.85,
+      reason: 'Based on last 7 days of fan usage',
       createdAt: admin.firestore.FieldValue.serverTimestamp()
-    },
-    {
-      name: 'AI Suggested: Light Control',
-      deviceType: 'led',
+    });
+  }
+
+  if (lightDevice) {
+    suggestions.push({
+      name: `AI Suggested: ${lightDevice.name}`,
+      deviceType: 'light',
+      deviceId: lightDevice.id,
+      deviceName: lightDevice.name,
+      roomId: lightDevice.roomId ?? '',
       value: ledBrightness,
       hour: nextHour.getHours(),
-      minute: 0,
+      minute: nextHour.getMinutes(),
       days: [0, 1, 2, 3, 4, 5, 6],
       enabled: false,
       mode: 'suggested',
       confidence: 0.82,
+      reason: 'Based on last 7 days of lighting patterns',
       createdAt: admin.firestore.FieldValue.serverTimestamp()
-    }
-  ];
+    });
+  }
+
+  return suggestions;
 }
 
 // ==================== SCHEDULE PREDICTION ====================
@@ -429,7 +472,7 @@ export const predictSchedule = functions
       const predictionData = await predictionTensor.array() as number[][];
 
       // 7. Post-process results
-      const suggestedSchedules = postprocessPrediction(predictionData);
+      const suggestedSchedules = await buildScheduleSuggestions(userId, predictionData);
       console.log(`✅ Generated ${suggestedSchedules.length} schedule suggestions`);
 
       // 8. Save to Firestore

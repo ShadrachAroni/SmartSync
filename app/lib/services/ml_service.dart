@@ -68,25 +68,72 @@ class MLService {
       });
 
       if (result.data['success'] == true) {
-        final schedules = result.data['schedules'] as List;
+        final schedulesRaw = result.data['schedules'];
 
-        return schedules
-            .map((s) => SchedulePrediction(
-                  dayOfWeek: s['hour'] ~/ 24 % 7 + 1,
-                  hour: s['hour'] as int,
-                  minute: s['minute'] as int,
-                  deviceType: s['deviceType'] as String,
-                  value: s['value'] as int,
-                  confidence: (s['confidence'] as num).toDouble(),
-                  reason: 'AI predicted based on your usage patterns',
-                ))
+        if (schedulesRaw is! List) {
+          Logger.warning('ML response missing schedules payload');
+          return [];
+        }
+
+        final predictions = schedulesRaw
+            .whereType<Map<String, dynamic>>()
+            .map(_parseSchedulePrediction)
+            .whereType<SchedulePrediction>()
             .toList();
+
+        if (predictions.isEmpty) {
+          Logger.warning('ML response contained no valid schedules');
+        }
+
+        return predictions;
+      } else {
+        final message = result.data['message'] ?? 'Unknown ML response error';
+        Logger.warning('ML prediction unsuccessful: $message');
       }
 
       return [];
+    } on FirebaseFunctionsException catch (e) {
+      Logger.error('Schedule prediction failed: ${e.message}');
+      rethrow;
     } catch (e) {
-      Logger.error('Schedule prediction failed: $e');
+      Logger.error('Schedule prediction failed with unexpected error: $e');
       return [];
+    }
+  }
+
+  SchedulePrediction? _parseSchedulePrediction(
+      Map<String, dynamic> payload) {
+    try {
+      final hour = payload['hour'];
+      final minute = payload['minute'];
+      final deviceType = payload['deviceType'];
+      final value = payload['value'];
+      final confidence = payload['confidence'];
+
+      if (hour is! int ||
+          minute is! int ||
+          deviceType is! String ||
+          value is! int ||
+          confidence is! num) {
+        throw FormatException('Missing schedule fields: $payload');
+      }
+
+      return SchedulePrediction(
+        dayOfWeek: payload['dayOfWeek'] as int? ?? (hour ~/ 24 % 7) + 1,
+        hour: hour,
+        minute: minute,
+        deviceType: deviceType,
+        value: value,
+        confidence: confidence.toDouble(),
+        reason: payload['reason'] as String? ??
+            'AI predicted based on your usage patterns',
+        deviceId: payload['deviceId'] as String?,
+        deviceName: payload['deviceName'] as String?,
+        roomId: payload['roomId'] as String?,
+      );
+    } catch (e) {
+      Logger.error('Failed to parse schedule prediction: $e');
+      return null;
     }
   }
 

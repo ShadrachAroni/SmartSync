@@ -6,6 +6,7 @@ import '../models/room_model.dart';
 import '../models/sensor_data.dart';
 import '../models/schedule_model.dart';
 import '../models/alert_model.dart';
+import '../models/daily_analytics.dart';
 
 class FirebaseService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -160,6 +161,43 @@ class FirebaseService {
         .map((snapshot) => snapshot.docs
             .map((doc) => SensorData.fromJson(doc.data()))
             .toList());
+  }
+
+  Future<List<DailyAnalytics>> getDailyAnalytics(String userId, int days) async {
+    final cutoff = DateTime.now().subtract(Duration(days: days));
+    final snapshot = await _firestore
+        .collection('daily_analytics')
+        .where('userId', isEqualTo: userId)
+        .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(cutoff))
+        .orderBy('date', descending: false)
+        .get();
+
+    return snapshot.docs.map(DailyAnalytics.fromDoc).toList();
+  }
+
+  Future<List<SensorData>> getUserSensorHistory(
+      String userId, int days, {int limit = 2000}) async {
+    final cutoff = DateTime.now().subtract(Duration(days: days));
+    final snapshot = await _firestore
+        .collection('sensor_logs')
+        .where('userId', isEqualTo: userId)
+        .where('timestamp', isGreaterThan: Timestamp.fromDate(cutoff))
+        .orderBy('timestamp', descending: false)
+        .limit(limit)
+        .get();
+
+    return snapshot.docs
+        .map((doc) => SensorData.fromJson(doc.data()))
+        .toList();
+  }
+
+  Future<List<DeviceModel>> fetchUserDevices(String userId) async {
+    final snapshot = await _firestore
+        .collection('devices')
+        .where('userId', isEqualTo: userId)
+        .get();
+
+    return snapshot.docs.map((doc) => DeviceModel.fromFirestore(doc)).toList();
   }
 
   // Get latest sensor reading for a device

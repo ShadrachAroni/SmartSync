@@ -15,6 +15,7 @@ SensorData _$SensorDataFromJson(Map<String, dynamic> json) => SensorData(
       ledBrightness: (json['ledBrightness'] as num).toInt(),
       motionDetected: json['motionDetected'] as bool,
       distance: (json['distance'] as num).toDouble(),
+      securityEnabled: json['securityEnabled'] as bool? ?? true,
       timestamp: DateTime.parse(json['timestamp'] as String),
     );
 
@@ -28,5 +29,6 @@ Map<String, dynamic> _$SensorDataToJson(SensorData instance) =>
       'ledBrightness': instance.ledBrightness,
       'motionDetected': instance.motionDetected,
       'distance': instance.distance,
+      'securityEnabled': instance.securityEnabled,
       'timestamp': instance.timestamp.toIso8601String(),
     };

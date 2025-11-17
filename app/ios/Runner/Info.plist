@@ -24,6 +24,17 @@
     <key>CFBundleVersion</key>
     <string>$(FLUTTER_BUILD_NUMBER)</string>
 
+    <!-- Google Sign-In URL Scheme -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.googleusercontent.apps.611436526513-6b4onqj4vatd5uh2v5h4rkgnedggm9ti</string>
+            </array>
+        </dict>
+    </array>
+
     <!-- iOS requirement -->
     <key>LSRequiresIPhoneOS</key>
     <true/>

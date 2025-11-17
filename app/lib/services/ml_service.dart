@@ -2,6 +2,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../core/utils/logger.dart';
 import '../models/sensor_data.dart';
+import '../models/ml_prediction.dart';
 
 /// ML Service for SmartSync
 ///
@@ -234,97 +235,4 @@ class MLService {
   void dispose() {
     // Cleanup if needed
   }
-}
-
-// ==================== DATA MODELS ====================
-
-class SchedulePrediction {
-  final int dayOfWeek; // 1-7 (Monday-Sunday)
-  final int hour; // 0-23
-  final int minute; // 0-59
-  final String deviceType; // 'fan' or 'led'
-  final int value; // 0-100
-  final double confidence; // 0-100
-  final String reason;
-
-  SchedulePrediction({
-    required this.dayOfWeek,
-    required this.hour,
-    required this.minute,
-    required this.deviceType,
-    required this.value,
-    required this.confidence,
-    required this.reason,
-  });
-
-  String get dayName {
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    return days[dayOfWeek - 1];
-  }
-
-  String get timeString {
-    final h = hour.toString().padLeft(2, '0');
-    final m = minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
-}
-
-enum AnomalyType {
-  inactivity,
-  unusualActivity,
-  temperatureExtreme,
-  suddenChange,
-}
-
-class Anomaly {
-  final AnomalyType type;
-  final String severity; // 'low', 'medium', 'high'
-  final String message;
-  final DateTime timestamp;
-  final double confidence;
-
-  Anomaly({
-    required this.type,
-    required this.severity,
-    required this.message,
-    required this.timestamp,
-    required this.confidence,
-  });
-}
-
-class AnomalyReport {
-  final DateTime timestamp;
-  final List<Anomaly> anomalies;
-  final double overallScore;
-
-  AnomalyReport({
-    required this.timestamp,
-    required this.anomalies,
-    required this.overallScore,
-  });
-
-  bool get hasAnomalies => anomalies.isNotEmpty;
-  bool get hasCritical => anomalies.any((a) => a.severity == 'high');
-}
-
-class AnalyticsInsights {
-  final int totalLogs;
-  final double avgTemperature;
-  final double avgHumidity;
-  final int motionEvents;
-  final double avgFanUsage;
-  final double avgLightUsage;
-  final int peakUsageHour;
-  final double energyConsumption;
-
-  AnalyticsInsights({
-    required this.totalLogs,
-    required this.avgTemperature,
-    required this.avgHumidity,
-    required this.motionEvents,
-    required this.avgFanUsage,
-    required this.avgLightUsage,
-    required this.peakUsageHour,
-    required this.energyConsumption,
-  });
 }

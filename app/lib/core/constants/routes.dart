@@ -12,6 +12,7 @@ import '../../screens/rooms/room_detail_screen.dart';
 import '../../screens/rooms/add_room_screen.dart';
 import '../../screens/rooms/edit_room_screen.dart';
 import '../../screens/settings/settings_screen.dart';
+import '../../screens/alerts/alerts_screen.dart';
 import '../../models/room_model.dart';
 
 /// Route names as constants
@@ -32,6 +33,7 @@ class Routes {
   static const String addRoom = '/add-room';
   static const String editRoom = '/edit-room';
   static const String settings = '/settings';
+  static const String alerts = '/alerts';
 
   // Prevent instantiation
   Routes._();
@@ -127,6 +129,12 @@ class AppRoutes {
       case Routes.settings:
         return MaterialPageRoute(
           builder: (_) => const SettingsScreen(),
+          settings: settings,
+        );
+
+      case Routes.alerts:
+        return MaterialPageRoute(
+          builder: (_) => const AlertsScreen(),
           settings: settings,
         );
 

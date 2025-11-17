@@ -4,6 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/device_model.dart';
 import '../models/room_model.dart';
 import '../models/sensor_data.dart';
+import '../models/schedule_model.dart';
+import '../models/alert_model.dart';
 
 class FirebaseService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -173,6 +175,49 @@ class FirebaseService {
     return SensorData.fromJson(snapshot.docs.first.data());
   }
 
+  // ==================== SCHEDULES ====================
+
+  Stream<List<ScheduleModel>> getSchedules(String userId, {String? deviceId}) {
+    Query<Map<String, dynamic>> query =
+        _firestore.collection('users').doc(userId).collection('schedules');
+
+    if (deviceId != null) {
+      query = query.where('deviceId', isEqualTo: deviceId);
+    }
+
+    return query.snapshots().map(
+          (snapshot) => snapshot.docs
+              .map((doc) => ScheduleModel.fromFirestore(doc))
+              .toList(),
+        );
+  }
+
+  Future<void> addSchedule(String userId, ScheduleModel schedule) async {
+    await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('schedules')
+        .add(schedule.toMap());
+  }
+
+  Future<void> updateSchedule(String userId, ScheduleModel schedule) async {
+    await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('schedules')
+        .doc(schedule.id)
+        .update(schedule.toMap());
+  }
+
+  Future<void> deleteSchedule(String userId, String scheduleId) async {
+    await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('schedules')
+        .doc(scheduleId)
+        .delete();
+  }
+
   // ==================== ENERGY CONSUMPTION ====================
 
   Future<double> getTodayEnergyConsumption(String userId) async {
@@ -245,6 +290,27 @@ class FirebaseService {
       'read': false,
       'acknowledged': false,
       'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<List<AlertModel>> getAlerts(String userId) {
+    return _firestore
+        .collection('alerts')
+        .where('userId', isEqualTo: userId)
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => AlertModel.fromFirestore(doc))
+              .toList(),
+        );
+  }
+
+  Future<void> markAlertRead(String alertId,
+      {bool acknowledged = false}) async {
+    await _firestore.collection('alerts').doc(alertId).update({
+      'read': true,
+      if (acknowledged) 'acknowledged': true,
     });
   }
 

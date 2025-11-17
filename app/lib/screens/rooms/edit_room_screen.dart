@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/room_model.dart';
+import '../../core/widgets/app_notifications.dart';
 
 // ============================================================================
 // app/lib/screens/rooms/edit_room_screen.dart
@@ -380,21 +381,19 @@ class _EditRoomScreenState extends State<EditRoomScreen> {
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Room updated successfully!'),
-            backgroundColor: Color(0xFF00BFA5),
-          ),
+        AppNotifications.showSnackBar(
+          context,
+          message: 'Room updated successfully!',
+          type: AppNotificationType.success,
         );
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error updating room: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
+        AppNotifications.showSnackBar(
+          context,
+          message: 'Error updating room: ${e.toString()}',
+          type: AppNotificationType.error,
         );
       }
     } finally {

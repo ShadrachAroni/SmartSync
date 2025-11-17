@@ -12,6 +12,7 @@ class SensorData {
   final int ledBrightness;
   final bool motionDetected;
   final double distance;
+  final bool securityEnabled;
   final DateTime timestamp;
 
   SensorData({
@@ -23,6 +24,7 @@ class SensorData {
     required this.ledBrightness,
     required this.motionDetected,
     required this.distance,
+    required this.securityEnabled,
     required this.timestamp,
   });
 
@@ -38,4 +40,5 @@ class SensorData {
   String get temperatureDisplay => '${temperature.toStringAsFixed(1)}°C';
   String get humidityDisplay => '${humidity.toStringAsFixed(0)}%';
   String get distanceDisplay => '${distance.toStringAsFixed(1)} cm';
+  String get securityStatus => securityEnabled ? 'Armed' : 'Disarmed';
 }

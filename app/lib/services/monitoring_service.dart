@@ -22,6 +22,7 @@ class MonitoringService {
       StreamController<AnomalyReport?>.broadcast();
 
   StreamSubscription<SensorData>? _bleSubscription;
+  Timer? _anomalyTimer;
   SensorData? _latestReading;
   String? _userId;
   bool _initialized = false;
@@ -39,6 +40,14 @@ class MonitoringService {
     await _bleSubscription?.cancel();
     _bleSubscription =
         _bluetoothService.sensorDataStream.listen(_handleSensorPayload);
+
+    _anomalyTimer?.cancel();
+    _anomalyTimer = Timer.periodic(
+      const Duration(minutes: 5),
+      (_) => refreshAnomalies(),
+    );
+
+    await refreshAnomalies();
 
     _initialized = true;
     Logger.success('Monitoring service initialized for $userId');
@@ -76,6 +85,11 @@ class MonitoringService {
 
     try {
       await _firebaseService.logSensorData(enriched);
+      // Trigger anomaly refresh after new data batch
+      if (_anomalyTimer == null ||
+          (_anomalyTimer?.tick ?? 0) % 2 == 0) {
+        await refreshAnomalies();
+      }
     } catch (e) {
       Logger.error('Failed to log sensor data: $e');
     }
@@ -83,6 +97,7 @@ class MonitoringService {
 
   void dispose() {
     _bleSubscription?.cancel();
+    _anomalyTimer?.cancel();
     _sensorController.close();
     _anomalyController.close();
     _initialized = false;

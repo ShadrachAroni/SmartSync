@@ -18,9 +18,12 @@ class BluetoothService {
       StreamController<SensorData>.broadcast();
   final StreamController<bool> _connectionController =
       StreamController<bool>.broadcast();
+  final StreamController<String> _statusMessageController =
+      StreamController<String>.broadcast();
 
   Stream<SensorData> get sensorDataStream => _sensorDataController.stream;
   Stream<bool> get connectionStream => _connectionController.stream;
+  Stream<String> get statusMessages => _statusMessageController.stream;
   bool get isConnected => _connectedDevice != null;
 
   // Scan for devices
@@ -28,13 +31,11 @@ class BluetoothService {
     Duration timeout = const Duration(seconds: 15),
   }) async {
     Logger.info('Starting BLE scan...');
+    _emitStatus('Scan started. Ensuring Bluetooth is ready...');
     List<flutter_blue.BluetoothDevice> devices = [];
 
     try {
-      // Check if Bluetooth is available
-      if (await flutter_blue.FlutterBluePlus.isSupported == false) {
-        throw Exception('Bluetooth not supported on this device');
-      }
+      await _ensureBluetoothReady();
 
       // Start scanning
       await flutter_blue.FlutterBluePlus.startScan(
@@ -61,9 +62,11 @@ class BluetoothService {
       await flutter_blue.FlutterBluePlus.stopScan();
 
       Logger.info('Scan complete. Found ${devices.length} devices');
+      _emitStatus('Scan finished. Found ${devices.length} device(s).');
       return devices;
     } catch (e) {
       Logger.error('Scan error: $e');
+      _emitStatus('Scan failed: $e');
       await flutter_blue.FlutterBluePlus.stopScan();
       rethrow;
     }
@@ -72,7 +75,9 @@ class BluetoothService {
   // Connect to device
   Future<bool> connectToDevice(flutter_blue.BluetoothDevice device) async {
     try {
+      await _ensureBluetoothReady();
       Logger.info('Connecting to ${device.advName}...');
+      _emitStatus('Connecting to ${device.advName}...');
 
       await device.connect(
         license: flutter_blue.License.free,
@@ -117,9 +122,11 @@ class BluetoothService {
       }
 
       Logger.success('Connected successfully');
+      _emitStatus('Connected to ${device.advName}');
       return true;
     } catch (e) {
       Logger.error('Connection failed: $e');
+      _emitStatus('Connection failed: $e');
       await disconnect();
       return false;
     }
@@ -135,6 +142,7 @@ class BluetoothService {
         _txCharacteristic = null;
         _connectionController.add(false);
         Logger.info('Disconnected');
+      _emitStatus('Connection closed');
       }
     } catch (e) {
       Logger.error('Disconnect error: $e');
@@ -229,5 +237,30 @@ class BluetoothService {
   void dispose() {
     _sensorDataController.close();
     _connectionController.close();
+    _statusMessageController.close();
+  }
+
+  Future<void> _ensureBluetoothReady() async {
+    if (await flutter_blue.FlutterBluePlus.isSupported == false) {
+      throw Exception('Bluetooth not supported on this device');
+    }
+
+    final adapterState =
+        await flutter_blue.FlutterBluePlus.adapterState.first;
+
+    if (adapterState != flutter_blue.BluetoothAdapterState.on) {
+      throw Exception(
+        adapterState == flutter_blue.BluetoothAdapterState.off
+            ? 'Bluetooth is turned off. Please enable it.'
+            : 'Bluetooth is not ready ($adapterState).',
+      );
+    }
+  }
+
+  void _emitStatus(String message) {
+    Logger.info(message);
+    if (!_statusMessageController.isClosed) {
+      _statusMessageController.add(message);
+    }
   }
 }

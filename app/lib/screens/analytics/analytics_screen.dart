@@ -7,11 +7,35 @@ import 'package:intl/intl.dart';
 import '../../services/ml_service.dart';
 import '../../services/firebase_service.dart';
 import '../../models/ml_prediction.dart';
+import '../../models/sensor_data.dart';
+import '../../models/daily_analytics.dart';
+import '../../models/device_model.dart';
+import '../../models/schedule_model.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/utils/analytics_utils.dart';
 
 // ==================== PROVIDERS ====================
 final mlServiceProvider = Provider((ref) => MLService());
-final firebaseServiceProvider = Provider((ref) => FirebaseService());
+final sensorHistoryProvider =
+    FutureProvider.family<List<SensorData>, Map<String, dynamic>>(
+  (ref, params) async {
+    final firebase = ref.watch(firebaseServiceProvider);
+    return firebase.getUserSensorHistory(
+      params['userId'] as String,
+      params['days'] as int,
+    );
+  },
+);
+final dailyAnalyticsProvider =
+    FutureProvider.family<List<DailyAnalytics>, Map<String, dynamic>>(
+  (ref, params) async {
+    final firebase = ref.watch(firebaseServiceProvider);
+    return firebase.getDailyAnalytics(
+      params['userId'] as String,
+      params['days'] as int,
+    );
+  },
+);
 
 final analyticsTimeRangeProvider = StateProvider<int>((ref) => 7); // Days
 
@@ -241,40 +265,71 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
       'userId': userId,
       'days': timeRange,
     }));
+    final historyAsync = ref.watch(sensorHistoryProvider({
+      'userId': userId,
+      'days': timeRange,
+    }));
+    final dailyAnalyticsAsync = ref.watch(dailyAnalyticsProvider({
+      'userId': userId,
+      'days': timeRange,
+    }));
 
     return RefreshIndicator(
       onRefresh: () async {
-        ref.invalidate(analyticsInsightsProvider);
+        ref.invalidate(analyticsInsightsProvider({
+          'userId': userId,
+          'days': timeRange,
+        }));
+        ref.invalidate(sensorHistoryProvider({
+          'userId': userId,
+          'days': timeRange,
+        }));
       },
       child: insightsAsync.when(
-        data: (insights) => SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Summary Cards
-              _buildSummaryCards(insights),
-              const SizedBox(height: 24),
+        data: (insights) => dailyAnalyticsAsync.when(
+          data: (dailyData) => historyAsync.when(
+            data: (history) {
+              final trendData = dailyData.isNotEmpty
+                  ? _mapDailyAnalytics(dailyData)
+                  : buildDailyTrends(history, timeRange);
+              final hourlyActivity = buildHourlyActivity(history);
 
-              // Environmental Trends
-              _buildSectionHeader('Environmental Trends'),
-              const SizedBox(height: 16),
-              _buildEnvironmentalChart(insights, userId, timeRange),
-              const SizedBox(height: 24),
-
-              // Usage Patterns
-              _buildSectionHeader('Usage Patterns'),
-              const SizedBox(height: 16),
-              _buildUsageChart(insights),
-              const SizedBox(height: 24),
-
-              // Energy Breakdown
-              _buildSectionHeader('Energy Breakdown'),
-              const SizedBox(height: 16),
-              _buildEnergyBreakdown(insights),
-            ],
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSummaryCards(insights),
+                    const SizedBox(height: 24),
+                    _buildSectionHeader('Environmental Trends'),
+                    const SizedBox(height: 16),
+                    _buildEnvironmentalChart(trendData),
+                    const SizedBox(height: 24),
+                    _buildSectionHeader('Usage Patterns'),
+                    const SizedBox(height: 16),
+                    _buildUsageChart(hourlyActivity, insights.peakUsageHour),
+                    const SizedBox(height: 24),
+                    _buildSectionHeader('Energy Breakdown'),
+                    const SizedBox(height: 16),
+                    _buildEnergyBreakdown(insights),
+                  ],
+                ),
+              );
+            },
+            loading: () => const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
+              ),
+            ),
+            error: (error, _) => _buildErrorState(error.toString()),
           ),
+          loading: () => const Center(
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
+            ),
+          ),
+          error: (error, _) => _buildErrorState(error.toString()),
         ),
         loading: () => const Center(
           child: CircularProgressIndicator(
@@ -430,8 +485,13 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
     );
   }
 
-  Widget _buildEnvironmentalChart(
-      AnalyticsInsights insights, String userId, int days) {
+  Widget _buildEnvironmentalChart(List<DailyTrendPoint> trendData) {
+    if (trendData.isEmpty) {
+      return _buildNoDataCard(
+        'We need at least one day of sensor logs to chart trends.',
+      );
+    }
+
     return Container(
       height: 280,
       padding: const EdgeInsets.all(16),
@@ -476,20 +536,20 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
           ),
         ],
         series: <CartesianSeries>[
-          LineSeries<Map<String, dynamic>, String>(
+          LineSeries<DailyTrendPoint, String>(
             name: 'Temperature',
-            dataSource: _generateTrendData(days),
-            xValueMapper: (data, _) => data['day'],
-            yValueMapper: (data, _) => data['temp'],
+            dataSource: trendData,
+            xValueMapper: (data, _) => data.label,
+            yValueMapper: (data, _) => data.temperature,
             color: const Color(0xFFFF6B6B),
             width: 3,
             markerSettings: const MarkerSettings(isVisible: true),
           ),
-          LineSeries<Map<String, dynamic>, String>(
+          LineSeries<DailyTrendPoint, String>(
             name: 'Humidity',
-            dataSource: _generateTrendData(days),
-            xValueMapper: (data, _) => data['day'],
-            yValueMapper: (data, _) => data['humidity'],
+            dataSource: trendData,
+            xValueMapper: (data, _) => data.label,
+            yValueMapper: (data, _) => data.humidity,
             yAxisName: 'yAxis',
             color: const Color(0xFF4ECDC4),
             width: 3,
@@ -501,7 +561,17 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
     );
   }
 
-  Widget _buildUsageChart(AnalyticsInsights insights) {
+  Widget _buildUsageChart(
+      List<HourlyActivityPoint> activityData, int peakUsageHour) {
+    final hasActivity =
+        activityData.any((point) => point.activityValue > 0.0);
+
+    if (!hasActivity) {
+      return _buildNoDataCard(
+        'No motion activity was captured for this time range.',
+      );
+    }
+
     return Container(
       height: 250,
       padding: const EdgeInsets.all(16),
@@ -538,7 +608,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  '${insights.peakUsageHour}:00',
+                  '${peakUsageHour.toString().padLeft(2, '0')}:00',
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -562,10 +632,10 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                 ),
               ),
               series: <CartesianSeries>[
-                ColumnSeries<Map<String, dynamic>, String>(
-                  dataSource: _generateHourlyActivity(insights.peakUsageHour),
-                  xValueMapper: (data, _) => data['hour'],
-                  yValueMapper: (data, _) => data['activity'],
+                ColumnSeries<HourlyActivityPoint, String>(
+                  dataSource: activityData,
+                  xValueMapper: (data, _) => data.hourLabel,
+                  yValueMapper: (data, _) => data.activityValue,
                   color: const Color(0xFF00BFA5),
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(8),
@@ -682,6 +752,56 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
       ],
     );
   }
+
+  Widget _buildNoDataCard(String message) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.insights_rounded,
+              size: 36, color: Colors.grey.shade500),
+          const SizedBox(height: 12),
+          Text(
+            'Not enough data yet',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey.shade600,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<DailyTrendPoint> _mapDailyAnalytics(List<DailyAnalytics> analytics) {
+    return analytics
+        .map(
+          (entry) => DailyTrendPoint(
+            label: DateFormat('MMM dd').format(entry.date),
+            temperature: entry.avgTemperature,
+            humidity: entry.avgHumidity,
+          ),
+        )
+        .toList();
+  }
+
 
   // ==================== INSIGHTS TAB ====================
   Widget _buildInsightsTab(String userId) {
@@ -1515,48 +1635,16 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
     return '${diff.inDays}d ago';
   }
 
-  List<Map<String, dynamic>> _generateTrendData(int days) {
-    final data = <Map<String, dynamic>>[];
-    for (int i = days - 1; i >= 0; i--) {
-      final date = DateTime.now().subtract(Duration(days: i));
-      data.add({
-        'day': DateFormat('MMM dd').format(date),
-        'temp': 22.0 + (i % 5) * 0.8,
-        'humidity': 50.0 + (i % 7) * 2.5,
-      });
-    }
-    return data;
-  }
-
-  List<Map<String, dynamic>> _generateHourlyActivity(int peakHour) {
-    final data = <Map<String, dynamic>>[];
-    for (int i = 0; i < 24; i++) {
-      final activity = i == peakHour
-          ? 100
-          : (50 + (24 - (i - peakHour).abs()) * 2).toDouble();
-      data.add({
-        'hour': i.toString().padLeft(2, '0'),
-        'activity': activity,
-      });
-    }
-    return data;
-  }
-
   void _showCreateScheduleDialog(SchedulePrediction prediction) {
     AppNotifications.showDialog(
       context,
       title: 'Create Schedule',
       message:
-          'AI suggests scheduling ${prediction.deviceType} to ${prediction.value}% every ${prediction.dayName} at ${prediction.timeString}.\n\nBased on your recent usage patterns.',
+          'AI suggests scheduling ${prediction.deviceType} to ${prediction.value}% every ${prediction.dayName} at ${prediction.timeString}.'
+          '\nDevice: ${prediction.deviceName ?? 'Select device on next step'}',
       type: AppNotificationType.info,
       primaryLabel: 'Create',
-      onPrimaryPressed: () async {
-        AppNotifications.showSnackBar(
-          context,
-          message: 'Schedule created successfully!',
-          type: AppNotificationType.success,
-        );
-      },
+      onPrimaryPressed: () => _handlePredictionCreate(prediction),
       secondaryLabel: 'Cancel',
       onSecondaryPressed: () async {},
     );
@@ -1581,4 +1669,159 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
       onSecondaryPressed: () async {},
     );
   }
+
+  Future<void> _handlePredictionCreate(
+      SchedulePrediction prediction) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Please login to manage schedules.',
+        type: AppNotificationType.warning,
+      );
+      return;
+    }
+
+    try {
+      final firebase = ref.read(firebaseServiceProvider);
+      final devices = await firebase.fetchUserDevices(user.uid);
+
+      if (devices.isEmpty) {
+        AppNotifications.showSnackBar(
+          context,
+          message: 'No devices found. Add a device to accept AI schedules.',
+          type: AppNotificationType.error,
+        );
+        return;
+      }
+
+      DeviceModel? targetDevice = prediction.deviceId != null
+          ? _firstDeviceWhere(devices, (d) => d.id == prediction.deviceId)
+          : null;
+
+      if (targetDevice == null) {
+        final matched = devices
+            .where((device) => device.type.name == prediction.deviceType)
+            .toList();
+
+        if (matched.isEmpty) {
+          AppNotifications.showSnackBar(
+            context,
+            message:
+                'No ${prediction.deviceType} devices found. Add one to accept AI schedules.',
+            type: AppNotificationType.error,
+          );
+          return;
+        }
+
+        targetDevice = matched.length == 1
+            ? matched.first
+            : await _promptDeviceSelection(matched);
+
+        if (targetDevice == null) {
+          return;
+        }
+      }
+
+      final schedule = ScheduleModel(
+        id: '',
+        userId: user.uid,
+        deviceId: targetDevice.id,
+        roomId: targetDevice.roomId,
+        hour: prediction.hour,
+        minute: prediction.minute,
+        fanSpeed: prediction.deviceType == 'fan' ? prediction.value : 0,
+        brightness: prediction.deviceType == 'light' ? prediction.value : 0,
+        enabled: false,
+        repeatDaily: true,
+        daysOfWeek: [prediction.dayOfWeek],
+        source: 'ai',
+        createdAt: DateTime.now(),
+      );
+
+      await firebase.addSchedule(user.uid, schedule);
+
+      if (!mounted) return;
+      AppNotifications.showSnackBar(
+        context,
+        message:
+            'Schedule added for ${targetDevice.name}. Enable it from the schedules tab.',
+        type: AppNotificationType.success,
+      );
+    } catch (e) {
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Failed to create schedule: $e',
+        type: AppNotificationType.error,
+      );
+    }
+  }
+
+  Future<DeviceModel?> _promptDeviceSelection(
+      List<DeviceModel> devices) async {
+    return showModalBottomSheet<DeviceModel>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Select Device',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: devices.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final device = devices[index];
+                      return ListTile(
+                        leading: Icon(device.icon, color: Colors.teal),
+                        title: Text(device.name),
+                        subtitle: Text(
+                          device.roomId.isEmpty
+                              ? 'Unassigned room'
+                              : 'Room: ${device.roomId}',
+                        ),
+                        onTap: () => Navigator.of(context).pop(device),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  DeviceModel? _firstDeviceWhere(
+      List<DeviceModel> devices, bool Function(DeviceModel) test) {
+    for (final device in devices) {
+      if (test(device)) return device;
+    }
+    return null;
+  }
 }
+

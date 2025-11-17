@@ -38,7 +38,8 @@ BLEServiceManager::BLEServiceManager()
       oldDeviceConnected(false),
       fanSpeedCallback(nullptr),
       ledBrightnessCallback(nullptr),
-      autoModeCallback(nullptr) {
+      autoModeCallback(nullptr),
+      customCommandCallback(nullptr) {
 }
 
 BLEServiceManager::~BLEServiceManager() {
@@ -110,10 +111,11 @@ bool BLEServiceManager::isConnected() {
 }
 
 void BLEServiceManager::sendSensorData(float temp, float humidity, int fanSpeed, 
-                                       int ledBright, bool motion, float distance) {
+                                       int ledBright, bool motion, float distance,
+                                       bool securityArmed) {
     if (!deviceConnected) return;
     
-    String json = createSensorJSON(temp, humidity, fanSpeed, ledBright, motion, distance);
+    String json = createSensorJSON(temp, humidity, fanSpeed, ledBright, motion, distance, securityArmed);
     pTxCharacteristic->setValue(json.c_str());
     pTxCharacteristic->notify();
     
@@ -122,8 +124,9 @@ void BLEServiceManager::sendSensorData(float temp, float humidity, int fanSpeed,
 }
 
 String BLEServiceManager::createSensorJSON(float temp, float humidity, int fanSpeed, 
-                                           int ledBright, bool motion, float distance) {
-    StaticJsonDocument<256> doc;
+                                           int ledBright, bool motion, float distance,
+                                           bool securityArmed) {
+    StaticJsonDocument<320> doc;
     
     doc["type"] = "sensor_data";
     doc["temperature"] = temp;
@@ -133,6 +136,7 @@ String BLEServiceManager::createSensorJSON(float temp, float humidity, int fanSp
     doc["motion"] = motion;
     doc["distance"] = distance;
     doc["timestamp"] = millis();
+    doc["security_enabled"] = securityArmed;
     
     String output;
     serializeJson(doc, output);
@@ -172,9 +176,14 @@ void BLEServiceManager::handleCommand(String command) {
             autoModeCallback(enabled);
         }
     }
-    else if (strcmp(cmd, "GET_STATUS") == 0) {
-        // Send immediate status update
+    else if (strcmp(cmd, "GET_STATUS") == 0 || strcmp(cmd, "GET_SENSOR") == 0) {
         DEBUG_PRINTLN("Status request received");
+        if (customCommandCallback) {
+            customCommandCallback(cmd, doc.as<JsonVariantConst>());
+        }
+    }
+    else if (customCommandCallback) {
+        customCommandCallback(cmd, doc.as<JsonVariantConst>());
     }
     else {
         DEBUG_PRINT("Unknown command: ");
@@ -192,4 +201,8 @@ void BLEServiceManager::onLEDBrightnessChange(void (*callback)(uint8_t)) {
 
 void BLEServiceManager::onAutoModeChange(void (*callback)(bool)) {
     autoModeCallback = callback;
+}
+
+void BLEServiceManager::onCommand(void (*callback)(const char*, JsonVariantConst payload)) {
+    customCommandCallback = callback;
 }

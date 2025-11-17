@@ -6,6 +6,8 @@ import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:intl/intl.dart';
 import '../../services/ml_service.dart';
 import '../../services/firebase_service.dart';
+import '../../models/ml_prediction.dart';
+import '../../core/widgets/app_notifications.dart';
 
 // ==================== PROVIDERS ====================
 final mlServiceProvider = Provider((ref) => MLService());
@@ -1541,125 +1543,42 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
   }
 
   void _showCreateScheduleDialog(SchedulePrediction prediction) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
-          children: [
-            Icon(Icons.schedule_rounded, color: Color(0xFF00BFA5)),
-            SizedBox(width: 12),
-            Text('Create Schedule'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'AI suggests scheduling ${prediction.deviceType} to ${prediction.value}% '
-              'every ${prediction.dayName} at ${prediction.timeString}.',
-              style: const TextStyle(fontSize: 15, height: 1.5),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.blue.shade200),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline,
-                      color: Colors.blue.shade700, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Based on your usage patterns',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.blue.shade900,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Schedule created successfully!'),
-                  backgroundColor: Color(0xFF00BFA5),
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00BFA5),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
+    AppNotifications.showDialog(
+      context,
+      title: 'Create Schedule',
+      message:
+          'AI suggests scheduling ${prediction.deviceType} to ${prediction.value}% every ${prediction.dayName} at ${prediction.timeString}.\n\nBased on your recent usage patterns.',
+      type: AppNotificationType.info,
+      primaryLabel: 'Create',
+      onPrimaryPressed: () async {
+        AppNotifications.showSnackBar(
+          context,
+          message: 'Schedule created successfully!',
+          type: AppNotificationType.success,
+        );
+      },
+      secondaryLabel: 'Cancel',
+      onSecondaryPressed: () async {},
     );
   }
 
   void _handleAnomalyAction(Anomaly anomaly) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Icon(Icons.phone_rounded, color: Colors.red.shade600),
-            const SizedBox(width: 12),
-            const Text('Contact Caregiver'),
-          ],
-        ),
-        content: const Text(
-          'This will send an alert to all registered caregivers.\n\n'
-          'Do you want to proceed?',
-          style: TextStyle(fontSize: 15, height: 1.5),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('Alert sent to caregivers'),
-                  backgroundColor: Colors.red.shade600,
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.shade600,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text('Send Alert'),
-          ),
-        ],
-      ),
+    AppNotifications.showDialog(
+      context,
+      title: 'Contact Caregiver',
+      message:
+          'This will send an alert to all registered caregivers.\n\nDo you want to proceed?',
+      type: AppNotificationType.warning,
+      primaryLabel: 'Send Alert',
+      onPrimaryPressed: () async {
+        AppNotifications.showSnackBar(
+          context,
+          message: 'Alert sent to caregivers',
+          type: AppNotificationType.error,
+        );
+      },
+      secondaryLabel: 'Cancel',
+      onSecondaryPressed: () async {},
     );
   }
 }

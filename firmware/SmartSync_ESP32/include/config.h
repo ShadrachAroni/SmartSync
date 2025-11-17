@@ -55,6 +55,16 @@
 #define BLE_CHARACTERISTIC_UUID_RX "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 #define BLE_CHARACTERISTIC_UUID_TX "beb5483f-36e1-4688-b7f5-ea07361b26a8"
 
+#define CMD_SET_FAN         "SET_FAN"
+#define CMD_SET_LED         "SET_LED"
+#define CMD_SET_AUTO        "SET_AUTO"
+#define CMD_GET_STATUS      "GET_STATUS"
+#define CMD_GET_SENSOR      "GET_SENSOR"
+#define CMD_ADD_SCHEDULE    "ADD_SCHEDULE"
+#define CMD_DELETE_SCHEDULE "DEL_SCHEDULE"
+#define CMD_SOS             "SOS"
+#define CMD_SET_SECURITY    "SET_SECURITY"
+
 // ============================================================================
 // SENSOR THRESHOLDS
 // ============================================================================
@@ -97,6 +107,7 @@ struct AutoModeSettings {
 #define PREF_AUTO_MODE "auto_mode"
 #define PREF_FAN_SPEED "fan_speed"
 #define PREF_LED_BRIGHTNESS "led_bright"
+#define PREF_SECURITY_ENABLED "security_enabled"
 
 // ============================================================================
 // DEBUG SETTINGS

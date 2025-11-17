@@ -159,6 +159,7 @@ class BluetoothService {
           ledBrightness: json['led_brightness'] as int,
           motionDetected: json['motion'] as bool,
           distance: (json['distance'] as num).toDouble(),
+          securityEnabled: json['security_enabled'] as bool? ?? true,
           timestamp: DateTime.now(),
         );
 
@@ -208,6 +209,16 @@ class BluetoothService {
 
   Future<bool> setAutoMode(bool enabled) async {
     return await sendCommand(BLEConstants.cmdSetAutoMode, enabled);
+  }
+
+  Future<bool> setSecurityEnabled(bool enabled) async {
+    final payload = {'enabled': enabled};
+    return await sendCommand(BLEConstants.cmdSetSecurity, payload);
+  }
+
+  Future<bool> triggerSecurityAlarm({int durationMs = 5000}) async {
+    final payload = {'duration': durationMs};
+    return await sendCommand(BLEConstants.cmdSOS, payload);
   }
 
   Future<bool> requestStatus() async {

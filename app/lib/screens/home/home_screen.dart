@@ -7,8 +7,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../services/firebase_service.dart';
-import '../../services/bluetooth_service.dart';
-import '../../models/device_model.dart';
 import '../../models/room_model.dart';
 import '../../models/sensor_data.dart';
 import '../widgets/energy_card.dart';
@@ -19,24 +17,16 @@ import '../rooms/rooms_screen.dart';
 import '../devices/device_scan_screen.dart';
 import '../auth/login_screen.dart';
 import '../../core/constants/routes.dart'; // <-- Ensure you import the routes
+import '../../providers/device_provider.dart';
+import '../../providers/sensor_provider.dart';
+import '../../core/widgets/app_notifications.dart';
 
 // ==================== PROVIDERS ====================
 
-final firebaseServiceProvider = Provider((ref) => FirebaseService());
-final bluetoothServiceProvider = Provider((ref) => BluetoothService());
-final userDevicesProvider =
-    StreamProvider.family<List<DeviceModel>, String>((ref, userId) {
-  final firebaseService = ref.watch(firebaseServiceProvider);
-  return firebaseService.getUserDevices(userId);
-});
 final userRoomsProvider =
     StreamProvider.family<List<RoomModel>, String>((ref, userId) {
   final firebaseService = ref.watch(firebaseServiceProvider);
   return firebaseService.getUserRooms(userId);
-});
-final sensorDataProvider = StreamProvider<SensorData?>((ref) {
-  final bluetoothService = ref.watch(bluetoothServiceProvider);
-  return bluetoothService.sensorDataStream;
 });
 final bleConnectionProvider = StreamProvider<bool>((ref) {
   final bluetoothService = ref.watch(bluetoothServiceProvider);
@@ -182,6 +172,8 @@ class HomeTab extends ConsumerStatefulWidget {
 }
 
 class _HomeTabState extends ConsumerState<HomeTab> {
+  bool _securityToggleInProgress = false;
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -192,7 +184,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
 
     final currentUserAsync = ref.watch(currentUserProvider);
     final bleConnection = ref.watch(bleConnectionProvider);
-    final sensorData = ref.watch(sensorDataProvider);
+    final sensorData = ref.watch(sensorStreamProvider);
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
@@ -207,6 +199,8 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildBLEBanner(bleConnection),
+                    const SizedBox(height: 16),
+                    _buildSecurityCard(sensorData, bleConnection),
                     const SizedBox(height: 16),
                     _buildEnergyCard(user.uid),
                     const SizedBox(height: 24),
@@ -392,7 +386,9 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           color: Colors.grey.shade700,
           size: 22,
         ),
-        onPressed: () {},
+        onPressed: () {
+          Navigator.of(context).pushNamed(Routes.alerts);
+        },
       ),
     );
   }
@@ -449,13 +445,17 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   void _handleMenuAction(String value) {
     switch (value) {
       case 'profile':
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile - Coming Soon')),
+        AppNotifications.showSnackBar(
+          context,
+          message: 'Profile - Coming Soon',
+          type: AppNotificationType.info,
         );
         break;
       case 'settings':
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Settings - Coming Soon')),
+        AppNotifications.showSnackBar(
+          context,
+          message: 'Settings - Coming Soon',
+          type: AppNotificationType.info,
         );
         break;
       case 'logout':
@@ -465,64 +465,26 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   }
 
   void _showLogoutDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.logout_rounded,
-                color: Colors.red.shade600,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Text('Logout'),
-          ],
-        ),
-        content: const Text(
-          'Are you sure you want to logout from SmartSync?',
-          style: TextStyle(fontSize: 15),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final bleService = ref.read(bluetoothServiceProvider);
-              await bleService.disconnect();
-              await FirebaseAuth.instance.signOut();
+    AppNotifications.showDialog(
+      context,
+      title: 'Logout',
+      message: 'Are you sure you want to logout from SmartSync?',
+      type: AppNotificationType.warning,
+      primaryLabel: 'Logout',
+      onPrimaryPressed: () async {
+        final bleService = ref.read(bluetoothServiceProvider);
+        await bleService.disconnect();
+        await FirebaseAuth.instance.signOut();
 
-              if (mounted) {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => const LoginScreen()),
-                  (route) => false,
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.shade600,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            ),
-            child: const Text('Logout', style: TextStyle(fontSize: 16)),
-          ),
-        ],
-      ),
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => const LoginScreen()),
+            (route) => false,
+          );
+        }
+      },
+      secondaryLabel: 'Cancel',
+      onSecondaryPressed: () async {},
     );
   }
 
@@ -584,6 +546,170 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           : const SizedBox.shrink(),
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+
+  Widget _buildSecurityCard(
+    AsyncValue<SensorData?> sensorData,
+    AsyncValue<bool> bleConnection,
+  ) {
+    final bool? connectionValue = bleConnection.asData?.value;
+    final bool isConnected = connectionValue ?? false;
+    final Color statusColor =
+        isConnected ? Colors.green.shade600 : Colors.red.shade600;
+    final String connectionLabel = connectionValue == null
+        ? 'Connecting...'
+        : isConnected
+            ? 'Device Connected'
+            : 'Disconnected';
+
+    return sensorData.when(
+      data: (reading) {
+        final bool isArmed = reading?.securityEnabled ?? true;
+
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 15,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isArmed
+                          ? Colors.green.shade50
+                          : Colors.orange.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      isArmed ? Icons.shield_outlined : Icons.shield,
+                      color: isArmed
+                          ? Colors.green.shade600
+                          : Colors.orange.shade600,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Security System',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          isArmed
+                              ? 'Your safety protocols are active.'
+                              : 'Security automations paused.',
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch.adaptive(
+                    value: isArmed,
+                    onChanged: (!isConnected || _securityToggleInProgress)
+                        ? null
+                        : _handleSecurityToggle,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Icon(Icons.bluetooth, size: 16, color: statusColor),
+                  const SizedBox(width: 6),
+                  Text(
+                    connectionLabel,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: statusColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (_securityToggleInProgress)
+                    const SizedBox(
+                      height: 16,
+                      width: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+      loading: () => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: const Center(
+          child: SizedBox(
+            height: 20,
+            width: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      ),
+      error: (_, __) => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          'Unable to load security status',
+          style: TextStyle(color: Colors.red.shade800),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleSecurityToggle(bool enabled) async {
+    final bleService = ref.read(bluetoothServiceProvider);
+
+    if (!bleService.isConnected) {
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Connect to your SmartSync hub before changing security.',
+        type: AppNotificationType.warning,
+      );
+      return;
+    }
+
+    setState(() => _securityToggleInProgress = true);
+    final success = await bleService.setSecurityEnabled(enabled);
+    if (!mounted) return;
+    setState(() => _securityToggleInProgress = false);
+
+    AppNotifications.showSnackBar(
+      context,
+      message: success
+          ? 'Security ${enabled ? 'armed' : 'disarmed'} successfully.'
+          : 'Unable to update security status.',
+      type: success ? AppNotificationType.success : AppNotificationType.error,
     );
   }
 
@@ -760,7 +886,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   // ==================== DEVICE GRID ====================
 
   Widget _buildDeviceGrid(String userId) {
-    final devicesAsync = ref.watch(userDevicesProvider(userId));
+    final devicesAsync = ref.watch(deviceControllerProvider(userId));
 
     return devicesAsync.when(
       data: (devices) {
@@ -939,25 +1065,13 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                   'timestamp': FieldValue.serverTimestamp(),
                   'message': 'Emergency assistance requested',
                 });
+                await _triggerSecurityAlarm();
 
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Row(
-                        children: [
-                          Icon(Icons.check_circle, color: Colors.white),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Text('Emergency alert sent to caregivers!'),
-                          ),
-                        ],
-                      ),
-                      backgroundColor: Colors.green.shade600,
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
+                  AppNotifications.showSnackBar(
+                    context,
+                    message: 'Emergency alert sent to caregivers!',
+                    type: AppNotificationType.success,
                   );
                 }
               }
@@ -974,6 +1088,29 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         ],
       ),
     );
+  }
+
+  Future<bool> _triggerSecurityAlarm({int durationMs = 5000}) async {
+    final bleService = ref.read(bluetoothServiceProvider);
+    if (!bleService.isConnected) {
+      AppNotifications.showSnackBar(
+        context,
+        message: 'SOS sent, but hub is offline so alarm was not triggered.',
+        type: AppNotificationType.warning,
+      );
+      return false;
+    }
+
+    final success =
+        await bleService.triggerSecurityAlarm(durationMs: durationMs);
+    if (!success && mounted) {
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Hub did not acknowledge the SOS alarm.',
+        type: AppNotificationType.error,
+      );
+    }
+    return success;
   }
 
   // ==================== ROOMS LIST ====================

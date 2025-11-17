@@ -50,16 +50,15 @@ def load_scaler(scaler_path):
         print(f"   ⚠️  Scaler not found at {scaler_path}")
         return None
 
-def generate_representative_dataset(sequence_length=168, num_features=13):
+def generate_representative_dataset(sequence_length=24, num_features=8):
     """
     Generate representative dataset for INT8 quantization
     
-    Uses actual training data if available, otherwise generates synthetic data.
-    This helps the quantizer understand the range of input values.
+    FIXED: Now matches the actual model input shape (24, 8) instead of (168, 13)
     
     Args:
-        sequence_length: Number of timesteps (default 168 = 1 week)
-        num_features: Number of input features (default 13)
+        sequence_length: Number of timesteps (24 hours from your model)
+        num_features: Number of input features (8 from your model)
     
     Yields:
         Batches of input data for quantization calibration
@@ -70,42 +69,88 @@ def generate_representative_dataset(sequence_length=168, num_features=13):
     if data_path.exists() and scaler_path.exists():
         print("   📊 Using real training data for quantization")
         
-        # Load data
-        df = pd.read_csv(data_path)
-        scaler = load_scaler(scaler_path)
+        try:
+            # Load data
+            df = pd.read_csv(data_path)
+            scaler = load_scaler(scaler_path)
+            
+            # Define the ACTUAL features used by your model (8 features, not 13)
+            feature_cols = [
+                'temperature_mean', 'temperature_max', 'temperature_min',
+                'humidity_mean', 'motionDetected_sum',
+                'hour_sin', 'hour_cos', 'is_weekend'
+            ]
+            
+            # Check which features are actually available
+            available_features = [col for col in feature_cols if col in df.columns]
+            missing_features = [col for col in feature_cols if col not in df.columns]
+            
+            if missing_features:
+                print(f"   ⚠️  Missing features: {missing_features}")
+                print(f"   ⚠️  Available features: {len(available_features)}/{len(feature_cols)}")
+                print(f"   🧪 Falling back to synthetic data")
+                
+                # Use synthetic data if features are missing
+                for _ in range(100):
+                    sample = np.random.randn(1, sequence_length, num_features).astype(np.float32)
+                    yield [sample]
+                return
+            
+            # Get features and normalize
+            features = df[available_features].values[:200]  # Use first 200 records
+            
+            # Handle NaN values
+            features = np.nan_to_num(features, nan=0.0)
+            
+            # Normalize using scaler
+            try:
+                features_normalized = scaler.transform(features)
+            except Exception as e:
+                print(f"   ⚠️  Scaler transform failed: {e}")
+                print(f"   🧪 Using synthetic data instead")
+                for _ in range(100):
+                    sample = np.random.randn(1, sequence_length, num_features).astype(np.float32)
+                    yield [sample]
+                return
+            
+            # Create sequences
+            for i in range(len(features_normalized) - sequence_length):
+                sample = features_normalized[i:i+sequence_length]
+                
+                # Ensure correct shape
+                if sample.shape == (sequence_length, num_features):
+                    yield [np.array([sample], dtype=np.float32)]
+                else:
+                    print(f"   ⚠️  Incorrect shape: {sample.shape}, expected ({sequence_length}, {num_features})")
+                    break
         
-        feature_cols = [
-            'temperature_mean', 'temperature_max', 'temperature_min',
-            'humidity_mean', 'motionDetected_sum', 'distance_mean',
-            'hour_sin', 'hour_cos', 'day_sin', 'day_cos',
-            'is_weekend', 'is_night', 'manual_actions'
-        ]
-        
-        # Get features and normalize
-        features = df[feature_cols].values[:200]  # Use first 200 records
-        features_normalized = scaler.transform(features)
-        
-        # Create sequences
-        for i in range(len(features_normalized) - sequence_length):
-            sample = features_normalized[i:i+sequence_length]
-            yield [np.array([sample], dtype=np.float32)]
+        except Exception as e:
+            print(f"   ❌ Error loading real data: {e}")
+            print(f"   🧪 Falling back to synthetic data")
+            
+            # Generate synthetic data
+            for _ in range(100):
+                sample = np.random.randn(1, sequence_length, num_features).astype(np.float32)
+                yield [sample]
     
     else:
         print("   🧪 Using synthetic data for quantization")
+        print(f"   Data path exists: {data_path.exists()}")
+        print(f"   Scaler path exists: {scaler_path.exists()}")
         
-        # Generate synthetic data
+        # Generate synthetic data with realistic ranges
         for _ in range(100):
-            # Random data with realistic ranges
+            # Random data with realistic ranges for smart home sensors
             sample = np.random.randn(1, sequence_length, num_features).astype(np.float32)
             yield [sample]
 
-# ==================== MODEL CONVERSION ====================
+
 def convert_schedule_predictor():
     """
     Convert schedule predictor model to TFLite
     
-    Model details:
-    - Input:  (1, 168, 13) - 1 week of hourly data, 13 features
+    FIXED: Now uses actual model dimensions from your trained model
+    - Input:  (1, 24, 8) - 24 hours of data, 8 features
     - Output: (1, 2) - Fan speed and LED brightness predictions (0-1 range)
     
     Returns:
@@ -135,6 +180,17 @@ def convert_schedule_predictor():
     print(f"   Input shape:  {model.input_shape}")
     print(f"   Output shape: {model.output_shape}")
     
+    # Extract actual dimensions from model
+    input_shape = model.input_shape
+    if input_shape[1] is not None and input_shape[2] is not None:
+        sequence_length = input_shape[1]  # Should be 24
+        num_features = input_shape[2]     # Should be 8
+        print(f"   Detected: {sequence_length} timesteps, {num_features} features")
+    else:
+        print("   ⚠️  Could not detect input dimensions, using defaults")
+        sequence_length = 24
+        num_features = 8
+    
     # Display model architecture
     print("\n📊 Model Architecture:")
     model.summary()
@@ -148,8 +204,11 @@ def convert_schedule_predictor():
     print("   • Default optimization (speed + size)")
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
     
-    print("   • INT8 quantization (with representative dataset)")
-    converter.representative_dataset = lambda: generate_representative_dataset(168, 13)
+    print(f"   • INT8 quantization (with representative dataset)")
+    print(f"   • Using sequence_length={sequence_length}, num_features={num_features}")
+    
+    # Use the correct dimensions
+    converter.representative_dataset = lambda: generate_representative_dataset(sequence_length, num_features)
     converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
     
     # Keep input/output as float32 for easier Flutter integration
@@ -162,6 +221,10 @@ def convert_schedule_predictor():
         tflite_model = converter.convert()
     except Exception as e:
         print(f"   ❌ Conversion failed: {e}")
+        print(f"\n   Troubleshooting:")
+        print(f"   1. Check that scaler.pkl matches the model's expected features")
+        print(f"   2. Verify hourly_features.csv has the correct columns")
+        print(f"   3. Try running with synthetic data (conversion will still work)")
         return False
     
     # Save TFLite model

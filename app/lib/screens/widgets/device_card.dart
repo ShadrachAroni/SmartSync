@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
-import '../../models/device_model.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-class DeviceCard extends StatefulWidget {
+import '../../models/device_model.dart';
+import '../../providers/device_provider.dart';
+
+class DeviceCard extends ConsumerStatefulWidget {
   final DeviceModel device;
 
   const DeviceCard({super.key, required this.device});
 
   @override
-  State<DeviceCard> createState() => _DeviceCardState();
+  ConsumerState<DeviceCard> createState() => _DeviceCardState();
 }
 
-class _DeviceCardState extends State<DeviceCard> {
+class _DeviceCardState extends ConsumerState<DeviceCard> {
   late bool _isOn;
 
   @override
@@ -19,11 +23,21 @@ class _DeviceCardState extends State<DeviceCard> {
     _isOn = widget.device.isOn;
   }
 
-  void _toggleDevice() {
-    setState(() {
-      _isOn = !_isOn;
-    });
-    // TODO: Update Firebase
+  @override
+  void didUpdateWidget(covariant DeviceCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.device.isOn != widget.device.isOn) {
+      _isOn = widget.device.isOn;
+    }
+  }
+
+  Future<void> _toggleDevice() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    final notifier = ref.read(deviceControllerProvider(userId).notifier);
+    final target = !_isOn;
+    setState(() => _isOn = target);
+    await notifier.toggleDevice(widget.device, target);
   }
 
   Color _getDeviceColor() {

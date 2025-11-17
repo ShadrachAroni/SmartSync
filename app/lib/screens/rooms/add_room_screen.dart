@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../core/widgets/app_notifications.dart';
 
 class AddRoomScreen extends StatefulWidget {
   const AddRoomScreen({super.key});
@@ -376,21 +377,19 @@ class _AddRoomScreenState extends State<AddRoomScreen> {
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Room created successfully!'),
-            backgroundColor: Color(0xFF00BFA5),
-          ),
+        AppNotifications.showSnackBar(
+          context,
+          message: 'Room created successfully!',
+          type: AppNotificationType.success,
         );
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error creating room: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
+        AppNotifications.showSnackBar(
+          context,
+          message: 'Error creating room: ${e.toString()}',
+          type: AppNotificationType.error,
         );
       }
     } finally {

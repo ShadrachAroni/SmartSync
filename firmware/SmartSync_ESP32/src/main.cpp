@@ -1,15 +1,23 @@
 #include <Arduino.h>
 #include <Wire.h>
-#include <DHT.h>
 #include <Preferences.h>
+#include <ArduinoJson.h>
 #include "../include/config.h"
 #include "ble/BLEService.h"
+#include "actuators/FanController.h"
+#include "sensors/DHT22Sensor.h"
+#include "storage/DeviceStorage.h"
+#include "scheduler/ScheduleManager.h"
+#include "security/AlarmSystem.h"
 
 // ============================================================================
 // GLOBAL OBJECTS
 // ============================================================================
-DHT dht(DHT_PIN, DHT_TYPE);
-Preferences preferences;
+DHT22Sensor dhtSensor(DHT_PIN, DHT_TYPE);
+DeviceStorage storage;
+FanController fanController;
+ScheduleManager scheduleManager;
+AlarmSystem alarmSystem;
 BLEServiceManager bleManager;
 
 // ============================================================================
@@ -25,6 +33,7 @@ struct SensorData {
 
 SensorData sensorData;
 bool autoMode = false;
+bool securityEnabled = true;
 uint8_t currentFanSpeed = 0;
 uint8_t currentLEDBrightness = 0;
 
@@ -44,7 +53,7 @@ void onLEDBrightnessChanged(uint8_t brightness) {
 
 void onAutoModeChanged(bool enabled) {
     autoMode = enabled;
-    preferences.putBool(PREF_AUTO_MODE, enabled);
+    storage.saveAutoMode(enabled);
     DEBUG_PRINTF("Auto mode %s\n", enabled ? "ENABLED" : "DISABLED");
 }
 
@@ -60,6 +69,11 @@ void updateAutoMode();
 void setFanSpeed(uint8_t speed);
 void setLEDBrightness(uint8_t brightness);
 void checkMotionTimeout();
+void sendImmediateStatus();
+void handleBleCommand(const char* cmd, JsonVariantConst payload);
+void handleScheduleExecution(const ScheduleEntry& entry);
+void setSecurityEnabled(bool enabled);
+void triggerAlarm(uint16_t durationMs);
 
 // ============================================================================
 // SETUP
@@ -74,20 +88,30 @@ void setup() {
     DEBUG_PRINTLN("=================================\n");
     #endif
 
+    storage.begin(PREF_NAMESPACE);
+
     setupPins();
     setupPWM();
     setupSensors();
+    alarmSystem.begin(BUZZER_PIN, 255);
     setupBLE();
 
-    // Load preferences
-    preferences.begin(PREF_NAMESPACE, false);
-    autoMode = preferences.getBool(PREF_AUTO_MODE, false);
-    currentFanSpeed = preferences.getUInt(PREF_FAN_SPEED, 0);
-    currentLEDBrightness = preferences.getUInt(PREF_LED_BRIGHTNESS, 128);
+    // Load persisted settings
+    autoMode = storage.loadAutoMode(false);
+    securityEnabled = storage.loadSecurityEnabled(true);
+    if (!securityEnabled) {
+        alarmSystem.silence();
+    }
+    currentFanSpeed = storage.loadFanSpeed(0);
+    currentLEDBrightness = storage.loadLedBrightness(128);
+    scheduleManager.begin(&storage);
+    scheduleManager.onExecute(handleScheduleExecution);
 
     // Apply saved settings
     setFanSpeed(currentFanSpeed);
     setLEDBrightness(currentLEDBrightness);
+
+    bleManager.onCommand(handleBleCommand);
 
     DEBUG_PRINTLN("Setup complete. Entering main loop...\n");
 }
@@ -100,6 +124,8 @@ void loop() {
 
     // Update BLE connection status
     bleManager.update();
+    fanController.loop();
+    scheduleManager.loop();
 
     // Read sensors periodically
     if (currentMillis - lastSensorRead >= SENSOR_READ_INTERVAL) {
@@ -124,7 +150,8 @@ void loop() {
             currentFanSpeed,
             currentLEDBrightness,
             sensorData.motionDetected,
-            sensorData.distance
+            sensorData.distance,
+            securityEnabled
         );
     }
 
@@ -169,8 +196,7 @@ void setupPins() {
 // ============================================================================
 void setupPWM() {
     DEBUG_PRINTLN("Setting up PWM channels...");
-    ledcSetup(FAN_PWM_CHANNEL, FAN_PWM_FREQ, FAN_PWM_RESOLUTION);
-    ledcAttachPin(FAN_PIN, FAN_PWM_CHANNEL);
+    fanController.begin(FAN_PIN, FAN_PWM_CHANNEL, FAN_PWM_FREQ, FAN_PWM_RESOLUTION);
     ledcSetup(LED_PWM_CHANNEL, LED_PWM_FREQ, LED_PWM_RESOLUTION);
     ledcAttachPin(LED_PIN, LED_PWM_CHANNEL);
     DEBUG_PRINTLN("PWM channels configured.");
@@ -181,7 +207,7 @@ void setupPWM() {
 // ============================================================================
 void setupSensors() {
     DEBUG_PRINTLN("Initializing sensors...");
-    dht.begin();
+    dhtSensor.begin();
     Wire.begin(RTC_SDA_PIN, RTC_SCL_PIN);
     sensorData.temperature = 0.0f;
     sensorData.humidity = 0.0f;
@@ -195,13 +221,12 @@ void setupSensors() {
 // READ SENSORS
 // ============================================================================
 void readSensors() {
-    float temp = dht.readTemperature();
-    float hum = dht.readHumidity();
+    EnvironmentalReading env = dhtSensor.read();
 
-    if (!isnan(temp) && !isnan(hum)) {
-        sensorData.temperature = temp;
-        sensorData.humidity = hum;
-        DEBUG_PRINTF("Temp: %.1f°C, Humidity: %.1f%%\n", temp, hum);
+    if (env.valid) {
+        sensorData.temperature = env.temperature;
+        sensorData.humidity = env.humidity;
+        DEBUG_PRINTF("Temp: %.1f°C, Humidity: %.1f%%\n", env.temperature, env.humidity);
     }
 
     bool motion = digitalRead(PIR_PIN);
@@ -225,6 +250,12 @@ void readSensors() {
     long duration = pulseIn(ULTRASONIC_ECHO_PIN, HIGH, 30000);
     if (duration > 0) {
         sensorData.distance = duration * 0.034 / 2;
+    }
+
+    if (securityEnabled) {
+        alarmSystem.update(sensorData.motionDetected, sensorData.distance, sensorData.temperature);
+    } else if (alarmSystem.isActive()) {
+        alarmSystem.silence();
     }
 }
 
@@ -253,14 +284,32 @@ void updateAutoMode() {
     }
 }
 
+void setSecurityEnabled(bool enabled) {
+    securityEnabled = enabled;
+    storage.saveSecurityEnabled(enabled);
+
+    if (!enabled && alarmSystem.isActive()) {
+        alarmSystem.silence();
+    }
+
+    DEBUG_PRINTF("Security system %s\n", enabled ? "ARMED" : "DISARMED");
+    sendImmediateStatus();
+}
+
+void triggerAlarm(uint16_t durationMs) {
+    alarmSystem.triggerManualAlarm(durationMs);
+    sendImmediateStatus();
+}
+
 // ============================================================================
 // FAN CONTROL
 // ============================================================================
 void setFanSpeed(uint8_t speed) {
     currentFanSpeed = speed;
-    ledcWrite(FAN_PWM_CHANNEL, speed);
-    preferences.putUInt(PREF_FAN_SPEED, speed);
+    fanController.smoothTo(speed);
+    storage.saveFanSpeed(speed);
     DEBUG_PRINTF("Fan: %d (%.1f%%)\n", speed, (speed / 255.0f) * 100);
+    sendImmediateStatus();
 }
 
 // ============================================================================
@@ -269,8 +318,9 @@ void setFanSpeed(uint8_t speed) {
 void setLEDBrightness(uint8_t brightness) {
     currentLEDBrightness = brightness;
     ledcWrite(LED_PWM_CHANNEL, brightness);
-    preferences.putUInt(PREF_LED_BRIGHTNESS, brightness);
+    storage.saveLedBrightness(brightness);
     DEBUG_PRINTF("LED: %d (%.1f%%)\n", brightness, (brightness / 255.0f) * 100);
+    sendImmediateStatus();
 }
 
 // ============================================================================
@@ -283,4 +333,90 @@ void checkMotionTimeout() {
             DEBUG_PRINTLN("⚠️  No motion for 5 minutes!");
         }
     }
+}
+
+void handleScheduleExecution(const ScheduleEntry& entry) {
+    DEBUG_PRINTF("Executing schedule #%d (%02d:%02d)\n", entry.id, entry.hour, entry.minute);
+    setFanSpeed(entry.fanSpeed);
+    setLEDBrightness(entry.ledBrightness);
+    sendImmediateStatus();
+}
+
+void sendImmediateStatus() {
+    bleManager.sendSensorData(
+        sensorData.temperature,
+        sensorData.humidity,
+        currentFanSpeed,
+        currentLEDBrightness,
+        sensorData.motionDetected,
+        sensorData.distance,
+        securityEnabled
+    );
+}
+
+void handleBleCommand(const char* cmd, JsonVariantConst payload) {
+    JsonVariantConst data = payload["value"];
+    if (data.isNull()) {
+        data = payload;
+    }
+
+    if (strcmp(cmd, CMD_GET_STATUS) == 0 || strcmp(cmd, CMD_GET_SENSOR) == 0) {
+        sendImmediateStatus();
+        return;
+    }
+
+    if (strcmp(cmd, CMD_ADD_SCHEDULE) == 0) {
+        ScheduleEntry entry;
+        entry.id = data["id"] | 0;
+        if (data["time"].is<JsonObjectConst>()) {
+            entry.hour = data["time"]["hour"] | 0;
+            entry.minute = data["time"]["minute"] | 0;
+        } else {
+            entry.hour = data["hour"] | 0;
+            entry.minute = data["minute"] | 0;
+        }
+        entry.fanSpeed = data["fan"] | data["fan_speed"] | currentFanSpeed;
+        entry.ledBrightness = data["led"] | data["led_brightness"] | currentLEDBrightness;
+        entry.enabled = data["enabled"] | true;
+        entry.repeatDaily = data["repeat"] | true;
+
+        if (entry.id > 0 && scheduleManager.update(entry)) {
+            DEBUG_PRINTF("Updated schedule #%d\n", entry.id);
+        } else if (scheduleManager.add(entry)) {
+            DEBUG_PRINTF("Added schedule #%d\n", entry.id);
+        }
+        return;
+    }
+
+    if (strcmp(cmd, CMD_DELETE_SCHEDULE) == 0) {
+        uint8_t id = data["id"] | 0;
+        if (scheduleManager.remove(id)) {
+            DEBUG_PRINTF("Deleted schedule #%d\n", id);
+        }
+        return;
+    }
+
+    if (strcmp(cmd, CMD_SET_SECURITY) == 0) {
+        bool enabled = securityEnabled;
+        if (data.is<bool>()) {
+            enabled = data.as<bool>();
+        } else if (!data["enabled"].isNull()) {
+            enabled = data["enabled"];
+        } else if (!data["value"].isNull()) {
+            enabled = data["value"];
+        }
+        setSecurityEnabled(enabled);
+        DEBUG_PRINTF("Security command received: %s\n", enabled ? "ARM" : "DISARM");
+        return;
+    }
+
+    if (strcmp(cmd, CMD_SOS) == 0) {
+        uint16_t duration = data["duration"] | data["value"] | 5000;
+        triggerAlarm(duration);
+        DEBUG_PRINTLN("SOS alarm triggered");
+        return;
+    }
+
+    DEBUG_PRINT("Unhandled command: ");
+    DEBUG_PRINTLN(cmd);
 }

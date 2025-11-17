@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/room_model.dart';
+import '../../models/device_model.dart';
 import '../../services/firebase_service.dart';
+import '../../providers/device_provider.dart';
 import 'add_room_screen.dart';
 import '../../core/constants/routes.dart';
 
@@ -36,6 +38,10 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
   @override
   Widget build(BuildContext context) {
     final roomsAsync = ref.watch(roomsProvider);
+    final user = FirebaseAuth.instance.currentUser;
+    final devicesAsync = user == null
+        ? const AsyncValue<List<DeviceModel>>.data([])
+        : ref.watch(deviceControllerProvider(user.uid));
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
@@ -54,7 +60,22 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
           IconButton(
             icon: Icon(Icons.search, color: Colors.grey.shade700),
             onPressed: () {
-              // TODO: Implement search
+              final rooms = ref.read(roomsProvider).maybeWhen(
+                    data: (rooms) => rooms,
+                    orElse: () => <RoomModel>[],
+                  );
+              showSearch<RoomModel?>(
+                context: context,
+                delegate: RoomSearchDelegate(rooms),
+              ).then((room) {
+                if (room != null) {
+                  Navigator.pushNamed(
+                    context,
+                    Routes.roomDetail,
+                    arguments: room,
+                  );
+                }
+              });
             },
           ),
           IconButton(
@@ -93,7 +114,11 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
                     return _buildNoResultsState();
                   }
 
-                  return _buildRoomsGrid(filteredRooms);
+                  final devices = devicesAsync.maybeWhen(
+                    data: (list) => list,
+                    orElse: () => <DeviceModel>[],
+                  );
+                  return _buildRoomsGrid(filteredRooms, devices);
                 },
                 loading: () => const Center(
                   child: CircularProgressIndicator(
@@ -152,7 +177,7 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
     );
   }
 
-  Widget _buildRoomsGrid(List<RoomModel> rooms) {
+  Widget _buildRoomsGrid(List<RoomModel> rooms, List<DeviceModel> devices) {
     return GridView.builder(
       padding: const EdgeInsets.all(20),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -163,12 +188,14 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
       ),
       itemCount: rooms.length,
       itemBuilder: (context, index) {
-        return _buildRoomCard(rooms[index]);
+        return _buildRoomCard(rooms[index], devices);
       },
     );
   }
 
-  Widget _buildRoomCard(RoomModel room) {
+  Widget _buildRoomCard(RoomModel room, List<DeviceModel> devices) {
+    final activeCount =
+        devices.where((d) => d.roomId == room.id && d.isOn).length;
     return GestureDetector(
       onTap: () {
         Navigator.pushNamed(
@@ -285,7 +312,7 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        '${_getActiveDeviceCount(room)} active',
+                        '$activeCount active',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,
@@ -491,9 +518,70 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
         return const Color(0xFF00BFA5);
     }
   }
+}
 
-  int _getActiveDeviceCount(RoomModel room) {
-    // TODO: Implement actual active device count from Firebase
-    return room.deviceIds.isNotEmpty ? 1 : 0;
+class RoomSearchDelegate extends SearchDelegate<RoomModel?> {
+  RoomSearchDelegate(this.rooms);
+
+  final List<RoomModel> rooms;
+
+  @override
+  List<Widget>? buildActions(BuildContext context) {
+    return [
+      IconButton(
+        icon: const Icon(Icons.clear),
+        onPressed: () {
+          query = '';
+        },
+      ),
+    ];
+  }
+
+  @override
+  Widget? buildLeading(BuildContext context) {
+    return IconButton(
+      icon: const Icon(Icons.arrow_back),
+      onPressed: () => close(context, null),
+    );
+  }
+
+  @override
+  Widget buildResults(BuildContext context) {
+    final results = _filterRooms();
+    return ListView.builder(
+      itemCount: results.length,
+      itemBuilder: (context, index) {
+        final room = results[index];
+        return ListTile(
+          leading:
+              Icon(Icons.meeting_room_rounded, color: const Color(0xFF00BFA5)),
+          title: Text(room.name),
+          onTap: () => close(context, room),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget buildSuggestions(BuildContext context) {
+    final results = _filterRooms();
+    return ListView.builder(
+      itemCount: results.length,
+      itemBuilder: (context, index) {
+        final room = results[index];
+        return ListTile(
+          title: Text(room.name),
+          onTap: () => close(context, room),
+        );
+      },
+    );
+  }
+
+  List<RoomModel> _filterRooms() {
+    if (query.isEmpty) return rooms;
+    final lower = query.toLowerCase();
+    return rooms
+        .where((room) => room.name.toLowerCase().contains(lower))
+        .toList();
   }
 }

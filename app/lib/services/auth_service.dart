@@ -1,10 +1,12 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../models/user_model.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   // Get current user
   User? get currentUser => _auth.currentUser;
@@ -75,6 +77,10 @@ class AuthService {
       case 'app-check-failed':
       case 'app-not-authorized':
         return 'App Check validation failed. Add your debug token in Firebase Console.';
+      case 'aborted-by-user':
+        return 'Google sign-in was cancelled.';
+      case 'account-exists-with-different-credential':
+        return 'An account already exists with the same email but different sign-in method.';
       default:
         return e.message ?? 'Failed to create account. Please try again.';
     }
@@ -98,7 +104,61 @@ class AuthService {
     }
   }
 
-  Future<void> signOut() async => await _auth.signOut();
+  Future<UserCredential> signInWithGoogle() async {
+    try {
+      final googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) {
+        throw FirebaseAuthException(
+          code: 'aborted-by-user',
+          message: 'Google sign-in was cancelled.',
+        );
+      }
+
+      final googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final userCredential = await _auth.signInWithCredential(credential);
+      final user = userCredential.user;
+
+      if (user != null) {
+        final docRef = _firestore.collection('users').doc(user.uid);
+        final doc = await docRef.get();
+
+        if (!doc.exists) {
+          final userModel = UserModel(
+            id: user.uid,
+            name: user.displayName ?? '',
+            email: user.email ?? '',
+            profileImageUrl: user.photoURL,
+            createdAt: DateTime.now(),
+          );
+          await docRef.set(userModel.toFirestore());
+        }
+      }
+
+      return userCredential;
+    } on FirebaseAuthException catch (e) {
+      throw FirebaseAuthException(
+        code: e.code,
+        message: _mapAuthError(e),
+      );
+    } catch (_) {
+      throw FirebaseAuthException(
+        code: 'unknown',
+        message: 'Google sign-in failed. Please try again.',
+      );
+    }
+  }
+
+  Future<void> signOut() async {
+    await _auth.signOut();
+    if (await _googleSignIn.isSignedIn()) {
+      await _googleSignIn.signOut();
+    }
+  }
 
   Future<UserModel?> getUserData(String uid) async {
     try {

@@ -6,6 +6,8 @@ import '../../models/room_model.dart';
 import '../../models/device_model.dart';
 import '../../services/firebase_service.dart';
 import '../../core/constants/routes.dart'; // ✅ ADDED
+import '../../providers/device_provider.dart';
+import '../../core/widgets/app_notifications.dart';
 
 // Provider for room devices
 final roomDevicesProvider =
@@ -15,6 +17,13 @@ final roomDevicesProvider =
 
   final firebaseService = FirebaseService();
   return firebaseService.getRoomDevices(user.uid, roomId);
+});
+
+final roomAutomationsProvider =
+    StreamProvider.family<List<Map<String, dynamic>>, String>((ref, roomId) {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return Stream.value([]);
+  return FirebaseService().getRoomAutomations(user.uid, roomId);
 });
 
 class RoomDetailScreen extends ConsumerStatefulWidget {
@@ -72,9 +81,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
                         ),
                       ),
                       TextButton.icon(
-                        onPressed: () {
-                          // TODO: Add device to room
-                        },
+                        onPressed: _navigateToAddDevice,
                         icon: const Icon(Icons.add, size: 18),
                         label: const Text('Add'),
                         style: TextButton.styleFrom(
@@ -539,9 +546,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
           // Device control
           Switch(
             value: device.isOn,
-            onChanged: (value) {
-              // TODO: Update device state
-            },
+            onChanged: (value) => _toggleDevice(device, value),
             activeThumbColor: const Color(0xFF00BFA5),
           ),
         ],
@@ -590,9 +595,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
           ),
           const SizedBox(height: 20),
           ElevatedButton.icon(
-            onPressed: () {
-              // TODO: Add device
-            },
+            onPressed: _navigateToAddDevice,
             icon: const Icon(Icons.add, size: 18),
             label: const Text('Add Device'),
             style: ElevatedButton.styleFrom(
@@ -613,58 +616,73 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
   }
 
   Widget _buildAutomationsSection() {
+    final automationsAsync = ref.watch(roomAutomationsProvider(widget.room.id));
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: automationsAsync.when(
+        data: (automations) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Automations',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Automations',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => _showAutomationManager(automations),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFF00BFA5),
+                    ),
+                    child: const Text('Manage'),
+                  ),
+                ],
               ),
-              TextButton(
-                onPressed: () {
-                  // TODO: Manage automations
-                },
-                style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFF00BFA5),
+              const SizedBox(height: 12),
+              if (automations.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Text('No automations yet'),
+                )
+              else
+                Column(
+                  children: automations
+                      .map(
+                        (automation) => Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _buildAutomationCard(
+                            automation: automation,
+                          ),
+                        ),
+                      )
+                      .toList(),
                 ),
-                child: const Text('Manage'),
-              ),
             ],
-          ),
-          const SizedBox(height: 12),
-          _buildAutomationCard(
-            icon: Icons.wb_sunny_rounded,
-            title: 'Good Morning',
-            subtitle: 'Weekdays at 7:00 AM',
-            enabled: true,
-          ),
-          const SizedBox(height: 12),
-          _buildAutomationCard(
-            icon: Icons.nights_stay_rounded,
-            title: 'Good Night',
-            subtitle: 'Every day at 10:00 PM',
-            enabled: true,
-          ),
-        ],
+          );
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (error, _) => Text('Failed to load automations: $error'),
       ),
     );
   }
 
   Widget _buildAutomationCard({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required bool enabled,
+    required Map<String, dynamic> automation,
   }) {
+    final title = automation['name'] ?? 'Automation';
+    final subtitle = automation['description'] ?? 'Scheduled action';
+    final enabled = automation['enabled'] ?? true;
+    final icon = Icons.schedule_rounded;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -714,9 +732,8 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
           ),
           Switch(
             value: enabled,
-            onChanged: (value) {
-              // TODO: Toggle automation
-            },
+            onChanged: (value) =>
+                _toggleAutomation(automation['id'] as String, value),
             activeThumbColor: const Color(0xFF00BFA5),
           ),
         ],
@@ -754,9 +771,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
           _buildSettingsTile(
             icon: Icons.color_lens_rounded,
             title: 'Change Theme',
-            onTap: () {
-              // TODO: Change room theme
-            },
+            onTap: _showThemeSheet,
           ),
           _buildSettingsTile(
             icon: Icons.delete_outline_rounded,
@@ -841,53 +856,145 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
     }
   }
 
-  void _showDeleteDialog() {
-    showDialog(
+  void _navigateToAddDevice() {
+    Navigator.pushNamed(context, Routes.deviceScan);
+  }
+
+  Future<void> _toggleDevice(DeviceModel device, bool enabled) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    await ref
+        .read(deviceControllerProvider(user.uid).notifier)
+        .toggleDevice(device, enabled);
+  }
+
+  void _showAutomationManager(List<Map<String, dynamic>> automations) {
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.warning_rounded, color: Colors.red),
-            SizedBox(width: 12),
-            Text('Delete Room?'),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Automations',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            ...automations.map(
+              (automation) => ListTile(
+                title: Text(automation['name'] ?? 'Automation'),
+                subtitle: Text(automation['description'] ?? ''),
+                trailing: Switch(
+                  value: automation['enabled'] ?? true,
+                  onChanged: (value) =>
+                      _toggleAutomation(automation['id'] as String, value),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.add),
+              label: const Text('Add Automation'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00BFA5),
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(48),
+              ),
+            ),
           ],
         ),
-        content: Text(
-          'Are you sure you want to delete ${widget.room.name}? This action cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              // TODO: Delete room from Firebase
-              Navigator.pop(context); // Close dialog
-              Navigator.pop(context); // Go back to rooms list
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
       ),
     );
   }
 
-  void _toggleAllDevices(bool enabled) {
-    // TODO: Implement toggle all devices
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(enabled
-            ? 'Turning on all devices...'
-            : 'Turning off all devices...'),
-        duration: const Duration(seconds: 2),
+  Future<void> _toggleAutomation(String automationId, bool enabled) async {
+    await FirebaseService().toggleAutomation(automationId, enabled);
+  }
+
+  void _showThemeSheet() {
+    final themes = ['living_room', 'kitchen', 'bedroom', 'bathroom', 'office'];
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => ListView(
+        shrinkWrap: true,
+        children: themes
+            .map(
+              (theme) => ListTile(
+                leading: Icon(_getRoomIcon(theme)),
+                title: Text(theme.replaceAll('_', ' ').toUpperCase()),
+                onTap: () async {
+                  final user = FirebaseAuth.instance.currentUser;
+                  if (user != null) {
+                    await FirebaseService()
+                        .updateRoom(user.uid, widget.room.id, {'icon': theme});
+                  }
+                  if (!mounted) return;
+                  Navigator.pop(context);
+                },
+              ),
+            )
+            .toList(),
       ),
     );
+  }
+
+  void _showDeleteDialog() {
+    AppNotifications.showDialog(
+      context,
+      title: 'Delete Room?',
+      message:
+          'Are you sure you want to delete ${widget.room.name}? This action cannot be undone.',
+      type: AppNotificationType.error,
+      primaryLabel: 'Delete',
+      onPrimaryPressed: () => _deleteRoom(),
+      secondaryLabel: 'Cancel',
+      onSecondaryPressed: () async {},
+    );
+  }
+
+  Future<void> _toggleAllDevices(bool enabled) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    await FirebaseService()
+        .toggleAllRoomDevices(user.uid, widget.room.id, enabled);
+    if (!mounted) return;
+    AppNotifications.showSnackBar(
+      context,
+      message: enabled
+          ? 'Turning on all devices...'
+          : 'Turning off all devices...',
+      type: AppNotificationType.info,
+    );
+  }
+
+  Future<void> _deleteRoom() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    await FirebaseService().deleteRoom(user.uid, widget.room.id);
+    if (!mounted) return;
+    AppNotifications.showSnackBar(
+      context,
+      message: '${widget.room.name} deleted',
+      type: AppNotificationType.success,
+    );
+    Navigator.pop(context);
   }
 
   IconData _getRoomIcon(String iconName) {

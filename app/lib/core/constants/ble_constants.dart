@@ -31,6 +31,7 @@ class BLEConstants {
   static const String cmdAddSchedule = 'ADD_SCHEDULE';
   static const String cmdDeleteSchedule = 'DEL_SCHEDULE';
   static const String cmdSOS = 'SOS';
+  static const String cmdSetSecurity = 'SET_SECURITY';
 
   // Response codes
   static const String respOK = 'OK';

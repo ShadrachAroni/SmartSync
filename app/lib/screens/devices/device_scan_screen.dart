@@ -4,6 +4,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart' as flutter_blue;
 import 'package:permission_handler/permission_handler.dart';
 import '../../services/bluetooth_service.dart';
 import '../../core/utils/logger.dart';
+import '../../core/widgets/app_notifications.dart';
 
 // Provider for BLE scanning state
 final isScanningProvider = StateProvider<bool>((ref) => false);
@@ -109,23 +110,10 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
   }
 
   void _showMessage(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: Colors.white,
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor: isError ? Colors.red.shade600 : Colors.green.shade600,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-      ),
+    AppNotifications.showSnackBar(
+      context,
+      message: message,
+      type: isError ? AppNotificationType.error : AppNotificationType.success,
     );
   }
 

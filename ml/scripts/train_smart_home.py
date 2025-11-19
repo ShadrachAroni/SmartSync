@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 import warnings
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -62,8 +63,26 @@ def setup_gpu() -> bool:
 
     try:
         for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-        print(f"✅ Enabled memory growth on {len(gpus)} GPU(s).")
+            # Try to set memory limit to use more of available VRAM (3.5GB out of 4GB)
+            try:
+                tf.config.set_logical_device_configuration(
+                    gpu,
+                    [tf.config.LogicalDeviceConfiguration(memory_limit=3584)]  # 3.5GB in MB
+                )
+                print(f"✅ Set GPU memory limit to 3.5GB for {gpu.name}")
+            except RuntimeError:
+                # If logical device already configured, use memory growth instead
+                tf.config.experimental.set_memory_growth(gpu, True)
+                print(f"✅ Enabled memory growth on {gpu.name}")
+        
+        # Enable mixed precision for memory efficiency
+        try:
+            policy = keras.mixed_precision.Policy("mixed_float16")
+            keras.mixed_precision.set_global_policy(policy)
+            print("✅ Enabled mixed precision training (float16) for memory efficiency.")
+        except Exception as e:
+            print(f"⚠️  Could not enable mixed precision: {e}")
+        
         return True
     except RuntimeError as exc:
         print(f"⚠️  GPU initialisation error: {exc}")
@@ -88,17 +107,20 @@ class TrainingConfig:
     seed: int = 42
     sequence_length: int = 48  # 2 days of hourly stats
     prediction_horizon: int = 1
-    batch_size: int = 128
-    epochs: int = 80
+    batch_size: int = 24  # Balanced: faster than 16, safer than 32 for 4GB VRAM
+    epochs: int = 50  # Reduced from 80 - early stopping will handle overfitting
     learning_rate: float = 3e-4
     min_learning_rate: float = 1e-6
     validation_split: float = 0.15
     test_split: float = 0.15
     label_smoothing: float = 0.02
     datasets: Tuple[str, ...] = ("HomeC.csv", "aruba.csv", "tulum.csv")
-    conv_filters: Tuple[int, ...] = (64, 64, 32)
+    conv_filters: Tuple[int, ...] = (64, 64, 32)  # Restored to original with 4GB VRAM
     kernel_size: int = 5
     dropout: float = 0.25
+    # Regularization hyperparameters
+    l2_regularization: float = 1e-4  # L2 weight regularization
+    gradient_clip_norm: float = 1.0  # Gradient clipping to prevent exploding gradients
     targets: Tuple[str, ...] = ("fan_speed", "led_brightness")
     max_target_value: int = 255
 
@@ -178,22 +200,55 @@ def _parse_homec(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _parse_event_dataset(df: pd.DataFrame, name: str) -> pd.DataFrame:
-    df = df.rename(
-        columns={
-            "date": "Date",
-            "time": "Time",
-            "sensor": "Sensor",
-            "state": "State",
-            "value": "State",
-        }
+    # Handle CSVs without headers
+    # Check if columns are numeric (pandas assigns 0, 1, 2, 3... when header=None)
+    # OR if first column looks like a date (indicating first row was used as header)
+    first_col = df.columns[0] if len(df.columns) > 0 else None
+    has_numeric_headers = (
+        first_col is not None
+        and (isinstance(first_col, (int, np.integer)) or str(first_col).isdigit())
     )
+    
+    # Check if first column name looks like a date (YYYY-MM-DD format)
+    # This indicates the CSV has no headers and pandas used first row as headers
+    first_col_str = str(first_col) if first_col is not None else ""
+    looks_like_date_header = (
+        len(first_col_str) >= 10 
+        and first_col_str.count("-") >= 2
+        and first_col_str.replace("-", "").replace(":", "").replace(".", "").isdigit()
+    )
+    
+    if has_numeric_headers or looks_like_date_header:
+        # No header row - assign column names based on position
+        # Expected format: Date, Time, Sensor/Location, State
+        if len(df.columns) >= 4:
+            df.columns = ["Date", "Time", "Sensor", "State"]
+        elif len(df.columns) == 3:
+            df.columns = ["Date", "Time", "State"]
+            df["Sensor"] = name
+        else:
+            raise ValueError(
+                f"{name} dataset must have at least 3 columns (Date, Time, State)."
+            )
+    else:
+        # Has headers - try to normalize column names
+        df = df.rename(
+            columns={
+                "date": "Date",
+                "time": "Time",
+                "sensor": "Sensor",
+                "state": "State",
+                "value": "State",
+            }
+        )
+    
     if "Date" not in df.columns or "Time" not in df.columns:
         raise ValueError(f"{name} dataset must have Date / Time columns.")
 
     timestamp = pd.to_datetime(df["Date"] + " " + df["Time"], errors="coerce")
     state = df["State"].astype(str).str.upper()
 
-    sensor_type = df.get("Sensor", name).astype(str).str.lower()
+    sensor_type = df.get("Sensor", pd.Series([name] * len(df))).astype(str).str.lower()
     motion = state.isin({"ON", "OPEN", "PRESENT", "1"}).astype(float)
     motion *= sensor_type.str.contains("motion|pir|door|entry").astype(float)
 
@@ -219,10 +274,13 @@ def load_datasets(dataset_files: List[Path]) -> pd.DataFrame:
     for file in dataset_files:
         name = file.stem.lower()
         print(f"📥 Loading {file.name} ...")
-        df = pd.read_csv(file)
+        # Event datasets (aruba, tulum) don't have headers, so read with header=None
         if "homec" in name:
+            df = pd.read_csv(file)
             parsed = _parse_homec(df)
         else:
+            # Try reading without headers first (for aruba, tulum)
+            df = pd.read_csv(file, header=None)
             parsed = _parse_event_dataset(df, name)
         frames.append(parsed)
         print(f"   → Parsed {len(parsed):,} rows.")
@@ -248,6 +306,24 @@ class SmartHomePreprocessor:
 
     @staticmethod
     def _fill_missing_hours(df: pd.DataFrame) -> pd.DataFrame:
+        # Handle duplicate timestamps by aggregating before setting index
+        if df["timestamp"].duplicated().any():
+            # Build aggregation dictionary: mean for numeric columns, last for others
+            agg_dict = {}
+            for col in df.columns:
+                if col == "timestamp":
+                    continue
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    agg_dict[col] = "mean"
+                else:
+                    agg_dict[col] = "last"
+            
+            if agg_dict:
+                df = df.groupby("timestamp", as_index=False).agg(agg_dict)
+            else:
+                # If no columns to aggregate, just drop duplicates
+                df = df.drop_duplicates(subset=["timestamp"], keep="last")
+        
         df = df.set_index("timestamp")
         full_range = pd.date_range(df.index.min(), df.index.max(), freq="H")
         df = df.reindex(full_range)
@@ -284,7 +360,10 @@ class SmartHomePreprocessor:
         df = self._fill_missing_hours(df)
         df = self._engineer_targets(df, self.config.max_target_value)
 
-        hourly = df.resample("H", on="timestamp").agg(
+        # Set timestamp as index for resampling
+        df = df.set_index("timestamp")
+        
+        hourly = df.resample("H").agg(
             {
                 "power_kw": ["mean", "max", "std"],
                 "house_kw": ["mean", "max"],
@@ -300,6 +379,14 @@ class SmartHomePreprocessor:
         hourly.columns = ["_".join(col).strip("_") for col in hourly.columns]
         hourly = hourly.reset_index().rename(columns={"timestamp": "hour"})
 
+        # Fill NaN values: std can be NaN when there's only one value, fill with 0
+        std_cols = [col for col in hourly.columns if col.endswith("_std")]
+        for col in std_cols:
+            hourly[col] = hourly[col].fillna(0.0)
+        
+        # Fill any remaining NaN values with forward fill, then backward fill, then 0
+        hourly = hourly.ffill().bfill().fillna(0)
+
         # Rolling features and temporal encodings
         hourly["hour_sin"] = np.sin(2 * np.pi * hourly["hour"].dt.hour / 24)
         hourly["hour_cos"] = np.cos(2 * np.pi * hourly["hour"].dt.hour / 24)
@@ -314,21 +401,27 @@ class SmartHomePreprocessor:
             "occupancy_signal_mean",
         ]
         for col in rolling_cols:
-            hourly[f"{col}_roll6"] = (
-                hourly[col].rolling(window=6, min_periods=1).mean()
+            if col in hourly.columns:
+                hourly[f"{col}_roll6"] = (
+                    hourly[col].rolling(window=6, min_periods=1).mean()
+                )
+                hourly[f"{col}_roll24"] = (
+                    hourly[col].rolling(window=24, min_periods=1).mean()
+                )
+
+        if "fan_speed_mean" in hourly.columns:
+            hourly["fan_speed_lag1"] = hourly["fan_speed_mean"].shift(1).fillna(
+                hourly["fan_speed_mean"].rolling(3, min_periods=1).mean()
             )
-            hourly[f"{col}_roll24"] = (
-                hourly[col].rolling(window=24, min_periods=1).mean()
+        if "led_brightness_mean" in hourly.columns:
+            hourly["led_brightness_lag1"] = hourly["led_brightness_mean"].shift(1).fillna(
+                hourly["led_brightness_mean"].rolling(3, min_periods=1).mean()
             )
 
-        hourly["fan_speed_lag1"] = hourly["fan_speed_mean"].shift(1).fillna(
-            hourly["fan_speed_mean"].rolling(3).mean()
-        )
-        hourly["led_brightness_lag1"] = hourly["led_brightness_mean"].shift(1).fillna(
-            hourly["led_brightness_mean"].rolling(3).mean()
-        )
-
-        hourly = hourly.dropna().reset_index(drop=True)
+        # Only drop rows where all feature columns are NaN (shouldn't happen after fillna, but safety check)
+        feature_cols = [col for col in hourly.columns if col not in ["hour"]]
+        hourly = hourly.dropna(subset=feature_cols[:5])  # Drop only if first 5 critical columns are all NaN
+        hourly = hourly.reset_index(drop=True)
         print(f"   → Hourly rows after feature engineering: {len(hourly):,}")
         return hourly
 
@@ -373,45 +466,97 @@ class SmartHomePreprocessor:
 def build_temporal_cnn(
     input_shape: Tuple[int, int], config: TrainingConfig
 ) -> keras.Model:
+    """
+    Build Temporal CNN with comprehensive regularization to prevent overfitting/underfitting.
+    
+    Improvements:
+    - L2 regularization on all convolutional and dense layers
+    - Gradient clipping in optimizer
+    - Batch normalization for stable training
+    - Proper dropout placement
+    """
+    # L2 regularizer
+    l2_reg = keras.regularizers.l2(config.l2_regularization)
+    
     inputs = keras.layers.Input(shape=input_shape)
     x = inputs
     for filters in config.conv_filters:
         residual = x
+        # First conv block with L2 regularization
         x = keras.layers.Conv1D(
             filters,
             config.kernel_size,
             padding="same",
             activation="relu",
             kernel_initializer="he_normal",
+            kernel_regularizer=l2_reg,
+            bias_regularizer=l2_reg,
         )(x)
         x = keras.layers.BatchNormalization()(x)
+        # Second conv block with L2 regularization
         x = keras.layers.Conv1D(
             filters,
             config.kernel_size,
             padding="same",
             activation="relu",
             kernel_initializer="he_normal",
+            kernel_regularizer=l2_reg,
+            bias_regularizer=l2_reg,
         )(x)
         x = keras.layers.BatchNormalization()(x)
+        # Residual connection
         if residual.shape[-1] != filters:
-            residual = keras.layers.Conv1D(filters, 1, padding="same")(residual)
+            residual = keras.layers.Conv1D(
+                filters, 1, padding="same",
+                kernel_regularizer=l2_reg,
+                bias_regularizer=l2_reg,
+            )(residual)
         x = keras.layers.Add()([x, residual])
         x = keras.layers.Activation("relu")(x)
         x = keras.layers.Dropout(config.dropout)(x)
 
     x = keras.layers.GlobalAveragePooling1D()(x)
-    x = keras.layers.Dense(128, activation="relu")(x)
+    # Dense layers with L2 regularization
+    x = keras.layers.Dense(
+        128,
+        activation="relu",
+        kernel_regularizer=l2_reg,
+        bias_regularizer=l2_reg,
+        kernel_initializer="he_normal",
+    )(x)
+    x = keras.layers.BatchNormalization()(x)
     x = keras.layers.Dropout(config.dropout)(x)
-    x = keras.layers.Dense(64, activation="relu")(x)
+    
+    x = keras.layers.Dense(
+        64,
+        activation="relu",
+        kernel_regularizer=l2_reg,
+        bias_regularizer=l2_reg,
+        kernel_initializer="he_normal",
+    )(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.Dropout(config.dropout * 0.5)(x)  # Less dropout before output
+    
+    # Output layer should be float32 for mixed precision
     outputs = keras.layers.Dense(
         len(config.targets),
         activation="sigmoid",
         name="controller_output",
+        dtype="float32",  # Ensure float32 output for mixed precision
+        kernel_regularizer=l2_reg,
+        bias_regularizer=l2_reg,
     )(x)
 
     model = keras.Model(inputs, outputs, name="smartsync_tcn")
+    
+    # Optimizer with gradient clipping
+    optimizer = keras.optimizers.Adam(
+        learning_rate=config.learning_rate,
+        clipnorm=config.gradient_clip_norm,
+    )
+    
     model.compile(
-        optimizer=keras.optimizers.Adam(learning_rate=config.learning_rate),
+        optimizer=optimizer,
         loss=keras.losses.MeanSquaredError(),
         metrics=[
             keras.metrics.MeanAbsoluteError(name="mae"),
@@ -421,6 +566,11 @@ def build_temporal_cnn(
 
     print("\n📐 Model Summary")
     model.summary()
+    print(f"\n✅ Regularization applied:")
+    print(f"   - L2 regularization: {config.l2_regularization}")
+    print(f"   - Dropout: {config.dropout}")
+    print(f"   - Gradient clipping: {config.gradient_clip_norm}")
+    print(f"   - Batch normalization: Enabled")
     return model
 
 
@@ -436,13 +586,87 @@ class ValidationR2Callback(keras.callbacks.Callback):
         self.history.append(float(r2_score(y_val, preds)))
 
 
+class OverfittingMonitor(keras.callbacks.Callback):
+    """Monitor training/validation gap to detect overfitting early"""
+    def __init__(self, gap_threshold=0.15):
+        super().__init__()
+        self.gap_threshold = gap_threshold
+        self.best_gap = float('inf')
+        self.epoch_gaps = []
+        
+    def on_epoch_end(self, epoch: int, logs=None):
+        if logs is None:
+            return
+        
+        train_loss = logs.get('loss', 0)
+        val_loss = logs.get('val_loss', 0)
+        
+        if val_loss > 0:
+            gap = abs(train_loss - val_loss) / val_loss
+            self.epoch_gaps.append(gap)
+            self.best_gap = min(self.best_gap, gap)
+            
+            # Warn if gap is too large (overfitting)
+            if gap > self.gap_threshold:
+                print(f"\n⚠️  Warning: Large train/val gap detected ({gap:.2%}). Possible overfitting.")
+            
+            # Warn if validation loss is much higher (overfitting)
+            if val_loss > train_loss * 1.5:
+                print(f"⚠️  Warning: Validation loss ({val_loss:.4f}) >> Training loss ({train_loss:.4f})")
+            
+            # Warn if both losses are high and similar (underfitting)
+            if epoch > 5 and train_loss > 0.5 and val_loss > 0.5:
+                if abs(train_loss - val_loss) / max(train_loss, val_loss) < 0.1:
+                    print(f"⚠️  Warning: High and similar losses detected. Model may be underfitting.")
+
+
+class ProgressCallback(keras.callbacks.Callback):
+    """Custom callback to show detailed training progress"""
+    def __init__(self, total_epochs: int):
+        super().__init__()
+        self.total_epochs = total_epochs
+        self.epoch_start_time = None
+        
+    def on_epoch_begin(self, epoch, logs=None):
+        self.epoch_start_time = time.time()
+        print(f"\n{'='*80}")
+        print(f"Epoch {epoch + 1}/{self.total_epochs}")
+        print(f"{'='*80}")
+        
+    def on_epoch_end(self, epoch, logs=None):
+        elapsed = time.time() - self.epoch_start_time
+        
+        # Format metrics
+        train_loss = logs.get('loss', 0)
+        train_mae = logs.get('mae', 0)
+        val_loss = logs.get('val_loss', 0)
+        val_mae = logs.get('val_mae', 0)
+        
+        print(f"\n⏱️  Time: {elapsed:.1f}s")
+        print(f"📊 Train - Loss: {train_loss:.4f}, MAE: {train_mae:.4f}")
+        print(f"📊 Val   - Loss: {val_loss:.4f}, MAE: {val_mae:.4f}")
+        
+        # Estimate remaining time
+        if epoch > 0:
+            avg_time = elapsed
+            remaining_epochs = self.total_epochs - (epoch + 1)
+            estimated_remaining = avg_time * remaining_epochs
+            if estimated_remaining > 60:
+                print(f"⏳ Est. remaining: {estimated_remaining/60:.1f} minutes")
+            else:
+                print(f"⏳ Est. remaining: {estimated_remaining:.0f} seconds")
+
+
 def create_tf_dataset(
     X: np.ndarray, y: np.ndarray, batch_size: int, shuffle: bool
 ) -> tf.data.Dataset:
     ds = tf.data.Dataset.from_tensor_slices((X, y))
     if shuffle:
-        ds = ds.shuffle(buffer_size=len(X), seed=CONFIG.seed)
-    ds = ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+        # Use smaller buffer (10k samples) for faster shuffling - still provides good randomness
+        shuffle_buffer = min(10000, len(X))
+        ds = ds.shuffle(buffer_size=shuffle_buffer, seed=CONFIG.seed)
+    ds = ds.batch(batch_size, drop_remainder=False)
+    ds = ds.prefetch(tf.data.AUTOTUNE)  # Prefetch for better GPU utilization
     return ds
 
 
@@ -458,25 +682,29 @@ def train_model(
     val_ds = create_tf_dataset(X_val, y_val, config.batch_size, shuffle=False)
 
     callbacks = [
+        ProgressCallback(total_epochs=config.epochs),  # Custom progress display
         keras.callbacks.EarlyStopping(
             monitor="val_loss",
-            patience=12,
+            patience=8,  # Reduced from 12 for faster convergence
             restore_best_weights=True,
-            verbose=1,
+            min_delta=1e-5,  # Minimum change to qualify as improvement
+            verbose=0,  # Reduced verbosity
         ),
         keras.callbacks.ReduceLROnPlateau(
             monitor="val_loss",
             factor=0.5,
-            patience=6,
+            patience=5,  # Slightly reduced for more aggressive LR reduction
             min_lr=config.min_learning_rate,
-            verbose=1,
+            verbose=0,  # Reduced verbosity
+            cooldown=2,  # Wait 2 epochs before reducing LR again
         ),
         keras.callbacks.ModelCheckpoint(
-            filepath=MODELS_DIR / "schedule_predictor_best.keras",
+            filepath=str(MODELS_DIR / "schedule_predictor_best.keras"),
             monitor="val_loss",
             save_best_only=True,
-            verbose=1,
+            verbose=0,  # Reduced verbosity
         ),
+        OverfittingMonitor(gap_threshold=0.15),  # Monitor for overfitting
     ]
     r2_callback = ValidationR2Callback((X_val, y_val))
     callbacks.append(r2_callback)
@@ -485,11 +713,35 @@ def train_model(
         train_ds,
         validation_data=val_ds,
         epochs=config.epochs,
-        verbose=1,
+        verbose=1,  # Show progress bar for batches within epoch
         callbacks=callbacks,
     )
 
     history.history["val_r2"] = r2_callback.history
+    
+    # Print training diagnostics
+    print("\n📊 Training Diagnostics:")
+    if len(history.history['loss']) > 0:
+        final_train_loss = history.history['loss'][-1]
+        final_val_loss = history.history['val_loss'][-1]
+        gap = abs(final_train_loss - final_val_loss) / final_val_loss if final_val_loss > 0 else 0
+        
+        print(f"   Final training loss: {final_train_loss:.4f}")
+        print(f"   Final validation loss: {final_val_loss:.4f}")
+        print(f"   Train/Val gap: {gap:.2%}")
+        
+        if gap < 0.05:
+            print("   ✅ Good generalization (low gap)")
+        elif gap < 0.15:
+            print("   ⚠️  Moderate gap - monitor for overfitting")
+        else:
+            print("   ❌ Large gap - possible overfitting detected")
+        
+        if final_val_loss < final_train_loss * 0.9:
+            print("   ✅ Validation loss lower than training - good sign!")
+        elif final_val_loss > final_train_loss * 1.2:
+            print("   ⚠️  Validation loss much higher - possible overfitting")
+    
     return model, history, r2_callback.history
 
 

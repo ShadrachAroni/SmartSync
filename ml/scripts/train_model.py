@@ -45,6 +45,12 @@ EPOCHS = 50
 LEARNING_RATE = 0.001
 VALIDATION_SPLIT = 0.2
 
+# Regularization hyperparameters
+L2_REGULARIZATION = 1e-4  # L2 weight regularization to prevent overfitting
+DROPOUT_RATE_LSTM = 0.4  # Increased dropout for LSTM layers
+DROPOUT_RATE_DENSE = 0.3  # Dropout for dense layers
+GRADIENT_CLIP_NORM = 1.0  # Gradient clipping to prevent exploding gradients
+
 print("=" * 70)
 print("SmartSync Schedule Predictor - Training Pipeline")
 print("=" * 70)
@@ -251,81 +257,214 @@ class DataPreprocessor:
 # ==================== MODEL ARCHITECTURE ====================
 def build_schedule_predictor(input_shape, output_dim=2):
     """
-    Build LSTM-based schedule prediction model
+    Build LSTM-based schedule prediction model with comprehensive regularization
     
-    Architecture:
-    - LSTM layers for temporal pattern learning
-    - Dropout for regularization
-    - Dense output for regression (device usage prediction)
+    Architecture improvements to prevent overfitting/underfitting:
+    - Reduced LSTM units to prevent overfitting
+    - Batch normalization for stable training
+    - L2 regularization on all layers
+    - Increased dropout rates
+    - Proper weight initialization
     """
-    print("\n🏗️  Building model architecture...")
+    print("\n🏗️  Building model architecture with regularization...")
+    
+    # L2 regularizer for all layers
+    l2_reg = keras.regularizers.l2(L2_REGULARIZATION)
     
     model = keras.Sequential([
         # Input layer
         keras.layers.Input(shape=input_shape),
         
-        # LSTM layers
-        keras.layers.LSTM(128, return_sequences=True),
-        keras.layers.Dropout(0.3),
+        # First LSTM layer with regularization
+        keras.layers.LSTM(
+            96,  # Reduced from 128 to prevent overfitting
+            return_sequences=True,
+            kernel_regularizer=l2_reg,
+            recurrent_regularizer=l2_reg,
+            bias_regularizer=l2_reg,
+            kernel_initializer='glorot_uniform',
+            recurrent_initializer='orthogonal'
+        ),
+        keras.layers.BatchNormalization(),  # Stabilize activations
+        keras.layers.Dropout(DROPOUT_RATE_LSTM),
         
-        keras.layers.LSTM(64, return_sequences=False),
-        keras.layers.Dropout(0.2),
+        # Second LSTM layer with regularization
+        keras.layers.LSTM(
+            48,  # Reduced from 64 to prevent overfitting
+            return_sequences=False,
+            kernel_regularizer=l2_reg,
+            recurrent_regularizer=l2_reg,
+            bias_regularizer=l2_reg,
+            kernel_initializer='glorot_uniform',
+            recurrent_initializer='orthogonal'
+        ),
+        keras.layers.BatchNormalization(),
+        keras.layers.Dropout(DROPOUT_RATE_LSTM),
         
-        # Dense layers
-        keras.layers.Dense(32, activation='relu'),
-        keras.layers.Dropout(0.2),
+        # Dense layers with regularization
+        keras.layers.Dense(
+            32,
+            activation='relu',
+            kernel_regularizer=l2_reg,
+            bias_regularizer=l2_reg,
+            kernel_initializer='he_normal'
+        ),
+        keras.layers.BatchNormalization(),
+        keras.layers.Dropout(DROPOUT_RATE_DENSE),
+        
+        # Additional smaller dense layer for better feature extraction
+        keras.layers.Dense(
+            16,
+            activation='relu',
+            kernel_regularizer=l2_reg,
+            bias_regularizer=l2_reg,
+            kernel_initializer='he_normal'
+        ),
+        keras.layers.BatchNormalization(),
+        keras.layers.Dropout(DROPOUT_RATE_DENSE * 0.5),  # Less dropout before output
         
         # Output layer (predict fan speed & LED brightness)
-        keras.layers.Dense(output_dim, activation='sigmoid')
+        keras.layers.Dense(
+            output_dim,
+            activation='sigmoid',
+            kernel_regularizer=l2_reg,
+            bias_regularizer=l2_reg
+        )
     ])
     
+    # Optimizer with gradient clipping
+    optimizer = keras.optimizers.Adam(
+        learning_rate=LEARNING_RATE,
+        clipnorm=GRADIENT_CLIP_NORM  # Prevent exploding gradients
+    )
+    
     model.compile(
-        optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
+        optimizer=optimizer,
         loss='mse',
         metrics=['mae']
     )
     
     print("\n📊 Model Summary:")
     model.summary()
+    print(f"\n✅ Regularization applied:")
+    print(f"   - L2 regularization: {L2_REGULARIZATION}")
+    print(f"   - LSTM dropout: {DROPOUT_RATE_LSTM}")
+    print(f"   - Dense dropout: {DROPOUT_RATE_DENSE}")
+    print(f"   - Gradient clipping: {GRADIENT_CLIP_NORM}")
+    print(f"   - Batch normalization: Enabled")
     
     return model
 
 # ==================== TRAINING ====================
+class OverfittingMonitor(keras.callbacks.Callback):
+    """Monitor training/validation gap to detect overfitting early"""
+    def __init__(self, gap_threshold=0.15):
+        super().__init__()
+        self.gap_threshold = gap_threshold
+        self.best_gap = float('inf')
+        
+    def on_epoch_end(self, epoch, logs=None):
+        if logs is None:
+            return
+        
+        train_loss = logs.get('loss', 0)
+        val_loss = logs.get('val_loss', 0)
+        
+        if val_loss > 0:
+            gap = abs(train_loss - val_loss) / val_loss
+            self.best_gap = min(self.best_gap, gap)
+            
+            # Warn if gap is too large (overfitting)
+            if gap > self.gap_threshold:
+                print(f"\n⚠️  Warning: Large train/val gap detected ({gap:.2%}). Possible overfitting.")
+            
+            # Warn if validation loss is much higher (overfitting)
+            if val_loss > train_loss * 1.5:
+                print(f"⚠️  Warning: Validation loss ({val_loss:.4f}) >> Training loss ({train_loss:.4f})")
+            
+            # Warn if both losses are high and similar (underfitting)
+            if epoch > 5 and train_loss > 0.5 and val_loss > 0.5:
+                if abs(train_loss - val_loss) / max(train_loss, val_loss) < 0.1:
+                    print(f"⚠️  Warning: High and similar losses detected. Model may be underfitting.")
+
 def train_model(X_train, y_train, X_val, y_val):
-    """Train the schedule prediction model"""
-    print("\n🚀 Starting model training...")
+    """Train the schedule prediction model with enhanced regularization"""
+    print("\n🚀 Starting model training with anti-overfitting measures...")
     
     model = build_schedule_predictor(input_shape=(X_train.shape[1], X_train.shape[2]))
     
-    # Callbacks
+    # Enhanced callbacks for better training control
     early_stopping = keras.callbacks.EarlyStopping(
         monitor='val_loss',
-        patience=10,
-        restore_best_weights=True
+        patience=8,  # Reduced from 10 for faster stopping when overfitting
+        restore_best_weights=True,
+        min_delta=1e-5,  # Minimum change to qualify as improvement
+        verbose=1
     )
     
     reduce_lr = keras.callbacks.ReduceLROnPlateau(
         monitor='val_loss',
         factor=0.5,
-        patience=5,
-        min_lr=1e-6
+        patience=4,  # Reduced from 5 for more aggressive LR reduction
+        min_lr=1e-7,  # Lower minimum LR
+        verbose=1,
+        cooldown=2  # Wait 2 epochs before reducing LR again
+    )
+    
+    # Learning rate schedule
+    lr_schedule = keras.callbacks.LearningRateScheduler(
+        lambda epoch: LEARNING_RATE * (0.95 ** epoch),  # Gradual decay
+        verbose=0
     )
     
     checkpoint = keras.callbacks.ModelCheckpoint(
         MODELS_DIR / 'schedule_predictor_best.keras',
         monitor='val_loss',
-        save_best_only=True
+        save_best_only=True,
+        verbose=1
     )
     
-    # Train
+    # Overfitting monitor
+    overfitting_monitor = OverfittingMonitor(gap_threshold=0.15)
+    
+    # Train with all callbacks
     history = model.fit(
         X_train, y_train,
         batch_size=BATCH_SIZE,
         epochs=EPOCHS,
         validation_data=(X_val, y_val),
-        callbacks=[early_stopping, reduce_lr, checkpoint],
-        verbose=1
+        callbacks=[
+            early_stopping,
+            reduce_lr,
+            lr_schedule,
+            checkpoint,
+            overfitting_monitor
+        ],
+        verbose=1,
+        shuffle=True  # Shuffle training data each epoch
     )
+    
+    # Print training diagnostics
+    print("\n📊 Training Diagnostics:")
+    final_train_loss = history.history['loss'][-1]
+    final_val_loss = history.history['val_loss'][-1]
+    gap = abs(final_train_loss - final_val_loss) / final_val_loss if final_val_loss > 0 else 0
+    
+    print(f"   Final training loss: {final_train_loss:.4f}")
+    print(f"   Final validation loss: {final_val_loss:.4f}")
+    print(f"   Train/Val gap: {gap:.2%}")
+    
+    if gap < 0.05:
+        print("   ✅ Good generalization (low gap)")
+    elif gap < 0.15:
+        print("   ⚠️  Moderate gap - monitor for overfitting")
+    else:
+        print("   ❌ Large gap - possible overfitting detected")
+    
+    if final_val_loss < final_train_loss * 0.9:
+        print("   ✅ Validation loss lower than training - good sign!")
+    elif final_val_loss > final_train_loss * 1.2:
+        print("   ⚠️  Validation loss much higher - possible overfitting")
     
     return model, history
 

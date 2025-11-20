@@ -38,10 +38,24 @@ class FirebaseService {
   }
 
   Future<void> addDevice(String userId, DeviceModel device) async {
-    await _firestore.collection('devices').add({
+    // Use device.id as document ID to ensure uniqueness
+    await _firestore.collection('devices').doc(device.id).set({
       ...device.toFirestore(),
       'userId': userId,
-    });
+    }, SetOptions(merge: true));
+  }
+
+  // Check if device exists by deviceId (BLE remoteId)
+  Future<DeviceModel?> getDeviceById(String deviceId) async {
+    try {
+      final doc = await _firestore.collection('devices').doc(deviceId).get();
+      if (doc.exists && doc.data() != null) {
+        return DeviceModel.fromFirestore(doc);
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
   }
 
   Future<void> updateDevice(String deviceId, Map<String, dynamic> data) async {
@@ -273,17 +287,70 @@ class FirebaseService {
           .limit(1000) // Limit to prevent timeout
           .get();
 
-      // Calculate energy (simplified)
-      double totalEnergy = 0;
-      for (var doc in logs.docs) {
-        final data = doc.data();
-        // Assume average device power consumption
-        final fanSpeed = (data['fanSpeed'] as num?)?.toInt() ?? 0;
-        final ledBrightness = (data['ledBrightness'] as num?)?.toInt() ?? 0;
-        totalEnergy += (fanSpeed / 255.0) * 0.05; // Fan: 50W max
-        totalEnergy += (ledBrightness / 255.0) * 0.01; // LED: 10W max
+      // Return 0 if no logs
+      if (logs.docs.isEmpty) {
+        return 0.0;
       }
 
+      // Calculate energy consumption properly
+      // Energy (kWh) = Power (kW) × Time (hours)
+      // We need to account for time duration between logs
+      double totalEnergy = 0.0;
+      
+      if (logs.docs.isEmpty) {
+        return 0.0;
+      }
+      
+      // Sort logs by timestamp
+      final sortedLogs = logs.docs.toList()
+        ..sort((a, b) {
+          final aTime = (a.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+          final bTime = (b.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+          return aTime.compareTo(bTime);
+        });
+      
+      // Calculate power consumption for each time interval
+      for (int i = 0; i < sortedLogs.length; i++) {
+        final data = sortedLogs[i].data();
+        final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
+        
+        if (timestamp == null) continue;
+        
+        // Calculate power in kW from device speeds
+        // Fan: 0-50W (0.05kW max) based on speed (0-255)
+        // LED: 0-10W (0.01kW max) based on brightness (0-255)
+        final fanSpeed = (data['fanSpeed'] as num?)?.toInt() ?? 0;
+        final ledBrightness = (data['ledBrightness'] as num?)?.toInt() ?? 0;
+        
+        final fanPowerKw = (fanSpeed / 255.0) * 0.05; // 0-0.05 kW
+        final ledPowerKw = (ledBrightness / 255.0) * 0.01; // 0-0.01 kW
+        final totalPowerKw = fanPowerKw + ledPowerKw;
+        
+        // Calculate time duration for this log entry
+        // If this is the last log, use time until now, otherwise use time until next log
+        Duration duration;
+        if (i < sortedLogs.length - 1) {
+          final nextTimestamp = (sortedLogs[i + 1].data()['timestamp'] as Timestamp?)?.toDate();
+          if (nextTimestamp != null) {
+            duration = nextTimestamp.difference(timestamp);
+          } else {
+            duration = const Duration(minutes: 5); // Default 5 minutes if next timestamp missing
+          }
+        } else {
+          // Last log: use time until now or default 5 minutes
+          duration = DateTime.now().difference(timestamp);
+          if (duration.isNegative || duration.inMinutes > 60) {
+            duration = const Duration(minutes: 5); // Cap at 5 minutes for last entry
+          }
+        }
+        
+        // Ensure minimum duration of 1 minute to avoid division issues
+        final hours = duration.inSeconds.clamp(60, 3600) / 3600.0; // Convert to hours (min 1 min, max 1 hour)
+        
+        // Energy = Power × Time
+        totalEnergy += totalPowerKw * hours;
+      }
+      
       return totalEnergy;
     } catch (e) {
       // Return 0 on error instead of throwing
@@ -292,33 +359,77 @@ class FirebaseService {
   }
 
   Future<double> getRoomEnergyConsumption(String userId, String roomId) async {
-    final today = DateTime.now();
-    final startOfDay = DateTime(today.year, today.month, today.day);
+    try {
+      final today = DateTime.now();
+      final startOfDay = DateTime(today.year, today.month, today.day);
 
-    // Get all devices in the room
-    final devicesSnapshot = await _firestore
-        .collection('devices')
-        .where('userId', isEqualTo: userId)
-        .where('roomId', isEqualTo: roomId)
-        .get();
-
-    double totalEnergy = 0;
-
-    for (var deviceDoc in devicesSnapshot.docs) {
-      final logs = await _firestore
-          .collection('sensor_logs')
-          .where('deviceId', isEqualTo: deviceDoc.id)
-          .where('timestamp', isGreaterThan: Timestamp.fromDate(startOfDay))
+      // Get all devices in the room
+      final devicesSnapshot = await _firestore
+          .collection('devices')
+          .where('userId', isEqualTo: userId)
+          .where('roomId', isEqualTo: roomId)
           .get();
 
-      for (var log in logs.docs) {
-        final data = log.data();
-        totalEnergy += (data['fanSpeed'] ?? 0) * 0.001;
-        totalEnergy += (data['ledBrightness'] ?? 0) * 0.0005;
-      }
-    }
+      double totalEnergy = 0.0;
 
-    return totalEnergy;
+      for (var deviceDoc in devicesSnapshot.docs) {
+        final logs = await _firestore
+            .collection('sensor_logs')
+            .where('deviceId', isEqualTo: deviceDoc.id)
+            .where('timestamp', isGreaterThan: Timestamp.fromDate(startOfDay))
+            .orderBy('timestamp', descending: false)
+            .get();
+
+        if (logs.docs.isEmpty) continue;
+
+        // Sort logs by timestamp
+        final sortedLogs = logs.docs.toList()
+          ..sort((a, b) {
+            final aTime = (a.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+            final bTime = (b.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+            return aTime.compareTo(bTime);
+          });
+
+        // Calculate energy for each time interval
+        for (int i = 0; i < sortedLogs.length; i++) {
+          final data = sortedLogs[i].data();
+          final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
+          
+          if (timestamp == null) continue;
+
+          // Calculate power in kW
+          final fanSpeed = (data['fanSpeed'] as num?)?.toInt() ?? 0;
+          final ledBrightness = (data['ledBrightness'] as num?)?.toInt() ?? 0;
+          
+          final fanPowerKw = (fanSpeed / 255.0) * 0.05; // 0-0.05 kW
+          final ledPowerKw = (ledBrightness / 255.0) * 0.01; // 0-0.01 kW
+          final totalPowerKw = fanPowerKw + ledPowerKw;
+
+          // Calculate time duration
+          Duration duration;
+          if (i < sortedLogs.length - 1) {
+            final nextTimestamp = (sortedLogs[i + 1].data()['timestamp'] as Timestamp?)?.toDate();
+            if (nextTimestamp != null) {
+              duration = nextTimestamp.difference(timestamp);
+            } else {
+              duration = const Duration(minutes: 5);
+            }
+          } else {
+            duration = DateTime.now().difference(timestamp);
+            if (duration.isNegative || duration.inMinutes > 60) {
+              duration = const Duration(minutes: 5);
+            }
+          }
+
+          final hours = duration.inSeconds.clamp(60, 3600) / 3600.0;
+          totalEnergy += totalPowerKw * hours;
+        }
+      }
+
+      return totalEnergy;
+    } catch (e) {
+      return 0.0;
+    }
   }
 
   // ==================== ALERTS ====================

@@ -9,6 +9,7 @@
 #include "storage/DeviceStorage.h"
 #include "scheduler/ScheduleManager.h"
 #include "security/AlarmSystem.h"
+#include "display/LCDDisplay.h"
 
 // ============================================================================
 // GLOBAL OBJECTS
@@ -19,6 +20,7 @@ FanController fanController;
 ScheduleManager scheduleManager;
 AlarmSystem alarmSystem;
 BLEServiceManager bleManager;
+LCDDisplay lcdDisplay;
 
 // ============================================================================
 // GLOBAL VARIABLES
@@ -64,6 +66,7 @@ void setupPins();
 void setupSensors();
 void setupPWM();
 void setupBLE();
+void setupLCD();
 void readSensors();
 void updateAutoMode();
 void setFanSpeed(uint8_t speed);
@@ -93,6 +96,7 @@ void setup() {
     setupPins();
     setupPWM();
     setupSensors();
+    setupLCD();
     alarmSystem.begin(BUZZER_PIN, 255);
     setupBLE();
 
@@ -126,6 +130,10 @@ void loop() {
     bleManager.update();
     fanController.loop();
     scheduleManager.loop();
+    
+    // Update LCD display
+    lcdDisplay.update();
+    lcdDisplay.setConnectionStatus(bleManager.isConnected());
 
     // Read sensors periodically
     if (currentMillis - lastSensorRead >= SENSOR_READ_INTERVAL) {
@@ -159,6 +167,19 @@ void loop() {
 }
 
 // ============================================================================
+// LCD SETUP
+// ============================================================================
+void setupLCD() {
+    DEBUG_PRINTLN("Setting up LCD Display...");
+    
+    if (lcdDisplay.begin(LCD_I2C_ADDRESS, LCD_COLS, LCD_ROWS)) {
+        DEBUG_PRINTLN("LCD Display ready.");
+    } else {
+        DEBUG_PRINTLN("LCD Display initialization failed (continuing without LCD)");
+    }
+}
+
+// ============================================================================
 // BLE SETUP
 // ============================================================================
 void setupBLE() {
@@ -171,6 +192,9 @@ void setupBLE() {
         bleManager.onAutoModeChange(onAutoModeChanged);
         
         DEBUG_PRINTLN("BLE service ready.");
+        
+        // Update LCD to show BLE is ready
+        lcdDisplay.setConnectionStatus(false); // Initially pending
     } else {
         DEBUG_PRINTLN("BLE initialization failed!");
     }

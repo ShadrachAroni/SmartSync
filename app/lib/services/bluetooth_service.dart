@@ -4,6 +4,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart' as flutter_blue;
 import '../models/sensor_data.dart';
 import '../core/constants/ble_constants.dart';
 import '../core/utils/logger.dart';
+import 'appliance_state_service.dart';
 
 class BluetoothService {
   static final BluetoothService _instance = BluetoothService._internal();
@@ -87,6 +88,9 @@ class BluetoothService {
 
       _connectedDevice = device;
       _connectionController.add(true);
+
+      // Restore appliance state from Firebase
+      _restoreApplianceState();
 
       // Discover services
       List<flutter_blue.BluetoothService> services =
@@ -207,12 +211,34 @@ class BluetoothService {
   // Control methods
   Future<bool> setFanSpeed(int speed) async {
     int value = ((speed / 100) * 255).round().clamp(0, 255);
-    return await sendCommand(BLEConstants.cmdSetFan, value);
+    final success = await sendCommand(BLEConstants.cmdSetFan, value);
+    if (success) {
+      // Save state to Firebase
+      final stateService = ApplianceStateService();
+      final currentState = await stateService.loadApplianceState();
+      await stateService.saveApplianceState(
+        fanSpeed: value,
+        ledBrightness: currentState?['ledBrightness'] ?? 0,
+        securityEnabled: currentState?['securityEnabled'] ?? false,
+      );
+    }
+    return success;
   }
 
   Future<bool> setLEDBrightness(int brightness) async {
     int value = ((brightness / 100) * 255).round().clamp(0, 255);
-    return await sendCommand(BLEConstants.cmdSetLED, value);
+    final success = await sendCommand(BLEConstants.cmdSetLED, value);
+    if (success) {
+      // Save state to Firebase
+      final stateService = ApplianceStateService();
+      final currentState = await stateService.loadApplianceState();
+      await stateService.saveApplianceState(
+        fanSpeed: currentState?['fanSpeed'] ?? 0,
+        ledBrightness: value,
+        securityEnabled: currentState?['securityEnabled'] ?? false,
+      );
+    }
+    return success;
   }
 
   Future<bool> setAutoMode(bool enabled) async {
@@ -221,7 +247,18 @@ class BluetoothService {
 
   Future<bool> setSecurityEnabled(bool enabled) async {
     final payload = {'enabled': enabled};
-    return await sendCommand(BLEConstants.cmdSetSecurity, payload);
+    final success = await sendCommand(BLEConstants.cmdSetSecurity, payload);
+    if (success) {
+      // Save state to Firebase
+      final stateService = ApplianceStateService();
+      final currentState = await stateService.loadApplianceState();
+      await stateService.saveApplianceState(
+        fanSpeed: currentState?['fanSpeed'] ?? 0,
+        ledBrightness: currentState?['ledBrightness'] ?? 0,
+        securityEnabled: enabled,
+      );
+    }
+    return success;
   }
 
   Future<bool> triggerSecurityAlarm({int durationMs = 5000}) async {
@@ -231,6 +268,47 @@ class BluetoothService {
 
   Future<bool> requestStatus() async {
     return await sendCommand(BLEConstants.cmdGetStatus, null);
+  }
+
+  // Restore appliance state from Firebase
+  Future<void> _restoreApplianceState() async {
+    try {
+      final stateService = ApplianceStateService();
+      final state = await stateService.loadApplianceState();
+      
+      if (state != null && isConnected) {
+        Logger.info('BluetoothService: Restoring appliance state from Firebase');
+        final fanSpeed = state['fanSpeed'] as int? ?? 0;
+        final ledBrightness = state['ledBrightness'] as int? ?? 0;
+        final securityEnabled = state['securityEnabled'] as bool? ?? false;
+        
+        // Restore fan speed
+        if (fanSpeed > 0) {
+          await setFanSpeed(fanSpeed).timeout(
+            const Duration(seconds: 3),
+            onTimeout: () => false,
+          );
+        }
+        
+        // Restore LED brightness
+        if (ledBrightness > 0) {
+          await setLEDBrightness(ledBrightness).timeout(
+            const Duration(seconds: 3),
+            onTimeout: () => false,
+          );
+        }
+        
+        // Restore security state
+        await setSecurityEnabled(securityEnabled).timeout(
+          const Duration(seconds: 3),
+          onTimeout: () => false,
+        );
+        
+        Logger.info('BluetoothService: Appliance state restored - Fan: $fanSpeed, LED: $ledBrightness, Security: $securityEnabled');
+      }
+    } catch (e) {
+      Logger.error('BluetoothService: Error restoring state: $e');
+    }
   }
 
   // Cleanup

@@ -44,6 +44,8 @@ dependencies:
   connectivity_plus: ^7.0.0
   package_info_plus: ^8.0.0
   image_picker: ^1.2.1
+  geolocator: ^13.0.1
+  flutter_local_notifications: ^18.0.1
   
   # Security
   flutter_secure_storage: ^9.0.0
@@ -52,6 +54,9 @@ dependencies:
   http: ^1.1.0
   dio: ^5.4.0
   json_annotation: ^4.8.1
+  
+  # ML / TFLite
+  tflite_flutter: ^0.10.4
   
   # Icons
   cupertino_icons: ^1.0.2
@@ -75,13 +80,15 @@ flutter:
   assets:
     - .env
     - assets/images/
+    - assets/images/Onboarding_1.png
+    - assets/images/Onboarding_2.png
+    - assets/images/Onboarding_3.png
     - assets/icons/
     - assets/animations/
     - assets/models/
     - assets/models/schedule_predictor.tflite
-    - assets/models/anomaly_detector.tflite
     - assets/icons/smart-house.png
-    - assets/icons/fan.png
+    - assets/fan.png
   
   fonts:
     - family: Roboto

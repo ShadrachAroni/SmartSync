@@ -384,6 +384,10 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
       child: insightsAsync.when(
         data: (insights) {
           Logger.debug('AnalyticsScreen: Insights loaded successfully');
+          // If no data, show empty state instead of loading
+          if (insights.totalLogs == 0) {
+            return _buildEmptyState('No sensor data available yet. Start using your devices to see analytics.');
+          }
           return dailyAnalyticsAsync.when(
             data: (dailyData) {
               Logger.debug(
@@ -499,6 +503,16 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
         },
         loading: () {
           Logger.debug('AnalyticsScreen: Insights loading...');
+          // Add a timeout to show error if loading takes too long
+          Future.delayed(const Duration(seconds: 20), () {
+            if (mounted) {
+              Logger.warning('AnalyticsScreen: Loading timeout, invalidating provider');
+              ref.invalidate(analyticsInsightsProvider({
+                'userId': userId,
+                'days': timeRange,
+              }));
+            }
+          });
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -1036,22 +1050,33 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                 icon: Icons.lightbulb_rounded,
                 title: 'Energy Saving Tip',
                 description:
-                    'Your fan usage is ${_getFanUsageLevel(insights.avgFanUsage)}. '
-                    'Consider reducing speed by 20% during off-peak hours to save energy.',
+                    insights.totalLogs > 0
+                        ? 'Your fan usage is ${_getFanUsageLevel(insights.avgFanUsage)}. '
+                            'Check ML predictions to optimize schedules and save energy.'
+                        : 'Start using your devices to get personalized energy-saving recommendations.',
                 color: const Color(0xFFFFA726),
-                actionLabel: 'Optimize',
-                onTap: () {},
+                actionLabel: 'View Predictions',
+                onTap: () {
+                  // Switch to predictions tab
+                  _tabController.animateTo(2);
+                },
               ),
               const SizedBox(height: 16),
               _buildInsightCard(
                 icon: Icons.thermostat_rounded,
                 title: 'Temperature Pattern',
                 description:
-                    'Temperature peaks at ${insights.peakUsageHour}:00. '
-                    'Schedule cooling to start 30 minutes earlier for optimal comfort.',
+                    insights.peakUsageHour > 0
+                        ? 'Temperature peaks at ${insights.peakUsageHour}:00. '
+                            'Schedule cooling to start 30 minutes earlier for optimal comfort.'
+                        : 'Temperature data shows consistent patterns. '
+                            'Use ML predictions to optimize your schedule.',
                 color: const Color(0xFFFF6B6B),
-                actionLabel: 'Create Schedule',
-                onTap: () {},
+                actionLabel: 'View Predictions',
+                onTap: () {
+                  // Switch to predictions tab
+                  _tabController.animateTo(2);
+                },
               ),
               const SizedBox(height: 16),
               _buildInsightCard(
@@ -1322,7 +1347,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                 ),
               ),
               Text(
-                '${prediction.value}%',
+                '${((prediction.value / 255) * 100).round()}%',
                 style: const TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -1376,6 +1401,43 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.analytics_outlined,
+              size: 80,
+              color: Colors.white.withOpacity(0.3),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'No Data Available',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.white70,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1543,19 +1605,12 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
     return 'remained stable';
   }
 
-  String _timeAgo(DateTime timestamp) {
-    final diff = DateTime.now().difference(timestamp);
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
-  }
-
   void _showCreateScheduleDialog(SchedulePrediction prediction) {
     AppNotifications.showDialog(
       context,
       title: 'Create Schedule',
       message:
-          'AI suggests scheduling ${prediction.deviceType} to ${prediction.value}% every ${prediction.dayName} at ${prediction.timeString}.'
+          'AI suggests scheduling ${prediction.deviceType} to ${((prediction.value / 255) * 100).round()}% every ${prediction.dayName} at ${prediction.timeString}.'
           '\nDevice: ${prediction.deviceName ?? 'Select device on next step'}',
       type: AppNotificationType.info,
       primaryLabel: 'Create',

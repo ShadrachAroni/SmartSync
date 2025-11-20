@@ -5,9 +5,12 @@ import '../../providers/settings_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../core/constants/routes.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../services/logging_service.dart';
+import '../../models/log_entry.dart';
 import 'notifications_settings.dart';
 import 'privacy_settings.dart';
 import 'about_screen.dart';
+import 'caregiver_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -85,6 +88,17 @@ class SettingsScreen extends ConsumerWidget {
             onChanged: (value) => ref
                 .read(settingsControllerProvider.notifier)
                 .toggleCaregiverAlerts(value),
+          ),
+          const SizedBox(height: 12),
+          _buildNavTile(
+            context,
+            icon: Icons.people_outlined,
+            title: 'Manage Caregivers',
+            subtitle: 'Add and manage your caregivers',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CaregiverScreen()),
+            ),
           ),
           const SizedBox(height: 12),
           _buildNavTile(
@@ -646,6 +660,15 @@ class SettingsScreen extends ConsumerWidget {
                   // Update password
                   await user.updatePassword(newPasswordController.text).timeout(
                     const Duration(seconds: 10),
+                  );
+
+                  // Log password change
+                  final loggingService = LoggingService();
+                  await loggingService.logAction(
+                    action: 'Password changed',
+                    category: 'auth',
+                    details: 'User successfully changed their password',
+                    level: LogLevel.info,
                   );
 
                   if (context.mounted) {

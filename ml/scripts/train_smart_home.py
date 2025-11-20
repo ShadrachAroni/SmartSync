@@ -28,15 +28,23 @@ import json
 import math
 import time
 import warnings
+import argparse
+import hashlib
+import os
+import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+# Mitigate GPU memory fragmentation (must be set before importing TensorFlow)
+os.environ.setdefault("TF_GPU_ALLOCATOR", "cuda_malloc_async")
+
 import tensorflow as tf
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
@@ -137,9 +145,143 @@ RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
 MODELS_DIR = PROJECT_ROOT / "models" / "saved_models"
 ARTIFACTS_DIR = MODELS_DIR / "artifacts"
+CACHE_DIR = ARTIFACTS_DIR / "cache"
+CHECKPOINT_DIR = MODELS_DIR / "checkpoints"
+PAUSE_FLAG_PATH = ARTIFACTS_DIR / "pause.flag"
 
-for directory in [RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR, ARTIFACTS_DIR]:
+for directory in [
+    RAW_DATA_DIR,
+    PROCESSED_DATA_DIR,
+    MODELS_DIR,
+    ARTIFACTS_DIR,
+    CACHE_DIR,
+    CHECKPOINT_DIR,
+]:
     directory.mkdir(parents=True, exist_ok=True)
+
+
+def compute_config_hash(config: TrainingConfig) -> str:
+    payload = json.dumps(config.to_dict(), sort_keys=True).encode("utf-8")
+    return hashlib.md5(payload).hexdigest()
+
+
+class DatasetCache:
+    """Persist prepared tensors and preprocessors to avoid recomputation."""
+
+    def __init__(self, config: TrainingConfig):
+        self.config = config
+        self.config_hash = compute_config_hash(config)
+        self.dataset_path = CACHE_DIR / f"dataset_{self.config_hash}.npz"
+        self.preprocessor_path = CACHE_DIR / f"preprocessor_{self.config_hash}.joblib"
+
+    def has_cache(self) -> bool:
+        return self.dataset_path.exists() and self.preprocessor_path.exists()
+
+    def load(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, SmartHomePreprocessor]:
+        if not self.has_cache():
+            raise FileNotFoundError("Dataset cache not found.")
+        with np.load(self.dataset_path, allow_pickle=False) as data:
+            X_train = data["X_train"]
+            y_train = data["y_train"]
+            X_val = data["X_val"]
+            y_val = data["y_val"]
+            X_test = data["X_test"]
+            y_test = data["y_test"]
+        preprocessor: SmartHomePreprocessor = joblib.load(self.preprocessor_path)
+        print(f"📦 Loaded cached datasets for config hash {self.config_hash[:8]}...")
+        return X_train, y_train, X_val, y_val, X_test, y_test, preprocessor
+
+    def save(
+        self,
+        tensors: Dict[str, np.ndarray],
+        preprocessor: SmartHomePreprocessor,
+    ) -> None:
+        np.savez_compressed(self.dataset_path, **tensors)
+        joblib.dump(preprocessor, self.preprocessor_path)
+        print(f"💾 Cached datasets at {self.dataset_path.name}")
+
+    def clear(self) -> None:
+        for path in [self.dataset_path, self.preprocessor_path]:
+            if path.exists():
+                path.unlink()
+
+
+class TrainingStateManager:
+    """Track checkpoints, pause/resume state, and training metadata."""
+
+    def __init__(self, config_hash: str):
+        self.config_hash = config_hash
+        self.state_path = CACHE_DIR / f"state_{config_hash}.json"
+        self.latest_checkpoint_path = CHECKPOINT_DIR / f"{config_hash}_latest.weights.h5"
+        self.latest_checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def load_state(self) -> Optional[Dict[str, Any]]:
+        if not self.state_path.exists():
+            return None
+        with open(self.state_path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def save_state(
+        self,
+        last_epoch: int,
+        status: str,
+        logs: Optional[Dict[str, float]] = None,
+        message: Optional[str] = None,
+    ) -> None:
+        payload: Dict[str, Any] = {
+            "config_hash": self.config_hash,
+            "last_epoch": last_epoch,
+            "status": status,
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        if logs:
+            payload["logs"] = logs
+        if message:
+            payload["message"] = message
+        with open(self.state_path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+
+    def clear(self) -> None:
+        if self.state_path.exists():
+            self.state_path.unlink()
+        if self.latest_checkpoint_path.exists():
+            self.latest_checkpoint_path.unlink()
+
+    def has_checkpoint(self) -> bool:
+        return self.latest_checkpoint_path.exists()
+
+
+class PauseResumeCallback(keras.callbacks.Callback):
+    """Monitor for pause requests and persist state each epoch."""
+
+    def __init__(
+        self,
+        state_manager: TrainingStateManager,
+        pause_flag_path: Path,
+    ):
+        super().__init__()
+        self.state_manager = state_manager
+        self.pause_flag_path = pause_flag_path
+        self.pause_requested = False
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        serializable_logs = {
+            key: float(value)
+            for key, value in logs.items()
+            if isinstance(value, (int, float, np.floating))
+        }
+        self.state_manager.save_state(epoch + 1, "running", serializable_logs)
+        if self.pause_flag_path.exists():
+            print("\n⏸️  Pause requested. Finishing current epoch and stopping training.")
+            self.state_manager.save_state(
+                epoch + 1,
+                "paused",
+                serializable_logs,
+                message="Pause flag detected.",
+            )
+            self.pause_requested = True
+            self.model.stop_training = True
 
 # ==============================================================================
 # Dataset Ingestion
@@ -171,15 +313,51 @@ def _parse_homec(df: pd.DataFrame) -> pd.DataFrame:
     if "timestamp" not in df.columns:
         df = df.rename(columns={df.columns[0]: "timestamp"})
 
+    # Try to extract real power/energy data from HomeC dataset
+    # HomeC dataset may have columns like: use [kW], House overall [kW], etc.
     numeric_map = {
         "use [kW]": "power_kw",
         "House overall [kW]": "house_kw",
         "Dishwasher [kW]": "dishwasher_kw",
         "gen [kW]": "generation_kw",
+        # Also check for alternative column names
+        "power": "power_kw",
+        "Power": "power_kw",
+        "energy": "power_kw",
+        "Energy": "power_kw",
+        "kW": "power_kw",
+        "kWh": "power_kw",
     }
+    power_found = False
     for original, target in numeric_map.items():
         if original in df.columns:
             df[target] = pd.to_numeric(df[original], errors="coerce")
+            if target == "power_kw" and df[target].notna().any():
+                power_found = True
+                print(f"   ✅ Found power column: '{original}' → {target}")
+    
+    if not power_found:
+        print("   ⚠️  No power column found, will use synthetic data")
+
+    # Try to extract real humidity data from HomeC dataset
+    # HomeC dataset may have columns like: humidity, Humidity, RH, relative humidity, etc.
+    humidity_cols = [col for col in df.columns 
+                     if any(term in str(col).lower() 
+                            for term in ['humidity', 'rh', 'relative'])]
+    
+    humidity_data = None
+    if humidity_cols:
+        # Use first matching humidity column found
+        humidity_col = humidity_cols[0]
+        print(f"   ✅ Found humidity column: '{humidity_col}'")
+        humidity_data = pd.to_numeric(df[humidity_col], errors="coerce")
+        # Normalize to percentage if needed (some datasets use 0-1 scale)
+        if humidity_data.max() <= 1.0:
+            humidity_data = humidity_data * 100
+        # Clip to reasonable range (0-100%)
+        humidity_data = humidity_data.clip(0, 100)
+    else:
+        print("   ⚠️  No humidity column found, generating synthetic data")
 
     out = pd.DataFrame(
         {
@@ -190,12 +368,51 @@ def _parse_homec(df: pd.DataFrame) -> pd.DataFrame:
             "appliance_kw": df.get("dishwasher_kw"),
         }
     )
+    
+    # Verify power data is present
+    if out["power_kw"].notna().any():
+        power_stats = out["power_kw"].describe()
+        print(f"   📊 Power data range: {power_stats['min']:.3f} - {power_stats['max']:.3f} kW (mean: {power_stats['mean']:.3f} kW)")
+    else:
+        print("   ⚠️  No power data found, will generate synthetic")
 
     out["occupancy_signal"] = np.clip(
         (out["house_kw"].fillna(out["power_kw"]).fillna(0)) / 1.5, 0, 1
     )
-    out["temperature_c"] = 20 + out["power_kw"].fillna(0) * 1.2
-    out["humidity_pct"] = 45 + np.random.randn(len(out)) * 5
+    
+    # Extract temperature if available, otherwise generate
+    temp_cols = [col for col in df.columns 
+                 if any(term in str(col).lower() 
+                        for term in ['temp', 'temperature'])]
+    if temp_cols:
+        temp_col = temp_cols[0]
+        print(f"   ✅ Found temperature column: '{temp_col}'")
+        out["temperature_c"] = pd.to_numeric(df[temp_col], errors="coerce")
+        # Fill missing with synthetic
+        out["temperature_c"] = out["temperature_c"].fillna(20 + out["power_kw"].fillna(0) * 1.2)
+    else:
+        out["temperature_c"] = 20 + out["power_kw"].fillna(0) * 1.2
+    
+    # Use real humidity if available, otherwise generate realistic synthetic data
+    if humidity_data is not None:
+        out["humidity_pct"] = humidity_data
+        # Fill any missing values with realistic synthetic data
+        missing_mask = out["humidity_pct"].isna()
+        if missing_mask.any():
+            # Generate synthetic data correlated with temperature
+            out.loc[missing_mask, "humidity_pct"] = (
+                50 - (out.loc[missing_mask, "temperature_c"] - 22) * 2 + 
+                np.random.randn(missing_mask.sum()) * 5
+            ).clip(30, 70)
+        print(f"   📊 Humidity range: {out['humidity_pct'].min():.1f}% - {out['humidity_pct'].max():.1f}%")
+    else:
+        # Generate realistic synthetic humidity (correlated with temperature)
+        out["humidity_pct"] = (
+            50 - (out["temperature_c"] - 22) * 2 + 
+            np.random.randn(len(out)) * 5
+        ).clip(30, 70)
+        print("   📊 Using synthetic humidity data (correlated with temperature)")
+    
     return out
 
 
@@ -259,13 +476,39 @@ def _parse_event_dataset(df: pd.DataFrame, name: str) -> pd.DataFrame:
             "power_kw": np.where(motion > 0, np.random.uniform(0.6, 1.5), 0.2),
         }
     )
-    out["temperature_c"] = 21 + np.random.randn(len(out)) * 1.5
-    out["humidity_pct"] = 48 + np.random.randn(len(out)) * 4
+    
+    # Generate realistic temperature (slightly higher when occupied)
+    out["temperature_c"] = (
+        21 + (motion * 1.5) + np.random.randn(len(out)) * 1.5
+    ).clip(18, 28)
+    
+    # Generate realistic humidity correlated with temperature and time
+    # Higher humidity in morning/evening, lower during day
+    try:
+        # Try to extract hour from timestamp
+        if isinstance(timestamp, pd.Series) and pd.api.types.is_datetime64_any_dtype(timestamp):
+            hour_of_day = timestamp.dt.hour
+        else:
+            # Convert to datetime if needed
+            timestamp_dt = pd.to_datetime(timestamp, errors="coerce")
+            hour_of_day = timestamp_dt.dt.hour.fillna(12)
+    except Exception:
+        # Fallback: use midday as default
+        hour_of_day = pd.Series([12] * len(out))
+    
+    humidity_base = 50 - (out["temperature_c"] - 22) * 2  # Inverse correlation with temp
+    humidity_variation = 10 * np.sin(2 * np.pi * hour_of_day / 24)  # Daily cycle
+    out["humidity_pct"] = (
+        humidity_base + humidity_variation + np.random.randn(len(out)) * 4
+    ).clip(30, 70)
+    
     out["appliance_kw"] = np.where(
         sensor_type.str.contains("kitchen|cook|dish"), out["power_kw"] * 0.7, 0.0
     )
     out["house_kw"] = out["power_kw"] + out["appliance_kw"]
     out["generation_kw"] = 0.0
+    
+    print(f"   📊 Generated synthetic humidity (range: {out['humidity_pct'].min():.1f}% - {out['humidity_pct'].max():.1f}%)")
     return out
 
 
@@ -277,6 +520,8 @@ def load_datasets(dataset_files: List[Path]) -> pd.DataFrame:
         # Event datasets (aruba, tulum) don't have headers, so read with header=None
         if "homec" in name:
             df = pd.read_csv(file)
+            # Log available columns for debugging
+            print(f"   Available columns: {list(df.columns)[:10]}...")  # Show first 10
             parsed = _parse_homec(df)
         else:
             # Try reading without headers first (for aruba, tulum)
@@ -284,11 +529,42 @@ def load_datasets(dataset_files: List[Path]) -> pd.DataFrame:
             parsed = _parse_event_dataset(df, name)
         frames.append(parsed)
         print(f"   → Parsed {len(parsed):,} rows.")
+        # Verify humidity is present
+        if "humidity_pct" in parsed.columns:
+            print(f"   ✅ Humidity data included: {parsed['humidity_pct'].notna().sum():,} non-null values")
+        # Verify power data is present
+        if "power_kw" in parsed.columns:
+            power_count = parsed["power_kw"].notna().sum()
+            print(f"   ✅ Power data included: {power_count:,} non-null values")
+            if power_count > 0:
+                power_stats = parsed["power_kw"].describe()
+                print(f"      Range: {power_stats['min']:.3f} - {power_stats['max']:.3f} kW")
 
     combined = pd.concat(frames, ignore_index=True)
     combined = combined.dropna(subset=["timestamp"]).sort_values("timestamp")
     combined = combined.reset_index(drop=True)
     print(f"\n✅ Combined dataset size: {len(combined):,} rows")
+    
+    # Verify humidity is in final dataset
+    if "humidity_pct" in combined.columns:
+        humidity_stats = combined["humidity_pct"].describe()
+        print(f"\n📊 Humidity statistics:")
+        print(f"   Mean: {humidity_stats['mean']:.1f}%")
+        print(f"   Range: {humidity_stats['min']:.1f}% - {humidity_stats['max']:.1f}%")
+        print(f"   Non-null: {combined['humidity_pct'].notna().sum():,} / {len(combined):,}")
+    else:
+        print("\n⚠️  WARNING: humidity_pct column missing from combined dataset!")
+    
+    # Verify power data is in final dataset
+    if "power_kw" in combined.columns:
+        power_stats = combined["power_kw"].describe()
+        print(f"\n⚡ Power statistics:")
+        print(f"   Mean: {power_stats['mean']:.3f} kW")
+        print(f"   Range: {power_stats['min']:.3f} - {power_stats['max']:.3f} kW")
+        print(f"   Non-null: {combined['power_kw'].notna().sum():,} / {len(combined):,}")
+    else:
+        print("\n⚠️  WARNING: power_kw column missing from combined dataset!")
+    
     return combined
 
 
@@ -696,8 +972,19 @@ def train_model(
     X_val: np.ndarray,
     y_val: np.ndarray,
     config: TrainingConfig,
+    state_manager: Optional[TrainingStateManager] = None,
+    initial_epoch: int = 0,
+    resume_checkpoint: Optional[Path] = None,
+    pause_flag_path: Path = PAUSE_FLAG_PATH,
 ) -> Tuple[keras.Model, keras.callbacks.History, List[float]]:
     model = build_temporal_cnn(X_train.shape[1:], config)
+    if resume_checkpoint and resume_checkpoint.exists():
+        try:
+            model.load_weights(resume_checkpoint)
+            print(f"🔁 Loaded checkpoint: {resume_checkpoint.name}")
+        except Exception as exc:
+            print(f"⚠️  Could not load checkpoint ({exc}). Continuing from scratch.")
+
     train_ds = create_tf_dataset(X_train, y_train, config.batch_size, shuffle=True)
     val_ds = create_tf_dataset(X_val, y_val, config.batch_size, shuffle=False)
 
@@ -726,6 +1013,21 @@ def train_model(
         ),
         OverfittingMonitor(gap_threshold=0.15),  # Monitor for overfitting
     ]
+    pause_callback: Optional[PauseResumeCallback] = None
+    if state_manager:
+        callbacks.append(
+            keras.callbacks.ModelCheckpoint(
+                filepath=str(state_manager.latest_checkpoint_path),
+                save_weights_only=True,
+                save_best_only=False,
+                monitor="loss",
+                save_freq="epoch",
+                verbose=0,
+            )
+        )
+        pause_callback = PauseResumeCallback(state_manager, pause_flag_path)
+        callbacks.append(pause_callback)
+
     r2_callback = ValidationR2Callback((X_val, y_val))
     callbacks.append(r2_callback)
 
@@ -733,6 +1035,7 @@ def train_model(
         train_ds,
         validation_data=val_ds,
         epochs=config.epochs,
+        initial_epoch=initial_epoch,
         verbose=1,  # Show progress bar for batches within epoch
         callbacks=callbacks,
     )
@@ -762,6 +1065,19 @@ def train_model(
         elif final_val_loss > final_train_loss * 1.2:
             print("   ⚠️  Validation loss much higher - possible overfitting")
     
+    final_epoch = initial_epoch + len(history.history.get("loss", []))
+    if state_manager:
+        final_status = "paused" if (pause_callback and pause_callback.pause_requested) else "completed"
+        state_manager.save_state(final_epoch, final_status)
+        if final_status == "paused":
+            print("⏸️  Training paused. Re-run with --resume to continue.")
+        elif pause_flag_path.exists():
+            try:
+                pause_flag_path.unlink()
+                print("▶️  Pause flag cleared after successful training.")
+            except OSError:
+                pass
+
     return model, history, r2_callback.history
 
 
@@ -933,6 +1249,21 @@ def save_artifacts(
     scaler_path = PROCESSED_DATA_DIR / "feature_scaler.pkl"
     joblib.dump(preprocessor.feature_scaler, scaler_path)
 
+    # Extract scaler parameters (mean and std) for Flutter app
+    scaler_mean = preprocessor.feature_scaler.mean_.tolist() if hasattr(preprocessor.feature_scaler, 'mean_') else None
+    scaler_std = preprocessor.feature_scaler.scale_.tolist() if hasattr(preprocessor.feature_scaler, 'scale_') else None
+    
+    # Save scaler parameters to JSON for Flutter app
+    scaler_params = {
+        "mean": scaler_mean,
+        "std": scaler_std,
+        "feature_columns": preprocessor.feature_columns,
+    }
+    scaler_json_path = model_dir / "scaler_params.json"
+    with open(scaler_json_path, "w", encoding="utf-8") as fh:
+        json.dump(scaler_params, fh, indent=2)
+    print(f"💾 Saved scaler parameters to {scaler_json_path}")
+
     metadata = {
         "trained_at": datetime.utcnow().isoformat(),
         "config": config.to_dict(),
@@ -940,6 +1271,8 @@ def save_artifacts(
         "feature_columns": preprocessor.feature_columns,
         "target_columns": preprocessor.target_columns,
         "gpu_available": GPU_AVAILABLE,
+        "scaler_mean": scaler_mean,
+        "scaler_std": scaler_std,
     }
     with open(model_dir / "metadata.json", "w", encoding="utf-8") as fh:
         json.dump(metadata, fh, indent=2)
@@ -957,44 +1290,120 @@ def save_artifacts(
 # ==============================================================================
 
 
-def run_pipeline():
+def run_pipeline(args):
     print("\n" + "=" * 90)
     print("SMARTSYNC TRAINING PIPELINE")
     print("=" * 90)
     print(json.dumps(CONFIG.to_dict(), indent=2))
 
-    dataset_files = discover_dataset_files(CONFIG.datasets)
-    raw_df = load_datasets(dataset_files)
+    dataset_cache = DatasetCache(CONFIG)
+    state_manager = TrainingStateManager(dataset_cache.config_hash)
 
-    preprocessor = SmartHomePreprocessor(CONFIG)
-    hourly_df = preprocessor.build_hourly_features(raw_df)
-    X, y = preprocessor.prepare_sequences(hourly_df)
+    if args.reset_cache:
+        dataset_cache.clear()
+        state_manager.clear()
+        print("🧹 Cleared cached datasets and checkpoints.")
+        if args.resume:
+            print("⚠️  Resume requested after cache reset; starting fresh.")
 
-    # Shuffle data before splitting to ensure random distribution
-    # This prevents distribution differences between train/val/test sets
-    indices = np.arange(len(X))
-    np.random.seed(CONFIG.seed)
-    np.random.shuffle(indices)
-    X_shuffled = X[indices]
-    y_shuffled = y[indices]
-    
-    total = len(X_shuffled)
-    test_size = int(total * CONFIG.test_split)
-    val_size = int(total * CONFIG.validation_split)
+    if args.refresh_data:
+        dataset_cache.clear()
+        state_manager.clear()
+        print("🔁 Refreshing dataset cache per user request.")
 
-    X_train, y_train = X_shuffled[: total - val_size - test_size], y_shuffled[: total - val_size - test_size]
-    X_val, y_val = (
-        X_shuffled[total - val_size - test_size : total - test_size],
-        y_shuffled[total - val_size - test_size : total - test_size],
-    )
-    X_test, y_test = X_shuffled[total - test_size :], y_shuffled[total - test_size :]
+    if dataset_cache.has_cache():
+        (
+            X_train,
+            y_train,
+            X_val,
+            y_val,
+            X_test,
+            y_test,
+            preprocessor,
+        ) = dataset_cache.load()
+    else:
+        dataset_files = discover_dataset_files(CONFIG.datasets)
+        raw_df = load_datasets(dataset_files)
+
+        preprocessor = SmartHomePreprocessor(CONFIG)
+        hourly_df = preprocessor.build_hourly_features(raw_df)
+        X, y = preprocessor.prepare_sequences(hourly_df)
+
+        indices = np.arange(len(X))
+        np.random.seed(CONFIG.seed)
+        np.random.shuffle(indices)
+        X_shuffled = X[indices]
+        y_shuffled = y[indices]
+        
+        total = len(X_shuffled)
+        test_size = int(total * CONFIG.test_split)
+        val_size = int(total * CONFIG.validation_split)
+
+        X_train = X_shuffled[: total - val_size - test_size]
+        y_train = y_shuffled[: total - val_size - test_size]
+        X_val = X_shuffled[total - val_size - test_size : total - test_size]
+        y_val = y_shuffled[total - val_size - test_size : total - test_size]
+        X_test = X_shuffled[total - test_size :]
+        y_test = y_shuffled[total - test_size :]
+
+        dataset_cache.save(
+            {
+                "X_train": X_train,
+                "y_train": y_train,
+                "X_val": X_val,
+                "y_val": y_val,
+                "X_test": X_test,
+                "y_test": y_test,
+            },
+            preprocessor,
+        )
 
     print(
         f"\nDataset split → train: {len(X_train):,}, "
         f"val: {len(X_val):,}, test: {len(X_test):,}"
     )
 
-    model, history, _ = train_model(X_train, y_train, X_val, y_val, CONFIG)
+    initial_epoch = 0
+    resume_checkpoint: Optional[Path] = None
+    if args.resume:
+        state = state_manager.load_state()
+        if not state:
+            raise RuntimeError(
+                "Resume requested but no training state file was found in cache."
+            )
+        initial_epoch = int(state.get("last_epoch", 0))
+        if not state_manager.has_checkpoint():
+            raise RuntimeError(
+                "Resume requested but checkpoint file is missing. "
+                "Re-run without --resume or ensure previous training completed at least one epoch."
+            )
+        resume_checkpoint = state_manager.latest_checkpoint_path
+        print(
+            f"🔄 Resuming from epoch {initial_epoch} using {resume_checkpoint.name}"
+        )
+        if initial_epoch >= CONFIG.epochs:
+            print(
+                "✅ Training already completed according to state file. "
+                "Use --refresh-data or --reset-cache to retrain."
+            )
+            return
+
+    state_manager.save_state(
+        initial_epoch,
+        "running",
+        message="Resumed" if args.resume else "Fresh run",
+    )
+
+    model, history, _ = train_model(
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        CONFIG,
+        state_manager=state_manager,
+        initial_epoch=initial_epoch,
+        resume_checkpoint=resume_checkpoint,
+    )
     metrics, y_pred = evaluate_model(model, X_test, y_test)
 
     analyzer = TrainingAnalyzer(CONFIG)
@@ -1011,5 +1420,64 @@ def run_pipeline():
         print(f"{key:>10}: {value:>8.4f}")
 
 
+def parse_cli_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Train the SmartSync model with caching, resume, and pause controls.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume training from the last completed epoch and checkpoint.",
+    )
+    parser.add_argument(
+        "--reset-cache",
+        action="store_true",
+        help="Delete cached datasets and checkpoints before training.",
+    )
+    parser.add_argument(
+        "--refresh-data",
+        action="store_true",
+        help="Rebuild dataset cache even if it already exists.",
+    )
+    parser.add_argument(
+        "--request-pause",
+        action="store_true",
+        help=(
+            "Create a pause flag so a running training job stops safely "
+            "after the current epoch. This command exits immediately."
+        ),
+    )
+    parser.add_argument(
+        "--clear-pause",
+        action="store_true",
+        help="Remove the pause flag before starting/resuming training.",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    run_pipeline()
+    cli_args = parse_cli_args()
+
+    if cli_args.request_pause:
+        PAUSE_FLAG_PATH.touch()
+        print(f"⏸️  Pause flag created at {PAUSE_FLAG_PATH}.")
+        sys.exit(0)
+
+    if cli_args.clear_pause:
+        if PAUSE_FLAG_PATH.exists():
+            PAUSE_FLAG_PATH.unlink()
+            print("▶️  Pause flag removed.")
+        else:
+            print("ℹ️  No pause flag present.")
+
+    try:
+        run_pipeline(cli_args)
+    except Exception as exc:
+        state_manager = TrainingStateManager(compute_config_hash(CONFIG))
+        previous_state = state_manager.load_state() or {}
+        state_manager.save_state(
+            int(previous_state.get("last_epoch", 0)),
+            "error",
+            message=str(exc),
+        )
+        raise

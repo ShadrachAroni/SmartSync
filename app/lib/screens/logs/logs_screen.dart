@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import '../../services/logging_service.dart';
+import '../../services/adaptive_auto_service.dart';
 import '../../models/log_entry.dart';
 import '../../core/utils/logger.dart';
+import '../../core/widgets/app_notifications.dart';
 
 final loggingServiceProvider = Provider((ref) => LoggingService());
 
@@ -418,8 +419,72 @@ class _LogEntryCard extends StatelessWidget {
               ),
             ),
           ],
+          // Show revert button for automation changes
+          if (log.category == 'automation' && 
+              log.metadata['revertable'] == true) ...[
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: () => _handleRevertChange(
+                context,
+                log.metadata['changeId'] as String? ?? '',
+                log.details,
+              ),
+              icon: const Icon(Icons.undo, size: 16),
+              label: const Text('Revert Change'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade700,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                textStyle: const TextStyle(fontSize: 12),
+              ),
+            ),
+          ],
         ],
       ),
+    );
+  }
+  
+  void _handleRevertChange(BuildContext context, String changeId, String details) {
+    if (changeId.isEmpty) {
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Cannot revert: Invalid change ID',
+        type: AppNotificationType.error,
+      );
+      return;
+    }
+    
+    AppNotifications.showDialog(
+      context,
+      title: 'Revert Automation Change',
+      message: 'Do you want to revert this change?\n\n$details',
+      type: AppNotificationType.warning,
+      primaryLabel: 'Revert',
+      onPrimaryPressed: () async {
+        final autoService = AdaptiveAutoService();
+        final success = await autoService.revertChange(changeId);
+        
+        if (success) {
+          AppNotifications.showSnackBar(
+            context,
+            message: 'Change reverted successfully',
+            type: AppNotificationType.success,
+          );
+          // Refresh logs
+          ref.invalidate(userLogsProvider);
+        } else {
+          AppNotifications.showSnackBar(
+            context,
+            message: 'Failed to revert change',
+            type: AppNotificationType.error,
+          );
+        }
+      },
+      secondaryLabel: 'Cancel',
+      onSecondaryPressed: () {},
     );
   }
 

@@ -118,9 +118,13 @@ class _AddRoomScreenState extends State<AddRoomScreen> {
               const SizedBox(height: 12),
               TextFormField(
                 controller: _nameController,
-                style: const TextStyle(fontSize: 16),
+                style: const TextStyle(
+                  fontSize: 16,
+                  color: Colors.black87,
+                ),
                 decoration: InputDecoration(
                   hintText: 'e.g., Master Bedroom',
+                  hintStyle: TextStyle(color: Colors.grey.shade500),
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(

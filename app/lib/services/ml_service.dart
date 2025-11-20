@@ -3,11 +3,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../core/utils/logger.dart';
 import '../models/sensor_data.dart';
 import '../models/ml_prediction.dart';
+import 'tflite_service.dart';
 
 /// ML Service for SmartSync
 ///
-/// Handles ML inference via Firebase Cloud Functions
-/// No local TFLite models needed - all inference on server
+/// Uses local TFLite models for inference (primary)
+/// Falls back to Firebase Cloud Functions if local inference fails
 class MLService {
   static final MLService _instance = MLService._internal();
   factory MLService() => _instance;
@@ -15,6 +16,7 @@ class MLService {
 
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final TFLiteService _tfliteService = TFLiteService();
 
   bool _isInitialized = false;
 
@@ -25,7 +27,15 @@ class MLService {
     try {
       Logger.info('Initializing ML Service...');
 
-      // Check if models are deployed
+      // Initialize local TFLite service (primary)
+      final tfliteReady = await _tfliteService.initialize();
+      if (tfliteReady) {
+        Logger.success('Local TFLite models loaded');
+      } else {
+        Logger.warning('Local TFLite models not available, will use server-side');
+      }
+
+      // Check if server-side models are deployed (fallback)
       final config =
           await _firestore.collection('system_config').doc('ml_models').get();
 
@@ -33,14 +43,13 @@ class MLService {
         final models = config.data()?['models'] as Map<String, dynamic>?;
 
         if (models != null) {
-          Logger.success('ML models available:');
+          Logger.info('Server-side ML models available (fallback):');
           models.forEach((name, info) {
             Logger.info('  - $name: ${info['currentVersion']}');
           });
         }
       } else {
-        Logger.warning('No ML models found in Firestore');
-        Logger.info('Deploy models: python ml/scripts/deploy_model.py');
+        Logger.info('No server-side ML models found (local models will be used)');
       }
 
       _isInitialized = true;
@@ -52,7 +61,8 @@ class MLService {
 
   /// Predict optimal schedules based on historical data
   ///
-  /// Calls Cloud Function for server-side inference
+  /// Uses local TFLite model first (primary)
+  /// Falls back to Cloud Function if local inference fails
   Future<List<SchedulePrediction>> predictSchedules(
     String userId,
     String deviceId,
@@ -60,6 +70,87 @@ class MLService {
     try {
       Logger.info('Requesting schedule prediction...');
 
+      // ========== PRIMARY: Try local TFLite inference first ==========
+      if (_tfliteService.isReady) {
+        try {
+          Logger.info('🤖 PRIMARY: Attempting local TFLite inference (using trained model from assets)...');
+
+          // Fetch sensor logs for local inference
+          final sensorLogs = await _fetchSensorLogs(userId, deviceId, hours: 24);
+
+          if (sensorLogs.length >= 24) {
+            final localPredictions = await _tfliteService.predictSchedulesLocal(
+              userId,
+              deviceId,
+              sensorLogs,
+            );
+
+            if (localPredictions.isNotEmpty) {
+              Logger.success('✅ PRIMARY SUCCESS: Local TFLite inference completed - ${localPredictions.length} predictions generated from local model');
+              Logger.info('   📊 Using model: assets/models/schedule_predictor.tflite (from train_smart_home.py)');
+              return localPredictions; // Return immediately - local model takes priority
+            } else {
+              Logger.warning('⚠️  Local inference returned no predictions, falling back to server');
+            }
+          } else {
+            Logger.warning('⚠️  Insufficient sensor data for local inference (${sensorLogs.length}/24 hours), falling back to server');
+          }
+        } catch (e) {
+          Logger.warning('⚠️  Local inference failed: $e, falling back to server');
+        }
+      } else {
+        Logger.warning('⚠️  Local TFLite models not ready, using server-side inference (fallback)');
+      }
+
+      // ========== FALLBACK: Server-side inference only if local fails ==========
+      Logger.info('🔄 FALLBACK: Using server-side inference (local model unavailable or failed)...');
+      return await _predictSchedulesServer(userId, deviceId);
+    } catch (e) {
+      Logger.error('Schedule prediction failed: $e');
+      return [];
+    }
+  }
+
+  /// Fetch sensor logs from Firestore
+  Future<List<SensorData>> _fetchSensorLogs(
+    String userId,
+    String deviceId, {
+    int hours = 24,
+  }) async {
+    try {
+      final cutoff = DateTime.now().subtract(Duration(hours: hours));
+
+      // Build query - handle 'all' deviceId
+      Query query = _firestore
+          .collection('sensor_logs')
+          .where('userId', isEqualTo: userId)
+          .where('timestamp', isGreaterThan: Timestamp.fromDate(cutoff));
+
+      // Only filter by deviceId if it's not 'all'
+      if (deviceId != 'all' && deviceId.isNotEmpty) {
+        query = query.where('deviceId', isEqualTo: deviceId);
+      }
+
+      final snapshot = await query.orderBy('timestamp', ascending: true).get();
+
+      final logs = snapshot.docs
+          .map((doc) => SensorData.fromJson(doc.data()))
+          .toList();
+
+      Logger.info('Fetched ${logs.length} sensor logs');
+      return logs;
+    } catch (e) {
+      Logger.error('Failed to fetch sensor logs: $e');
+      return [];
+    }
+  }
+
+  /// Server-side schedule prediction (fallback)
+  Future<List<SchedulePrediction>> _predictSchedulesServer(
+    String userId,
+    String deviceId,
+  ) async {
+    try {
       // Call Cloud Function
       final callable = _functions.httpsCallable('predictSchedule');
       final result = await callable.call<Map<String, dynamic>>({
@@ -93,10 +184,10 @@ class MLService {
 
       return [];
     } on FirebaseFunctionsException catch (e) {
-      Logger.error('Schedule prediction failed: ${e.message}');
+      Logger.error('Server-side schedule prediction failed: ${e.message}');
       rethrow;
     } catch (e) {
-      Logger.error('Schedule prediction failed with unexpected error: $e');
+      Logger.error('Server-side schedule prediction failed with unexpected error: $e');
       return [];
     }
   }
@@ -215,6 +306,7 @@ class MLService {
           .get();
 
       if (snapshot.docs.isEmpty) {
+        Logger.info('No sensor logs found, returning default insights');
         return _getDefaultInsights();
       }
 
@@ -243,11 +335,43 @@ class MLService {
       final peakHour =
           hourCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key;
 
-      // Estimate energy
-      double energy = 0;
-      for (var log in logs) {
-        energy += (log.fanSpeed / 255.0) * 0.05; // Fan: 50W max
-        energy += (log.ledBrightness / 255.0) * 0.01; // LED: 10W max
+      // Calculate energy consumption properly (Energy = Power × Time)
+      // Sort logs by timestamp to calculate time intervals
+      final sortedLogs = List<SensorData>.from(logs)
+        ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      
+      double energy = 0.0;
+      
+      if (sortedLogs.isEmpty) {
+        energy = 0.0;
+      } else {
+        // Calculate energy for each time interval
+        for (int i = 0; i < sortedLogs.length; i++) {
+          final log = sortedLogs[i];
+          
+          // Calculate power in kW
+          final fanPowerKw = (log.fanSpeed / 255.0) * 0.05; // 0-0.05 kW
+          final ledPowerKw = (log.ledBrightness / 255.0) * 0.01; // 0-0.01 kW
+          final totalPowerKw = fanPowerKw + ledPowerKw;
+          
+          // Calculate time duration
+          Duration duration;
+          if (i < sortedLogs.length - 1) {
+            duration = sortedLogs[i + 1].timestamp.difference(log.timestamp);
+          } else {
+            // Last log: use time until now or default 5 minutes
+            duration = DateTime.now().difference(log.timestamp);
+            if (duration.isNegative || duration.inMinutes > 60) {
+              duration = const Duration(minutes: 5);
+            }
+          }
+          
+          // Ensure minimum duration of 1 minute
+          final hours = duration.inSeconds.clamp(60, 3600) / 3600.0;
+          
+          // Energy = Power × Time
+          energy += totalPowerKw * hours;
+        }
       }
 
       return AnalyticsInsights(
@@ -267,19 +391,21 @@ class MLService {
   }
 
   AnalyticsInsights _getDefaultInsights() {
+    // Return insights with zero values to indicate no data
+    // The UI should handle this appropriately
     return AnalyticsInsights(
       totalLogs: 0,
-      avgTemperature: 22.0,
-      avgHumidity: 50.0,
+      avgTemperature: 0.0,
+      avgHumidity: 0.0,
       motionEvents: 0,
       avgFanUsage: 0.0,
       avgLightUsage: 0.0,
-      peakUsageHour: 12,
+      peakUsageHour: 0,
       energyConsumption: 0.0,
     );
   }
 
   void dispose() {
-    // Cleanup if needed
+    _tfliteService.dispose();
   }
 }

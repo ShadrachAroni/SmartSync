@@ -10,6 +10,10 @@ import '../../core/constants/routes.dart';
 import '../../providers/device_provider.dart';
 import '../../core/widgets/app_notifications.dart';
 import '../../core/utils/logger.dart';
+import '../../services/appliance_state_service.dart';
+import '../../providers/sensor_provider.dart';
+import '../../services/logging_service.dart';
+import '../../models/log_entry.dart';
 import '../automations/add_scheduled_automation_screen.dart';
 
 import 'package:image_picker/image_picker.dart';
@@ -45,7 +49,6 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
   bool _allDevicesOn = false;
   double _fanSpeed = 50;
   double _masterBrightness = 50;
-  double _masterTemperature = 22;
   bool _notificationShown = false; // Prevent notification loop
   late AnimationController _fanAnimationController;
   late AnimationController _bulbAnimationController;
@@ -61,7 +64,37 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
+    _loadApplianceState();
     _updateAnimations();
+  }
+
+  Future<void> _loadApplianceState() async {
+    final stateService = ApplianceStateService();
+    final state = await stateService.loadApplianceState();
+    
+    if (state != null && mounted) {
+      setState(() {
+        _fanSpeed = ((state['fanSpeed'] as int? ?? 0) / 255 * 100).roundToDouble();
+        _masterBrightness = ((state['ledBrightness'] as int? ?? 0) / 255 * 100).roundToDouble();
+        _allDevicesOn = (_fanSpeed > 0 || _masterBrightness > 0);
+        _updateAnimations();
+      });
+    } else {
+      // Try to get from sensor data
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final sensorData = ref.read(sensorStreamProvider);
+        sensorData.whenData((data) {
+          if (data != null && mounted) {
+            setState(() {
+              _fanSpeed = (data.fanSpeed / 255 * 100).roundToDouble();
+              _masterBrightness = (data.ledBrightness / 255 * 100).roundToDouble();
+              _allDevicesOn = (_fanSpeed > 0 || _masterBrightness > 0);
+              _updateAnimations();
+            });
+          }
+        });
+      });
+    }
   }
 
   @override
@@ -91,6 +124,29 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
   @override
   Widget build(BuildContext context) {
     final devicesAsync = ref.watch(roomDevicesProvider(widget.room.id));
+    final sensorData = ref.watch(sensorStreamProvider);
+    
+    // Sync master control with sensor data
+    sensorData.whenData((data) {
+      if (data != null && mounted) {
+        final fanSpeedPercent = (data.fanSpeed / 255 * 100).roundToDouble();
+        final brightnessPercent = (data.ledBrightness / 255 * 100).roundToDouble();
+        final allOn = (fanSpeedPercent > 0 || brightnessPercent > 0);
+        
+        if ((_fanSpeed != fanSpeedPercent || _masterBrightness != brightnessPercent || _allDevicesOn != allOn)) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _fanSpeed = fanSpeedPercent;
+                _masterBrightness = brightnessPercent;
+                _allDevicesOn = allOn;
+                _updateAnimations();
+              });
+            }
+          });
+        }
+      }
+    });
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0E27),
@@ -457,12 +513,15 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Master Controls',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                const Flexible(
+                  child: Text(
+                    'Master Controls',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 Switch(
@@ -500,12 +559,24 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                     return Transform.rotate(
                       angle: _fanAnimationController.value * 2 * 3.14159,
                       child: Image.asset(
-                        'assets/icons/fan.png',
+                        'assets/fan.png',
                         width: 32,
                         height: 32,
+                        fit: BoxFit.contain,
                         color: _fanSpeed > 0 
                             ? Colors.blue.withOpacity(0.8 + (_fanSpeed / 100 * 0.2))
                             : Colors.white70,
+                        errorBuilder: (context, error, stackTrace) {
+                          // Fallback to icon if image fails to load
+                          Logger.warning('RoomDetailScreen: Failed to load fan.png: $error');
+                          return Icon(
+                            Icons.air_rounded,
+                            size: 32,
+                            color: _fanSpeed > 0 
+                                ? Colors.blue.withOpacity(0.8 + (_fanSpeed / 100 * 0.2))
+                                : Colors.white70,
+                          );
+                        },
                       ),
                     );
                   },
@@ -1271,17 +1342,35 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
       return;
     }
     
+    // Log the action
+    final loggingService = LoggingService();
+    await loggingService.logAction(
+      action: 'Master Controller ${enabled ? "ON" : "OFF"}',
+      category: 'device_control',
+      details: 'Master controller for ${widget.room.name} turned ${enabled ? "on" : "off"}',
+      level: LogLevel.info,
+      metadata: {
+        'roomId': widget.room.id,
+        'roomName': widget.room.name,
+        'fanSpeed': enabled ? _fanSpeed.round() : 0,
+        'brightness': enabled ? _masterBrightness.round() : 0,
+      },
+    );
+    
     final bleService = ref.read(bluetoothServiceProvider);
     if (bleService.isConnected) {
       Logger.debug('RoomDetailScreen: BLE connected, sending commands');
       try {
         if (enabled) {
-          // Set fan speed and brightness to 50% when turning on
-          await bleService.setFanSpeed(128).timeout(
+          // Use current values or default to 50%
+          final fanValue = _fanSpeed > 0 ? ((_fanSpeed / 100) * 255).round() : 128;
+          final ledValue = _masterBrightness > 0 ? ((_masterBrightness / 100) * 255).round() : 128;
+          
+          await bleService.setFanSpeed(fanValue).timeout(
             const Duration(seconds: 5),
             onTimeout: () => false,
           );
-          await bleService.setLEDBrightness(128).timeout(
+          await bleService.setLEDBrightness(ledValue).timeout(
             const Duration(seconds: 5),
             onTimeout: () => false,
           );
@@ -1297,7 +1386,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
           );
         }
       } catch (e) {
-        // Continue even if BLE fails
+        Logger.error('RoomDetailScreen: Error toggling devices: $e');
       }
     }
     
@@ -1307,7 +1396,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
     AppNotifications.showSnackBar(
       context,
       message: enabled
-          ? 'All devices turned on (Fan: 50%, Brightness: 50%)'
+          ? 'All devices turned on (Fan: ${_fanSpeed.round()}%, Brightness: ${_masterBrightness.round()}%)'
           : 'All devices turned off',
       type: AppNotificationType.success,
     );
@@ -1338,6 +1427,15 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
     
     final bleService = ref.read(bluetoothServiceProvider);
     if (!bleService.isConnected) {
+      // Save state even if not connected (for when connection is restored)
+      final stateService = ApplianceStateService();
+      final currentState = await stateService.loadApplianceState();
+      await stateService.saveApplianceState(
+        fanSpeed: ((percent / 100) * 255).round(),
+        ledBrightness: currentState?['ledBrightness'] ?? 0,
+        securityEnabled: currentState?['securityEnabled'] ?? false,
+      );
+      
       // Only show notification once, not repeatedly
       if (mounted && !_notificationShown) {
         _notificationShown = true;
@@ -1392,6 +1490,15 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
     
     final bleService = ref.read(bluetoothServiceProvider);
     if (!bleService.isConnected) {
+      // Save state even if not connected (for when connection is restored)
+      final stateService = ApplianceStateService();
+      final currentState = await stateService.loadApplianceState();
+      await stateService.saveApplianceState(
+        fanSpeed: currentState?['fanSpeed'] ?? 0,
+        ledBrightness: ((percent / 100) * 255).round(),
+        securityEnabled: currentState?['securityEnabled'] ?? false,
+      );
+      
       // Only show notification once, not repeatedly
       if (mounted && !_notificationShown) {
         _notificationShown = true;

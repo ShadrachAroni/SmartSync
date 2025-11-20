@@ -89,14 +89,18 @@ class EnergyCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
+              color: consumption > 0 
+                  ? Colors.white.withOpacity(0.2)
+                  : Colors.orange.withOpacity(0.3),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(
-                  Icons.check_circle_outline,
+                Icon(
+                  consumption > 0 
+                      ? Icons.check_circle_outline
+                      : Icons.info_outline,
                   color: Colors.white,
                   size: 16,
                 ),

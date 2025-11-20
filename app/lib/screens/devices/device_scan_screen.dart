@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart' as flutter_blue;
 import 'package:permission_handler/permission_handler.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/bluetooth_service.dart';
+import '../../services/firebase_service.dart';
 import '../../core/utils/logger.dart';
 import '../../core/widgets/app_notifications.dart';
+import 'device_registration_dialog.dart';
 
 // Provider for BLE scanning state
 final isScanningProvider = StateProvider<bool>((ref) => false);
@@ -91,6 +94,36 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
 
         if (success) {
           _showMessage('Connected to ${device.advName}!');
+          
+          // Check if device is registered in Firebase
+          final user = FirebaseAuth.instance.currentUser;
+          if (user != null) {
+            final firebaseService = FirebaseService();
+            final deviceId = device.remoteId.toString();
+            final existingDevice = await firebaseService.getDeviceById(deviceId);
+            
+            if (existingDevice == null) {
+              // Device not registered, show registration dialog
+              Logger.info('DeviceRegistration: Device $deviceId not found, showing registration dialog');
+              final registered = await showDialog<bool>(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) => DeviceRegistrationDialog(
+                  deviceId: deviceId,
+                  deviceName: device.advName.isNotEmpty 
+                      ? device.advName 
+                      : 'SmartSync Device',
+                ),
+              );
+              
+              if (registered == true) {
+                _showMessage('Device registered successfully!');
+              }
+            } else {
+              Logger.info('DeviceRegistration: Device $deviceId already registered in room ${existingDevice.roomId}');
+            }
+          }
+          
           // Navigate back to home screen
           Navigator.of(context).pop();
         } else {

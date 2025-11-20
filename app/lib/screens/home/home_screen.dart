@@ -11,6 +11,7 @@ import '../../models/sensor_data.dart';
 import '../widgets/energy_card.dart';
 import '../devices/device_scan_screen.dart';
 import '../auth/login_screen.dart';
+import '../onboarding/onboarding_screen.dart';
 import '../rooms/rooms_screen.dart';
 import '../../core/constants/routes.dart';
 import '../../providers/device_provider.dart';
@@ -18,7 +19,8 @@ import '../../providers/sensor_provider.dart';
 import '../../core/widgets/app_notifications.dart';
 import '../../core/utils/logger.dart';
 import '../../core/widgets/live_time_widget.dart';
-import '../../core/utils/time_utils.dart';
+import '../../core/widgets/weather_time_widget.dart';
+import '../../services/appliance_state_service.dart';
 
 // ==================== PROVIDERS ====================
 
@@ -241,7 +243,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                   children: [
                     _buildBLEBanner(bleConnection),
                     const SizedBox(height: 20),
-                    _buildSecurityCard(sensorData, bleConnection),
+                    const WeatherTimeWidget(),
                     const SizedBox(height: 20),
                     _buildEnergyCard(user.uid),
                     const SizedBox(height: 24),
@@ -290,6 +292,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           padding: const EdgeInsets.fromLTRB(20, 60, 20, 20),
           child: currentUserAsync.when(
             data: (userData) => Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 _buildAvatar(userData?.profileImageUrl, userData?.name ?? 'U'),
                 const SizedBox(width: 16),
@@ -305,7 +308,27 @@ class _HomeTabState extends ConsumerState<HomeTab> {
             ),
             loading: () {
               Logger.debug('HomeScreen: Loading user data...');
-              // Show loading with timeout indicator
+              // Show a fallback with user info from Firebase Auth while loading
+              final user = FirebaseAuth.instance.currentUser;
+              if (user != null) {
+                // Show basic info while loading detailed data
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    _buildAvatar(null, user.displayName ?? user.email?.substring(0, 1).toUpperCase() ?? 'U'),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildWelcomeText(user.displayName ?? user.email?.split('@')[0] ?? 'User'),
+                    ),
+                    _buildBLEIndicator(bleConnection),
+                    const SizedBox(width: 8),
+                    _buildNotificationButton(),
+                    const SizedBox(width: 8),
+                    _buildMenuButton(),
+                  ],
+                );
+              }
+              // If no user, show loading
               return Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -408,6 +431,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           'Welcome back,',
@@ -416,29 +440,20 @@ class _HomeTabState extends ConsumerState<HomeTab> {
             color: Colors.white70,
             fontWeight: FontWeight.w400,
           ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 2),
         Text(
           displayName,
           style: const TextStyle(
-            fontSize: 22,
+            fontSize: 20,
             fontWeight: FontWeight.bold,
             color: Colors.white,
-            height: 1.2,
+            height: 1.1,
           ),
-          maxLines: 2,
+          maxLines: 1,
           overflow: TextOverflow.ellipsis,
-        ),
-        const SizedBox(height: 8),
-        // Live time display
-        LiveTimeWidget(
-          showSeconds: false,
-          showDayNight: true,
-          textStyle: TextStyle(
-            fontSize: 12,
-            color: Colors.white70,
-            fontWeight: FontWeight.w500,
-          ),
         ),
       ],
     );
@@ -596,7 +611,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
 
                 if (mounted) {
                   Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    MaterialPageRoute(builder: (context) => const OnboardingScreen()),
                     (route) => false,
                   );
                 }
@@ -604,7 +619,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                 // Even if logout fails, try to navigate away
                 if (mounted) {
                   Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    MaterialPageRoute(builder: (context) => const OnboardingScreen()),
                     (route) => false,
                   );
                 }
@@ -996,6 +1011,14 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   Future<void> _handleGlobalToggle(bool turnOn) async {
     final bleService = ref.read(bluetoothServiceProvider);
     if (!bleService.isConnected) {
+      // Save state even if not connected
+      final stateService = ApplianceStateService();
+      await stateService.saveApplianceState(
+        fanSpeed: turnOn ? 128 : 0,
+        ledBrightness: turnOn ? 128 : 0,
+        securityEnabled: turnOn,
+      );
+      
       AppNotifications.showSnackBar(
         context,
         message: 'Connect to your SmartSync hub first.',
@@ -1110,6 +1133,13 @@ class _HomeTabState extends ConsumerState<HomeTab> {
               value: sensorData.temperatureDisplay,
               subtitle: _getTemperatureStatus(sensorData.temperature),
               color: const Color(0xFFFF6B6B),
+            ),
+            _buildAnimatedSensorCard(
+              icon: Icons.water_drop_rounded,
+              title: 'Humidity',
+              value: sensorData.humidityDisplay,
+              subtitle: _getHumidityStatus(sensorData.humidity),
+              color: const Color(0xFF4ECDC4),
             ),
             _buildAnimatedSensorCard(
               icon: Icons.directions_walk_rounded,
@@ -1240,7 +1270,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       crossAxisCount: 2,
       crossAxisSpacing: 16,
       mainAxisSpacing: 16,
-      childAspectRatio: 1.2,
+      childAspectRatio: 1.1,
       children: [
         _buildAnimatedSensorCard(
           icon: Icons.thermostat_rounded,
@@ -1248,6 +1278,13 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           value: '--°C',
           subtitle: 'No data',
           color: const Color(0xFFFF6B6B),
+        ),
+        _buildAnimatedSensorCard(
+          icon: Icons.water_drop_rounded,
+          title: 'Humidity',
+          value: '--%',
+          subtitle: 'No data',
+          color: const Color(0xFF4ECDC4),
         ),
         _buildAnimatedSensorCard(
           icon: Icons.directions_walk_rounded,
@@ -1285,6 +1322,13 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     if (distance < 50) return 'Very Close';
     if (distance < 150) return 'Close';
     return 'Far';
+  }
+
+  String _getHumidityStatus(double humidity) {
+    if (humidity < 30) return 'Dry';
+    if (humidity < 50) return 'Comfortable';
+    if (humidity < 70) return 'Moderate';
+    return 'Humid';
   }
 
 

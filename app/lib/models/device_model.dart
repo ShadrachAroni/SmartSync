@@ -47,7 +47,9 @@ class DeviceModel {
       isOn: data['isOn'] ?? false,
       value: data['value'] ?? 0,
       isOnline: data['isOnline'] ?? false,
-      lastSeen: (data['lastSeen'] as Timestamp).toDate(),
+      lastSeen: data['lastSeen'] != null
+          ? (data['lastSeen'] as Timestamp).toDate()
+          : DateTime.now(),
       metadata: data['metadata'] ?? {},
     );
   }

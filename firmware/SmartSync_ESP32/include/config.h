@@ -40,9 +40,15 @@
 // Buzzer
 #define BUZZER_PIN 13
 
-// RTC I2C (DS3231)
+// RTC I2C (DS3231) - Shared I2C bus with LCD
 #define RTC_SDA_PIN 21
 #define RTC_SCL_PIN 22
+
+// LCD Display (20x4 Character LCD with I2C backpack)
+// Uses same I2C bus as RTC (SDA/SCL pins above)
+#define LCD_I2C_ADDRESS 0x27  // Common I2C address for 20x4 LCD with I2C backpack
+#define LCD_COLS 20
+#define LCD_ROWS 4
 
 // Status LED (built-in)
 #define STATUS_LED_PIN 2

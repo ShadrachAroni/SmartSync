@@ -14,11 +14,9 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" 
         android:maxSdkVersion="30" />
     
-    <!-- Location permission (required for BLE scanning on Android 10-11) -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" 
-        android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" 
-        android:maxSdkVersion="30" />
+    <!-- Location permission (required for BLE scanning on Android 10-11 and weather) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     
     <!-- Internet for Firebase -->
     <uses-permission android:name="android.permission.INTERNET"/>

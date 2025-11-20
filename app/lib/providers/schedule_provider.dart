@@ -58,7 +58,7 @@ class ScheduleController
       hour: prediction.hour,
       minute: prediction.minute,
       fanSpeed: prediction.deviceType == 'fan' ? prediction.value : 0,
-      brightness: prediction.deviceType == 'led' ? prediction.value : 0,
+      brightness: prediction.deviceType == 'light' ? prediction.value : 0,
       enabled: true,
       repeatDaily: true,
       source: 'ai',

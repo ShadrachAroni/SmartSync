@@ -160,12 +160,16 @@ def convert_schedule_predictor():
     print("CONVERTING: Schedule Predictor")
     print("="*80)
     
-    model_path = MODELS_DIR / "schedule_predictor_v1"
+    # Try schedule_predictor_v2 first (from train_smart_home.py), fallback to v1
+    model_path = MODELS_DIR / "schedule_predictor_v2"
+    if not model_path.exists():
+        model_path = MODELS_DIR / "schedule_predictor_v1"
     
     # Check if model exists
     if not model_path.exists():
         print(f"\n❌ ERROR: Model not found at {model_path}")
         print("   Please run train_smart_home.py first")
+        print("   Expected: ml/models/saved_models/schedule_predictor_v2/")
         return False
     
     # Load Keras model
@@ -428,13 +432,25 @@ def save_model_metadata(tflite_path, keras_model, model_size_mb, model_name):
     print("\n📝 Saving metadata...")
     
     # Load existing metadata from training (if available)
-    training_metadata_path = MODELS_DIR / f"{model_name}_v1" / "metadata.json"
+    # Try v2 first, then v1
+    training_metadata_path_v2 = MODELS_DIR / f"{model_name}_v2" / "metadata.json"
+    training_metadata_path_v1 = MODELS_DIR / f"{model_name}_v1" / "metadata.json"
+    
+    training_metadata_path = training_metadata_path_v2 if training_metadata_path_v2.exists() else training_metadata_path_v1
     
     if training_metadata_path.exists():
         with open(training_metadata_path, 'r') as f:
             metadata = json.load(f)
     else:
         metadata = {}
+    
+    # Also try to load scaler parameters
+    scaler_params_path = training_metadata_path.parent / "scaler_params.json"
+    if scaler_params_path.exists():
+        with open(scaler_params_path, 'r') as f:
+            scaler_params = json.load(f)
+            metadata['scaler_params'] = scaler_params
+            print(f"   ✅ Loaded scaler parameters from {scaler_params_path.name}")
     
     # Add TFLite-specific information
     metadata.update({
@@ -508,6 +524,23 @@ def copy_to_flutter_assets():
                 print(f"   ✅ {json_file.name} → {dest_path.relative_to(PROJECT_ROOT.parent)}")
             except Exception as e:
                 print(f"   ⚠️  Failed to copy {json_file.name}: {e}")
+    
+    # Also copy scaler_params.json from model directory if it exists
+    model_dir_v2 = MODELS_DIR / "schedule_predictor_v2"
+    model_dir_v1 = MODELS_DIR / "schedule_predictor_v1"
+    scaler_params_src = None
+    if (model_dir_v2 / "scaler_params.json").exists():
+        scaler_params_src = model_dir_v2 / "scaler_params.json"
+    elif (model_dir_v1 / "scaler_params.json").exists():
+        scaler_params_src = model_dir_v1 / "scaler_params.json"
+    
+    if scaler_params_src:
+        dest_path = APP_ASSETS_DIR / "scaler_params.json"
+        try:
+            shutil.copy2(scaler_params_src, dest_path)
+            print(f"   ✅ scaler_params.json → {dest_path.relative_to(PROJECT_ROOT.parent)}")
+        except Exception as e:
+            print(f"   ⚠️  Failed to copy scaler_params.json: {e}")
     
     if copied_count > 0:
         print(f"\n   ✅ Successfully copied {copied_count} model(s) to Flutter assets!")

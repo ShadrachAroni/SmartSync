@@ -6,6 +6,7 @@ class UserModel {
   final String email;
   final String? phoneNumber;
   final String? profileImageUrl;
+  final String? displayName;
   final List<String> deviceIds;
   final DateTime createdAt;
   final Map<String, dynamic> preferences;
@@ -16,6 +17,7 @@ class UserModel {
     required this.email,
     this.phoneNumber,
     this.profileImageUrl,
+    this.displayName,
     this.deviceIds = const [],
     required this.createdAt,
     this.preferences = const {},
@@ -29,6 +31,7 @@ class UserModel {
       email: data['email'] ?? '',
       phoneNumber: data['phoneNumber'],
       profileImageUrl: data['profileImageUrl'],
+      displayName: data['displayName'],
       deviceIds: List<String>.from(data['deviceIds'] ?? []),
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       preferences: data['preferences'] ?? {},
@@ -41,6 +44,7 @@ class UserModel {
       'email': email,
       'phoneNumber': phoneNumber,
       'profileImageUrl': profileImageUrl,
+      'displayName': displayName,
       'deviceIds': deviceIds,
       'createdAt': Timestamp.fromDate(createdAt),
       'preferences': preferences,

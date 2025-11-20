@@ -1,0 +1,48 @@
+{
+  "model_version": "1.0.0",
+  "trained_date": "2025-11-17T10:22:10.958503",
+  "model_type": "MLP",
+  "sequence_length": 24,
+  "batch_size": 64,
+  "epochs": 100,
+  "learning_rate": 0.001,
+  "metrics": {
+    "mae": 0.05077483372589243,
+    "rmse": 0.07145844833090402,
+    "r2": -4.996280901708248,
+    "mae_fan": 0.0026265236517637844,
+    "mae_led": 0.09892314380002104
+  },
+  "input_features": [
+    "temperature_mean",
+    "temperature_max",
+    "temperature_min",
+    "humidity_mean",
+    "motionDetected_sum",
+    "hour_sin",
+    "hour_cos",
+    "is_weekend"
+  ],
+  "output_targets": [
+    "fanSpeed_mean",
+    "ledBrightness_mean"
+  ],
+  "model_name": "schedule_predictor",
+  "tflite_model_path": "models/tflite/schedule_predictor.tflite",
+  "tflite_model_size_mb": 0.0375823974609375,
+  "input_shape": [
+    null,
+    24,
+    8
+  ],
+  "output_shape": [
+    null,
+    2
+  ],
+  "quantized": true,
+  "quantization_type": "INT8",
+  "conversion_date": "1763365507.445891",
+  "tensorflow_version": "2.15.1",
+  "framework": "TensorFlow Lite",
+  "inference_type": "float32"
+}

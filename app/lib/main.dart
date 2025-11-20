@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'firebase_options.dart';
 import 'core/theme/app_theme.dart';
@@ -15,8 +16,14 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load environment variables
-  await dotenv.load(fileName: ".env");
+  // Load environment variables (optional - app can work without .env)
+  try {
+    await dotenv.load(fileName: ".env");
+    debugPrint('✅ Environment variables loaded');
+  } catch (e) {
+    debugPrint('⚠️ .env file not found or could not be loaded: $e');
+    debugPrint('⚠️ App will continue with default values');
+  }
 
   // Initialize Firebase only once
   if (Firebase.apps.isEmpty) {
@@ -26,6 +33,19 @@ Future<void> main() async {
     debugPrint('✅ Firebase initialized: ${Firebase.app().name}');
   } else {
     debugPrint('⚠️ Firebase already initialized');
+  }
+
+  // Force refresh auth state to ensure we get fresh state, not cached
+  // This prevents showing old layout on first build
+  try {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser != null) {
+      // Reload user to get fresh data
+      await currentUser.reload();
+      debugPrint('✅ Auth state refreshed for user: ${currentUser.uid}');
+    }
+  } catch (e) {
+    debugPrint('⚠️ Could not refresh auth state: $e');
   }
 
   // Enable Firebase App Check
@@ -58,17 +78,42 @@ Future<void> main() async {
   );
 }
 
-class SmartSyncApp extends ConsumerWidget {
+class SmartSyncApp extends ConsumerStatefulWidget {
   const SmartSyncApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SmartSyncApp> createState() => _SmartSyncAppState();
+}
+
+class _SmartSyncAppState extends ConsumerState<SmartSyncApp> {
+  @override
+  void initState() {
+    super.initState();
+    // Refresh auth provider on app start to force fresh state
+    // This ensures we don't use cached/stale auth state from previous session
+    // Wait a frame to ensure ref is available
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        // Small delay to ensure Firebase Auth has finished reloading
+        Future.delayed(const Duration(milliseconds: 50), () {
+          if (mounted) {
+            ref.refresh(authStateProvider);
+          }
+        });
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
 
     return MaterialApp(
       title: 'SmartSync',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
+      theme: AppTheme.darkTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.dark,
 
       // ✅ Use onGenerateRoute for internal navigation
       onGenerateRoute: AppRoutes.generateRoute,

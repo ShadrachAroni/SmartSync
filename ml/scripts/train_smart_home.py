@@ -601,16 +601,36 @@ class OverfittingMonitor(keras.callbacks.Callback):
         train_loss = logs.get('loss', 0)
         val_loss = logs.get('val_loss', 0)
         
-        if val_loss > 0:
-            gap = abs(train_loss - val_loss) / val_loss
+        if val_loss > 0 and train_loss > 0:
+            # Calculate relative gap using the larger of the two losses as denominator
+            # This handles both cases: val_loss > train_loss (overfitting) and val_loss < train_loss (unusual)
+            max_loss = max(train_loss, val_loss)
+            gap = abs(train_loss - val_loss) / max_loss
             self.epoch_gaps.append(gap)
             self.best_gap = min(self.best_gap, gap)
             
-            # Warn if gap is too large (overfitting)
+            # Warn if gap is too large
             if gap > self.gap_threshold:
-                print(f"\n⚠️  Warning: Large train/val gap detected ({gap:.2%}). Possible overfitting.")
+                if val_loss > train_loss:
+                    # Typical overfitting: validation loss higher than training
+                    print(f"\n⚠️  Warning: Large train/val gap detected ({gap:.2%}). Possible overfitting.")
+                    print(f"   Training loss: {train_loss:.6f}, Validation loss: {val_loss:.6f}")
+                else:
+                    # Unusual case: validation loss much lower than training
+                    # This can happen early in training due to dropout/regularization effects
+                    # or indicate data distribution issues
+                    if epoch < 3:
+                        # Early epochs: likely due to dropout/regularization during training
+                        print(f"\nℹ️  Note: Validation loss lower than training ({gap:.2%}).")
+                        print(f"   This is normal in early epochs due to dropout/regularization during training.")
+                        print(f"   Training loss: {train_loss:.6f}, Validation loss: {val_loss:.6f}")
+                    else:
+                        # Later epochs: could indicate data issues
+                        print(f"\n⚠️  Warning: Validation loss significantly lower than training ({gap:.2%}).")
+                        print(f"   This may indicate data distribution differences or regularization effects.")
+                        print(f"   Training loss: {train_loss:.6f}, Validation loss: {val_loss:.6f}")
             
-            # Warn if validation loss is much higher (overfitting)
+            # Warn if validation loss is much higher (classic overfitting)
             if val_loss > train_loss * 1.5:
                 print(f"⚠️  Warning: Validation loss ({val_loss:.4f}) >> Training loss ({train_loss:.4f})")
             
@@ -950,16 +970,24 @@ def run_pipeline():
     hourly_df = preprocessor.build_hourly_features(raw_df)
     X, y = preprocessor.prepare_sequences(hourly_df)
 
-    total = len(X)
+    # Shuffle data before splitting to ensure random distribution
+    # This prevents distribution differences between train/val/test sets
+    indices = np.arange(len(X))
+    np.random.seed(CONFIG.seed)
+    np.random.shuffle(indices)
+    X_shuffled = X[indices]
+    y_shuffled = y[indices]
+    
+    total = len(X_shuffled)
     test_size = int(total * CONFIG.test_split)
     val_size = int(total * CONFIG.validation_split)
 
-    X_train, y_train = X[: total - val_size - test_size], y[: total - val_size - test_size]
+    X_train, y_train = X_shuffled[: total - val_size - test_size], y_shuffled[: total - val_size - test_size]
     X_val, y_val = (
-        X[total - val_size - test_size : total - test_size],
-        y[total - val_size - test_size : total - test_size],
+        X_shuffled[total - val_size - test_size : total - test_size],
+        y_shuffled[total - val_size - test_size : total - test_size],
     )
-    X_test, y_test = X[total - test_size :], y[total - test_size :]
+    X_test, y_test = X_shuffled[total - test_size :], y_shuffled[total - test_size :]
 
     print(
         f"\nDataset split → train: {len(X_train):,}, "

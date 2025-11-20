@@ -27,11 +27,22 @@ class AlertsScreen extends ConsumerWidget {
     final alertsAsync = ref.watch(alertsStreamProvider(user.uid));
 
     return Scaffold(
+      backgroundColor: const Color(0xFF0A0E27),
       appBar: AppBar(
-        title: const Text('Alerts'),
+        backgroundColor: const Color(0xFF1A1F3A),
+        elevation: 0,
+        title: const Text(
+          'Alerts',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 24,
+          ),
+        ),
+        iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
-            icon: const Icon(Icons.tune_outlined),
+            icon: const Icon(Icons.tune_outlined, color: Colors.white70),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const AlertSettingsScreen()),
@@ -42,22 +53,93 @@ class AlertsScreen extends ConsumerWidget {
       body: alertsAsync.when(
         data: (alerts) {
           if (alerts.isEmpty) {
-            return const Center(
-              child: Text('No alerts yet'),
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.notifications_none_rounded,
+                    size: 80,
+                    color: Colors.white.withOpacity(0.3),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No alerts yet',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.7),
+                      fontSize: 18,
+                    ),
+                  ),
+                ],
+              ),
             );
           }
-          return ListView.separated(
-            padding: const EdgeInsets.all(20),
-            itemCount: alerts.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (context, index) {
-              final alert = alerts[index];
-              return _AlertCard(alert: alert);
+          return RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(alertsStreamProvider(user.uid));
             },
+            child: ListView.separated(
+              padding: const EdgeInsets.all(20),
+              itemCount: alerts.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final alert = alerts[index];
+                return _AlertCard(alert: alert);
+              },
+            ),
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(child: Text('Error: $error')),
+        loading: () => const Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+          ),
+        ),
+        error: (error, stackTrace) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.error_outline_rounded,
+                  size: 64,
+                  color: Colors.red.shade300,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Error Loading Alerts',
+                  style: TextStyle(
+                    color: Colors.red.shade300,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  error.toString().contains('index')
+                      ? 'Database index is being created. Please wait a few minutes and try again.'
+                      : error.toString(),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () {
+                    ref.invalidate(alertsStreamProvider(user.uid));
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -67,6 +149,23 @@ class _AlertCard extends ConsumerWidget {
   const _AlertCard({required this.alert});
 
   final AlertModel alert;
+
+  String _formatTimestamp(DateTime timestamp) {
+    final now = DateTime.now();
+    final diff = now.difference(timestamp);
+
+    if (diff.inMinutes < 1) {
+      return 'Just now';
+    } else if (diff.inHours < 1) {
+      return '${diff.inMinutes}m ago';
+    } else if (diff.inDays < 1) {
+      return '${diff.inHours}h ago';
+    } else if (diff.inDays < 7) {
+      return '${diff.inDays}d ago';
+    } else {
+      return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -82,19 +181,64 @@ class _AlertCard extends ConsumerWidget {
         color = Colors.blue;
     }
 
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color.withOpacity(0.15),
-          child: Icon(Icons.warning_amber_rounded, color: color),
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1A1F3A),
+            const Color(0xFF0F1419),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        title: Text(alert.message,
-            style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(alert.timestamp.toLocal().toString()),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.2),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(Icons.warning_amber_rounded, color: color, size: 24),
+        ),
+        title: Text(
+          alert.message,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            color: Colors.white,
+            fontSize: 15,
+          ),
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            _formatTimestamp(alert.timestamp),
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 12,
+            ),
+          ),
+        ),
         trailing: alert.read
-            ? const Icon(Icons.check_circle_outline, color: Colors.green)
-            : null,
+            ? Icon(Icons.check_circle_outline, color: Colors.green.shade400)
+            : Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                ),
+              ),
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(

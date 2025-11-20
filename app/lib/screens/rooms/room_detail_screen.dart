@@ -2,12 +2,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:io';
 import '../../models/room_model.dart';
 import '../../models/device_model.dart';
 import '../../services/firebase_service.dart';
-import '../../core/constants/routes.dart'; // ✅ ADDED
+import '../../core/constants/routes.dart';
 import '../../providers/device_provider.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/utils/logger.dart';
+import '../automations/add_scheduled_automation_screen.dart';
+
+import 'package:image_picker/image_picker.dart';
 
 // Provider for room devices
 final roomDevicesProvider =
@@ -35,17 +40,60 @@ class RoomDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<RoomDetailScreen> createState() => _RoomDetailScreenState();
 }
 
-class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
+class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
+    with TickerProviderStateMixin {
   bool _allDevicesOn = false;
+  double _fanSpeed = 50;
   double _masterBrightness = 50;
   double _masterTemperature = 22;
+  bool _notificationShown = false; // Prevent notification loop
+  late AnimationController _fanAnimationController;
+  late AnimationController _bulbAnimationController;
+
+  @override
+  void initState() {
+    super.initState();
+    _fanAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat();
+    _bulbAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _updateAnimations();
+  }
+
+  @override
+  void dispose() {
+    _fanAnimationController.dispose();
+    _bulbAnimationController.dispose();
+    super.dispose();
+  }
+
+  void _updateAnimations() {
+    // Update fan animation speed based on fan speed
+    if (_fanSpeed > 0) {
+      _fanAnimationController.duration = Duration(
+        milliseconds: (2000 - (_fanSpeed / 100 * 1800)).round(),
+      );
+      if (!_fanAnimationController.isAnimating) {
+        _fanAnimationController.repeat();
+      }
+    } else {
+      _fanAnimationController.stop();
+    }
+
+    // Update bulb brightness animation
+    _bulbAnimationController.animateTo(_masterBrightness / 100);
+  }
 
   @override
   Widget build(BuildContext context) {
     final devicesAsync = ref.watch(roomDevicesProvider(widget.room.id));
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: const Color(0xFF0A0E27),
       body: CustomScrollView(
         slivers: [
           // Custom App Bar with room image/gradient
@@ -77,7 +125,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
-                          color: Colors.black87,
+                          color: Colors.white,
                         ),
                       ),
                       TextButton.icon(
@@ -85,7 +133,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
                         icon: const Icon(Icons.add, size: 18),
                         label: const Text('Add'),
                         style: TextButton.styleFrom(
-                          foregroundColor: const Color(0xFF00BFA5),
+                          foregroundColor: Colors.blue,
                         ),
                       ),
                     ],
@@ -141,9 +189,13 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
       ),
       actions: [
         IconButton(
+          icon: const Icon(Icons.photo_camera_rounded, color: Colors.white),
+          onPressed: _uploadRoomImage,
+          tooltip: 'Upload Room Image',
+        ),
+        IconButton(
           icon: const Icon(Icons.edit_rounded, color: Colors.white),
           onPressed: () {
-            // ✅ FIXED: Use named route
             Navigator.pushNamed(
               context,
               Routes.editRoom,
@@ -175,31 +227,65 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
         background: Stack(
           fit: StackFit.expand,
           children: [
-            // Gradient background
+            // Room image or gradient background
+            widget.room.imageUrl != null
+                ? Image.network(
+                    widget.room.imageUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              _getRoomColor(widget.room.icon),
+                              _getRoomColor(widget.room.icon).withOpacity(0.7),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                        ),
+                      );
+                    },
+                  )
+                : Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          _getRoomColor(widget.room.icon),
+                          _getRoomColor(widget.room.icon).withOpacity(0.7),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                  ),
+
+            // Dark overlay for better text readability
             Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
                   colors: [
-                    _getRoomColor(widget.room.icon),
-                    _getRoomColor(widget.room.icon).withOpacity(0.7),
+                    Colors.transparent,
+                    Colors.black.withOpacity(0.5),
                   ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
                 ),
               ),
             ),
 
-            // Pattern overlay
-            Positioned.fill(
-              child: Opacity(
-                opacity: 0.1,
-                child: Icon(
-                  _getRoomIcon(widget.room.icon),
-                  size: 200,
-                  color: Colors.white,
+            // Pattern overlay (only if no image)
+            if (widget.room.imageUrl == null)
+              Positioned.fill(
+                child: Opacity(
+                  opacity: 0.1,
+                  child: Icon(
+                    _getRoomIcon(widget.room.icon),
+                    size: 200,
+                    color: Colors.white,
+                  ),
                 ),
               ),
-            ),
 
             // Room info
             Positioned(
@@ -298,13 +384,21 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1A1F3A),
+            const Color(0xFF0F1419),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.3)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: color.withOpacity(0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -317,15 +411,15 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
             style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Colors.black87,
+              color: Colors.white,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             label,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 12,
-              color: Colors.grey.shade600,
+              color: Colors.white70,
             ),
           ),
         ],
@@ -339,13 +433,21 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.white,
+          gradient: LinearGradient(
+            colors: [
+              const Color(0xFF1A1F3A),
+              const Color(0xFF0F1419),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
           borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withOpacity(0.1)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+              color: Colors.blue.withOpacity(0.2),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
             ),
           ],
         ),
@@ -360,25 +462,134 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                    color: Colors.white,
                   ),
                 ),
                 Switch(
                   value: _allDevicesOn,
                   onChanged: (value) {
-                    setState(() => _allDevicesOn = value);
+                    setState(() {
+                      _allDevicesOn = value;
+                      if (value) {
+                        // When turning on, set fan speed and brightness to 50%
+                        _fanSpeed = 50;
+                        _masterBrightness = 50;
+                        _updateAnimations();
+                      } else {
+                        // When turning off, set to 0
+                        _fanSpeed = 0;
+                        _masterBrightness = 0;
+                        _updateAnimations();
+                      }
+                    });
                     _toggleAllDevices(value);
                   },
-                  activeThumbColor: const Color(0xFF00BFA5),
+                  activeThumbColor: Colors.blue,
                 ),
               ],
             ),
             const SizedBox(height: 20),
 
-            // Brightness control
+            // Fan Control (replacing temperature)
             Row(
               children: [
-                Icon(Icons.lightbulb_outline, color: Colors.grey.shade600),
+                // Animated Fan Icon
+                AnimatedBuilder(
+                  animation: _fanAnimationController,
+                  builder: (context, child) {
+                    return Transform.rotate(
+                      angle: _fanAnimationController.value * 2 * 3.14159,
+                      child: Image.asset(
+                        'assets/icons/fan.png',
+                        width: 32,
+                        height: 32,
+                        color: _fanSpeed > 0 
+                            ? Colors.blue.withOpacity(0.8 + (_fanSpeed / 100 * 0.2))
+                            : Colors.white70,
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Fan Speed',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            '${_fanSpeed.round()}%',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Slider(
+                        value: _fanSpeed,
+                        min: 0,
+                        max: 100,
+                        activeColor: Colors.blue,
+                        // Disable slider if master control is off
+                        onChanged: _allDevicesOn ? (value) {
+                          setState(() {
+                            _fanSpeed = value;
+                            _updateAnimations();
+                          });
+                          _handleFanSpeedChange(value.round());
+                        } : null,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
+            // Brightness control with animated bulb
+            Row(
+              children: [
+                // Animated Bulb Icon
+                AnimatedBuilder(
+                  animation: _bulbAnimationController,
+                  builder: (context, child) {
+                    final brightness = _bulbAnimationController.value;
+                    return Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.amber.withOpacity(brightness * 0.8),
+                            blurRadius: 15 * brightness,
+                            spreadRadius: 5 * brightness,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.lightbulb,
+                        color: Color.lerp(
+                          Colors.white70,
+                          Colors.amber,
+                          brightness,
+                        ),
+                        size: 28,
+                      ),
+                    );
+                  },
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -392,13 +603,14 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
+                              color: Colors.white,
                             ),
                           ),
                           Text(
                             '${_masterBrightness.round()}%',
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontSize: 14,
-                              color: Colors.grey.shade600,
+                              color: Colors.white70,
                             ),
                           ),
                         ],
@@ -407,55 +619,15 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
                         value: _masterBrightness,
                         min: 0,
                         max: 100,
-                        activeColor: const Color(0xFF00BFA5),
-                        onChanged: (value) {
-                          setState(() => _masterBrightness = value);
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-
-            // Temperature control
-            Row(
-              children: [
-                Icon(Icons.thermostat, color: Colors.grey.shade600),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Temperature',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            '${_masterTemperature.round()}°C',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Slider(
-                        value: _masterTemperature,
-                        min: 16,
-                        max: 30,
-                        activeColor: const Color(0xFFFF6B6B),
-                        onChanged: (value) {
-                          setState(() => _masterTemperature = value);
-                        },
+                        activeColor: Colors.amber,
+                        // Disable slider if master control is off
+                        onChanged: _allDevicesOn ? (value) {
+                          setState(() {
+                            _masterBrightness = value;
+                            _updateAnimations();
+                          });
+                          _handleLightBrightnessChange(value.round());
+                        } : null,
                       ),
                     ],
                   ),
@@ -487,13 +659,21 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1A1F3A),
+            const Color(0xFF0F1419),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.blue.withOpacity(0.1),
             blurRadius: 10,
-            offset: const Offset(0, 2),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -505,14 +685,13 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
             height: 50,
             decoration: BoxDecoration(
               color: device.isOn
-                  ? const Color(0xFF00BFA5).withOpacity(0.1)
-                  : Colors.grey.shade100,
+                  ? Colors.blue.withOpacity(0.2)
+                  : Colors.white.withOpacity(0.1),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
               device.icon,
-              color:
-                  device.isOn ? const Color(0xFF00BFA5) : Colors.grey.shade400,
+              color: device.isOn ? Colors.blue : Colors.white70,
               size: 24,
             ),
           ),
@@ -528,15 +707,15 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
-                    color: Colors.black87,
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   device.isOn ? 'On • ${device.value}%' : 'Off',
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 13,
-                    color: Colors.grey.shade600,
+                    color: Colors.white70,
                   ),
                 ),
               ],
@@ -547,7 +726,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
           Switch(
             value: device.isOn,
             onChanged: (value) => _toggleDevice(device, value),
-            activeThumbColor: const Color(0xFF00BFA5),
+            activeThumbColor: Colors.blue,
           ),
         ],
       ),
@@ -559,13 +738,21 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 20),
       padding: const EdgeInsets.all(40),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1A1F3A),
+            const Color(0xFF0F1419),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.blue.withOpacity(0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -574,23 +761,23 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
           Icon(
             Icons.devices_other_rounded,
             size: 64,
-            color: Colors.grey.shade300,
+            color: Colors.white70,
           ),
           const SizedBox(height: 16),
           Text(
             'No Devices in ${widget.room.name}',
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
-              color: Colors.grey.shade600,
+              color: Colors.white,
             ),
           ),
           const SizedBox(height: 8),
-          Text(
+          const Text(
             'Add devices to control them from here',
             style: TextStyle(
               fontSize: 13,
-              color: Colors.grey.shade500,
+              color: Colors.white70,
             ),
           ),
           const SizedBox(height: 20),
@@ -599,7 +786,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
             icon: const Icon(Icons.add, size: 18),
             label: const Text('Add Device'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00BFA5),
+              backgroundColor: Colors.blue,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(
                 horizontal: 24,
@@ -632,13 +819,13 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: Colors.black87,
+                      color: Colors.white,
                     ),
                   ),
                   TextButton(
                     onPressed: () => _showAutomationManager(automations),
                     style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFF00BFA5),
+                      foregroundColor: Colors.blue,
                     ),
                     child: const Text('Manage'),
                   ),
@@ -649,10 +836,19 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    gradient: LinearGradient(
+                      colors: [
+                        const Color(0xFF1A1F3A),
+                        const Color(0xFF0F1419),
+                      ],
+                    ),
                     borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white.withOpacity(0.1)),
                   ),
-                  child: const Text('No automations yet'),
+                  child: const Text(
+                    'No automations yet',
+                    style: TextStyle(color: Colors.white70),
+                  ),
                 )
               else
                 Column(
@@ -682,17 +878,24 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
     final title = automation['name'] ?? 'Automation';
     final subtitle = automation['description'] ?? 'Scheduled action';
     final enabled = automation['enabled'] ?? true;
-    final icon = Icons.schedule_rounded;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1A1F3A),
+            const Color(0xFF0F1419),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.blue.withOpacity(0.1),
             blurRadius: 10,
-            offset: const Offset(0, 2),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -701,10 +904,11 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: const Color(0xFF00BFA5).withOpacity(0.1),
+              color: Colors.blue.withOpacity(0.2),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: const Color(0xFF00BFA5), size: 24),
+            child: const Icon(Icons.schedule_rounded,
+                color: Colors.blue, size: 24),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -716,15 +920,15 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
-                    color: Colors.black87,
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   subtitle,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 13,
-                    color: Colors.grey.shade600,
+                    color: Colors.white70,
                   ),
                 ),
               ],
@@ -734,7 +938,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
             value: enabled,
             onChanged: (value) =>
                 _toggleAutomation(automation['id'] as String, value),
-            activeThumbColor: const Color(0xFF00BFA5),
+            activeThumbColor: Colors.blue,
           ),
         ],
       ),
@@ -752,7 +956,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Colors.black87,
+              color: Colors.white,
             ),
           ),
           const SizedBox(height: 12),
@@ -793,30 +997,38 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1A1F3A),
+            const Color(0xFF0F1419),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.blue.withOpacity(0.1),
             blurRadius: 10,
-            offset: const Offset(0, 2),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: ListTile(
-        leading: Icon(icon, color: color ?? Colors.grey.shade700),
+        leading: Icon(icon, color: color ?? Colors.white70),
         title: Text(
           title,
           style: TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w500,
-            color: color ?? Colors.black87,
+            color: color ?? Colors.white,
           ),
         ),
-        trailing: Icon(
+        trailing: const Icon(
           Icons.arrow_forward_ios_rounded,
           size: 16,
-          color: Colors.grey.shade400,
+          color: Colors.white70,
         ),
         onTap: onTap,
         shape: RoundedRectangleBorder(
@@ -831,18 +1043,25 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 20),
       padding: const EdgeInsets.all(40),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1A1F3A),
+            const Color(0xFF0F1419),
+          ],
+        ),
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.red.withOpacity(0.3)),
       ),
       child: Column(
         children: [
-          Icon(Icons.error_outline, size: 64, color: Colors.red.shade300),
+          const Icon(Icons.error_outline, size: 64, color: Colors.red),
           const SizedBox(height: 16),
           const Text(
             'Error Loading Devices',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
+              color: Colors.white,
             ),
           ),
         ],
@@ -871,6 +1090,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
   void _showAutomationManager(List<Map<String, dynamic>> automations) {
     showModalBottomSheet(
       context: context,
+      backgroundColor: const Color(0xFF1A1F3A),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -883,34 +1103,80 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey.shade300,
+                color: Colors.white.withOpacity(0.3),
                 borderRadius: BorderRadius.circular(4),
               ),
             ),
             const SizedBox(height: 16),
             const Text(
               'Automations',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
             ),
             const SizedBox(height: 12),
             ...automations.map(
               (automation) => ListTile(
-                title: Text(automation['name'] ?? 'Automation'),
-                subtitle: Text(automation['description'] ?? ''),
+                title: Text(
+                  automation['name'] ?? 'Automation',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                subtitle: Text(
+                  automation['description'] ?? '',
+                  style: const TextStyle(color: Colors.white70),
+                ),
                 trailing: Switch(
                   value: automation['enabled'] ?? true,
                   onChanged: (value) =>
                       _toggleAutomation(automation['id'] as String, value),
+                  activeThumbColor: Colors.blue,
                 ),
               ),
             ),
             const SizedBox(height: 12),
             ElevatedButton.icon(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () async {
+                Navigator.pop(context);
+                // Show add automation screen
+                final user = FirebaseAuth.instance.currentUser;
+                if (user == null) return;
+                
+                final devicesAsync = ref.read(roomDevicesProvider(widget.room.id));
+                final devices = devicesAsync.maybeWhen(
+                  data: (list) => list,
+                  orElse: () => <DeviceModel>[],
+                );
+                
+                if (devices.isEmpty) {
+                  AppNotifications.showSnackBar(
+                    context,
+                    message: 'No devices in this room. Add devices first.',
+                    type: AppNotificationType.warning,
+                  );
+                  return;
+                }
+                
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AddScheduledAutomationScreen(
+                      roomId: widget.room.id,
+                      devices: devices,
+                    ),
+                  ),
+                );
+                
+                if (result == true) {
+                  // Refresh automations
+                  ref.invalidate(roomAutomationsProvider(widget.room.id));
+                }
+              },
               icon: const Icon(Icons.add),
-              label: const Text('Add Automation'),
+              label: const Text('Add Scheduled Automation'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF00BFA5),
+                backgroundColor: Colors.blue,
                 foregroundColor: Colors.white,
                 minimumSize: const Size.fromHeight(48),
               ),
@@ -929,28 +1195,56 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
     final themes = ['living_room', 'kitchen', 'bedroom', 'bathroom', 'office'];
     showModalBottomSheet(
       context: context,
+      backgroundColor: const Color(0xFF1A1F3A),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => ListView(
         shrinkWrap: true,
-        children: themes
-            .map(
-              (theme) => ListTile(
-                leading: Icon(_getRoomIcon(theme)),
-                title: Text(theme.replaceAll('_', ' ').toUpperCase()),
-                onTap: () async {
-                  final user = FirebaseAuth.instance.currentUser;
-                  if (user != null) {
-                    await FirebaseService()
-                        .updateRoom(user.uid, widget.room.id, {'icon': theme});
-                  }
-                  if (!mounted) return;
-                  Navigator.pop(context);
-                },
-              ),
-            )
-            .toList(),
+        padding: const EdgeInsets.all(20),
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.3),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Select Room Theme',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ...themes
+              .map(
+                (theme) => ListTile(
+                  leading: Icon(
+                    _getRoomIcon(theme),
+                    color: _getRoomColor(theme),
+                  ),
+                  title: Text(
+                    theme.replaceAll('_', ' ').toUpperCase(),
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  onTap: () async {
+                    final user = FirebaseAuth.instance.currentUser;
+                    if (user != null) {
+                      await FirebaseService().updateRoom(
+                          user.uid, widget.room.id, {'icon': theme});
+                    }
+                    if (!mounted) return;
+                    Navigator.pop(context);
+                  },
+                ),
+              )
+              .toList(),
+        ],
       ),
     );
   }
@@ -970,17 +1264,52 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
   }
 
   Future<void> _toggleAllDevices(bool enabled) async {
+    Logger.info('RoomDetailScreen: Toggling all devices to ${enabled ? "on" : "off"}');
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      Logger.warning('RoomDetailScreen: No user found');
+      return;
+    }
+    
+    final bleService = ref.read(bluetoothServiceProvider);
+    if (bleService.isConnected) {
+      Logger.debug('RoomDetailScreen: BLE connected, sending commands');
+      try {
+        if (enabled) {
+          // Set fan speed and brightness to 50% when turning on
+          await bleService.setFanSpeed(128).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => false,
+          );
+          await bleService.setLEDBrightness(128).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => false,
+          );
+        } else {
+          // Turn off when disabling
+          await bleService.setFanSpeed(0).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => false,
+          );
+          await bleService.setLEDBrightness(0).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => false,
+          );
+        }
+      } catch (e) {
+        // Continue even if BLE fails
+      }
+    }
+    
     await FirebaseService()
         .toggleAllRoomDevices(user.uid, widget.room.id, enabled);
     if (!mounted) return;
     AppNotifications.showSnackBar(
       context,
       message: enabled
-          ? 'Turning on all devices...'
-          : 'Turning off all devices...',
-      type: AppNotificationType.info,
+          ? 'All devices turned on (Fan: 50%, Brightness: 50%)'
+          : 'All devices turned off',
+      type: AppNotificationType.success,
     );
   }
 
@@ -995,6 +1324,192 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
       type: AppNotificationType.success,
     );
     Navigator.pop(context);
+  }
+
+  Future<void> _handleFanSpeedChange(int percent) async {
+    // If master control is off, force to 0
+    if (!_allDevicesOn) {
+      setState(() {
+        _fanSpeed = 0;
+        _updateAnimations();
+      });
+      return;
+    }
+    
+    final bleService = ref.read(bluetoothServiceProvider);
+    if (!bleService.isConnected) {
+      // Only show notification once, not repeatedly
+      if (mounted && !_notificationShown) {
+        _notificationShown = true;
+        AppNotifications.showSnackBar(
+          context,
+          message: 'Connect to your SmartSync hub to control the fan.',
+          type: AppNotificationType.warning,
+        );
+        // Reset flag after 3 seconds
+        Future.delayed(const Duration(seconds: 3), () {
+          _notificationShown = false;
+        });
+      }
+      return;
+    }
+
+    try {
+      final speed = ((percent / 100) * 255).round();
+      final success = await bleService.setFanSpeed(speed).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => false,
+      );
+      
+      if (!mounted) return;
+
+      AppNotifications.showSnackBar(
+        context,
+        message: success
+            ? 'Fan speed set to $percent%'
+            : 'Failed to update fan speed. Please check your connection.',
+        type: success ? AppNotificationType.success : AppNotificationType.error,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Failed to update fan speed: ${e.toString()}',
+        type: AppNotificationType.error,
+      );
+    }
+  }
+
+  Future<void> _handleLightBrightnessChange(int percent) async {
+    // If master control is off, force to 0
+    if (!_allDevicesOn) {
+      setState(() {
+        _masterBrightness = 0;
+        _updateAnimations();
+      });
+      return;
+    }
+    
+    final bleService = ref.read(bluetoothServiceProvider);
+    if (!bleService.isConnected) {
+      // Only show notification once, not repeatedly
+      if (mounted && !_notificationShown) {
+        _notificationShown = true;
+        AppNotifications.showSnackBar(
+          context,
+          message: 'Connect to your SmartSync hub to control the light.',
+          type: AppNotificationType.warning,
+        );
+        // Reset flag after 3 seconds
+        Future.delayed(const Duration(seconds: 3), () {
+          _notificationShown = false;
+        });
+      }
+      return;
+    }
+
+    try {
+      final brightness = ((percent / 100) * 255).round();
+      final success = await bleService.setLEDBrightness(brightness).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => false,
+      );
+      
+      if (!mounted) return;
+
+      AppNotifications.showSnackBar(
+        context,
+        message: success
+            ? 'Light brightness set to $percent%'
+            : 'Failed to update light brightness. Please check your connection.',
+        type: success ? AppNotificationType.success : AppNotificationType.error,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Failed to update light brightness: ${e.toString()}',
+        type: AppNotificationType.error,
+      );
+    }
+  }
+
+  Future<void> _uploadRoomImage() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final ImagePicker picker = ImagePicker();
+
+    // Show options: Camera or Gallery
+    final source = await showDialog<ImageSource>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1F3A),
+        title: const Text(
+          'Select Image Source',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt, color: Colors.blue),
+              title:
+                  const Text('Camera', style: TextStyle(color: Colors.white)),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library, color: Colors.blue),
+              title:
+                  const Text('Gallery', style: TextStyle(color: Colors.white)),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (source == null) return;
+
+    try {
+      final XFile? image = await picker.pickImage(source: source);
+      if (image == null) return;
+
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Uploading image...',
+        type: AppNotificationType.info,
+      );
+
+      // Upload to Firebase Storage and update room
+      final firebaseService = FirebaseService();
+      final imageUrl = await firebaseService.uploadRoomImage(
+        userId: user.uid,
+        roomId: widget.room.id,
+        imageFile: File(image.path),
+      );
+
+      if (!mounted) return;
+      
+      // Update room with new image URL
+      await firebaseService.updateRoom(user.uid, widget.room.id, {
+        'imageUrl': imageUrl,
+      });
+
+      if (!mounted) return;
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Room image updated successfully!',
+        type: AppNotificationType.success,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Failed to upload image: $e',
+        type: AppNotificationType.error,
+      );
+    }
   }
 
   IconData _getRoomIcon(String iconName) {

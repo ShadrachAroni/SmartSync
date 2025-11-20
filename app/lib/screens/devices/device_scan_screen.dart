@@ -123,13 +123,19 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
     final devices = ref.watch(scannedDevicesProvider);
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: const Color(0xFF0A0E27),
       appBar: AppBar(
-        title: const Text('Add Device'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
+        title: const Text(
+          'Add Device',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        backgroundColor: const Color(0xFF1A1F3A),
         elevation: 0,
         centerTitle: true,
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: SafeArea(
         child: Column(
@@ -139,10 +145,17 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: Colors.white,
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF1A1F3A),
+                    const Color(0xFF0F1419),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withOpacity(0.3),
                     blurRadius: 10,
                     offset: const Offset(0, 2),
                   ),
@@ -153,13 +166,20 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF00BFA5).withOpacity(0.1),
+                      color: const Color(0xFF00BFA5).withOpacity(0.2),
                       shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF00BFA5).withOpacity(0.3),
+                          blurRadius: 20,
+                          spreadRadius: 5,
+                        ),
+                      ],
                     ),
-                    child: Icon(
+                    child: const Icon(
                       Icons.bluetooth_searching_rounded,
                       size: 48,
-                      color: const Color(0xFF00BFA5),
+                      color: Color(0xFF00BFA5),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -168,7 +188,7 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
-                      color: Colors.black87,
+                      color: Colors.white,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -177,7 +197,7 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.grey.shade600,
+                      color: Colors.white.withOpacity(0.7),
                       height: 1.5,
                     ),
                   ),
@@ -207,7 +227,7 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF00BFA5),
                         foregroundColor: Colors.white,
-                        disabledBackgroundColor: Colors.grey.shade300,
+                        disabledBackgroundColor: Colors.grey.shade700,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
@@ -249,12 +269,12 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
             ),
           ),
           const SizedBox(height: 32),
-          Text(
+          const Text(
             'Searching for devices...',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w600,
-              color: Colors.grey.shade700,
+              color: Colors.white,
             ),
           ),
           const SizedBox(height: 8),
@@ -262,7 +282,7 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
             'This may take a few seconds',
             style: TextStyle(
               fontSize: 14,
-              color: Colors.grey.shade500,
+              color: Colors.white.withOpacity(0.7),
             ),
           ),
         ],
@@ -280,15 +300,15 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
             Icon(
               Icons.bluetooth_disabled_rounded,
               size: 80,
-              color: Colors.grey.shade300,
+              color: Colors.white.withOpacity(0.3),
             ),
             const SizedBox(height: 24),
-            Text(
+            const Text(
               'No Devices Found',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: Colors.grey.shade700,
+                color: Colors.white,
               ),
             ),
             const SizedBox(height: 12),
@@ -297,7 +317,7 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.grey.shade600,
+                color: Colors.white.withOpacity(0.7),
                 height: 1.6,
               ),
             ),
@@ -334,11 +354,19 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
         return Container(
           margin: const EdgeInsets.only(bottom: 16),
           decoration: BoxDecoration(
-            color: Colors.white,
+            gradient: LinearGradient(
+              colors: [
+                const Color(0xFF1A1F3A),
+                const Color(0xFF0F1419),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
             borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withOpacity(0.1)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withOpacity(0.3),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -381,7 +409,7 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
                             style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
-                              color: Colors.black87,
+                              color: Colors.white,
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -389,7 +417,7 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
                             deviceId,
                             style: TextStyle(
                               fontSize: 12,
-                              color: Colors.grey.shade600,
+                              color: Colors.white.withOpacity(0.7),
                               fontFamily: 'monospace',
                             ),
                             maxLines: 1,
@@ -401,14 +429,14 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
                               Icon(
                                 Icons.signal_cellular_alt_rounded,
                                 size: 14,
-                                color: Colors.grey.shade500,
+                                color: Colors.white.withOpacity(0.5),
                               ),
                               const SizedBox(width: 4),
                               Text(
                                 'Ready to connect',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.grey.shade600,
+                                  color: Colors.white.withOpacity(0.7),
                                 ),
                               ),
                             ],

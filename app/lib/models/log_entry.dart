@@ -1,44 +1,57 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+enum LogLevel {
+  debug,
+  info,
+  warning,
+  error,
+}
+
 class LogEntry {
   final String id;
   final String userId;
-  final String deviceId;
+  final String action;
   final String category;
-  final String message;
+  final String details;
   final Map<String, dynamic> metadata;
+  final LogLevel level;
   final DateTime timestamp;
 
-  const LogEntry({
+  LogEntry({
     required this.id,
     required this.userId,
-    required this.deviceId,
+    required this.action,
     required this.category,
-    required this.message,
-    this.metadata = const {},
+    required this.details,
+    required this.metadata,
+    required this.level,
     required this.timestamp,
   });
 
-  factory LogEntry.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+  factory LogEntry.fromMap(String id, Map<String, dynamic> map) {
     return LogEntry(
-      id: doc.id,
-      userId: data['userId'] ?? '',
-      deviceId: data['deviceId'] ?? '',
-      category: data['category'] ?? 'system',
-      message: data['message'] ?? '',
-      metadata: Map<String, dynamic>.from(data['metadata'] ?? {}),
-      timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      id: id,
+      userId: map['userId'] ?? '',
+      action: map['action'] ?? '',
+      category: map['category'] ?? '',
+      details: map['details'] ?? '',
+      metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+      level: LogLevel.values.firstWhere(
+        (e) => e.name == map['level'],
+        orElse: () => LogLevel.info,
+      ),
+      timestamp: (map['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
       'userId': userId,
-      'deviceId': deviceId,
+      'action': action,
       'category': category,
-      'message': message,
+      'details': details,
       'metadata': metadata,
+      'level': level.name,
       'timestamp': Timestamp.fromDate(timestamp),
     };
   }

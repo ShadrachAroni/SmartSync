@@ -24,7 +24,18 @@ from pathlib import Path
 import firebase_admin
 from firebase_admin import credentials, firestore
 import warnings
+
 warnings.filterwarnings('ignore')
+
+try:
+    import psutil  # type: ignore
+except ImportError:  # pragma: no cover - optional dependency
+    psutil = None
+
+try:
+    import GPUtil  # type: ignore
+except ImportError:  # pragma: no cover - optional dependency
+    GPUtil = None
 
 # ==================== CONFIGURATION ====================
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -33,6 +44,9 @@ RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
 MODELS_DIR = PROJECT_ROOT / "models" / "saved_models"
 TFLITE_DIR = PROJECT_ROOT / "models" / "tflite"
+BEST_MODEL_PATH = MODELS_DIR / "schedule_predictor_best.keras"
+CHECKPOINT_WEIGHTS_PATH = MODELS_DIR / "schedule_predictor_latest.weights.h5"
+TRAINING_STATE_PATH = MODELS_DIR / "schedule_predictor_state.json"
 
 # Create directories
 for dir_path in [RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR, TFLITE_DIR]:
@@ -387,12 +401,158 @@ class OverfittingMonitor(keras.callbacks.Callback):
                 if abs(train_loss - val_loss) / max(train_loss, val_loss) < 0.1:
                     print(f"⚠️  Warning: High and similar losses detected. Model may be underfitting.")
 
-def train_model(X_train, y_train, X_val, y_val):
+
+class TrainingStateSaver(keras.callbacks.Callback):
+    """
+    Persist lightweight training metadata so long-running jobs
+    can be resumed after interruptions.
+    """
+
+    def __init__(self, state_path=TRAINING_STATE_PATH):
+        super().__init__()
+        self.state_path = Path(state_path)
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        state = {
+            "last_epoch": int(epoch + 1),
+            "updated_at": datetime.now().isoformat(),
+            "learning_rate": float(tf.keras.backend.get_value(self.model.optimizer.learning_rate)),
+            "loss": float(logs.get("loss", 0.0)),
+            "val_loss": float(logs.get("val_loss", 0.0)),
+            "val_mae": float(logs.get("val_mae", logs.get("mae", 0.0))),
+            "status": "in_progress"
+        }
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.state_path.open("w", encoding="utf-8") as fp:
+            json.dump(state, fp, indent=2)
+
+
+class ResourceMonitorCallback(keras.callbacks.Callback):
+    """
+    Observe system resources during training and adjust optimizer
+    hyperparameters when headroom gets tight.
+    """
+
+    def __init__(
+        self,
+        log_every=1,
+        min_free_gpu_mb=1024,
+        min_free_ram_mb=2048,
+        lr_floor=1e-6,
+        cooldown_epochs=1
+    ):
+        super().__init__()
+        self.log_every = log_every
+        self.min_free_gpu_mb = min_free_gpu_mb
+        self.min_free_ram_mb = min_free_ram_mb
+        self.lr_floor = lr_floor
+        self.cooldown_epochs = cooldown_epochs
+        self._last_adjustment_epoch = -cooldown_epochs
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch % self.log_every != 0:
+            return
+
+        snapshot = self._capture_snapshot()
+        self._log_snapshot(epoch, snapshot)
+        self._maybe_optimize(epoch, snapshot)
+
+    def _capture_snapshot(self):
+        snapshot = {
+            "cpu_percent": None,
+            "ram_percent": None,
+            "ram_available_mb": None,
+            "gpu_free_mb": None,
+            "gpu_util": None,
+        }
+
+        if psutil:
+            snapshot["cpu_percent"] = psutil.cpu_percent(interval=None)
+            ram_info = psutil.virtual_memory()
+            snapshot["ram_percent"] = ram_info.percent
+            snapshot["ram_available_mb"] = ram_info.available / (1024 ** 2)
+
+        if GPUtil:
+            gpus = GPUtil.getGPUs()
+            if gpus:
+                gpu = gpus[0]
+                snapshot["gpu_free_mb"] = gpu.memoryFree
+                snapshot["gpu_util"] = gpu.load * 100
+
+        return snapshot
+
+    def _log_snapshot(self, epoch, snapshot):
+        parts = [f"Epoch {epoch + 1} resource check:"]
+        if snapshot["cpu_percent"] is not None:
+            parts.append(f"CPU {snapshot['cpu_percent']:.1f}%")
+        if snapshot["ram_percent"] is not None:
+            parts.append(
+                f"RAM {snapshot['ram_percent']:.1f}% (free {snapshot['ram_available_mb']:.0f} MB)"
+            )
+        if snapshot["gpu_free_mb"] is not None:
+            util = snapshot["gpu_util"]
+            util_txt = f"{util:.1f}%" if util is not None else "n/a"
+            parts.append(f"GPU free {snapshot['gpu_free_mb']:.0f} MB (util {util_txt})")
+
+        print("   " + " | ".join(parts))
+
+    def _maybe_optimize(self, epoch, snapshot):
+        if epoch - self._last_adjustment_epoch < self.cooldown_epochs:
+            return
+
+        lr = float(tf.keras.backend.get_value(self.model.optimizer.learning_rate))
+        adjusted = False
+
+        if snapshot["gpu_free_mb"] is not None and snapshot["gpu_free_mb"] < self.min_free_gpu_mb:
+            new_lr = max(self.lr_floor, lr * 0.8)
+            if new_lr < lr:
+                tf.keras.backend.set_value(self.model.optimizer.learning_rate, new_lr)
+                print(f"   🔧 Reduced learning rate to {new_lr:.2e} due to low GPU memory headroom.")
+                adjusted = True
+
+        if snapshot["ram_available_mb"] is not None and snapshot["ram_available_mb"] < self.min_free_ram_mb:
+            new_lr = max(self.lr_floor, lr * 0.9)
+            if new_lr < lr:
+                tf.keras.backend.set_value(self.model.optimizer.learning_rate, new_lr)
+                print(f"   🔧 Reduced learning rate to {new_lr:.2e} due to low RAM.")
+                adjusted = True
+
+        if adjusted:
+            self._last_adjustment_epoch = epoch
+
+
+def load_training_checkpoint(model, checkpoint_path=CHECKPOINT_WEIGHTS_PATH, state_path=TRAINING_STATE_PATH):
+    """
+    Load the latest checkpoint if it exists and return the epoch to resume from.
+    """
+    resume_epoch = 0
+
+    if Path(checkpoint_path).exists():
+        model.load_weights(checkpoint_path)
+        print(f"\n🔁 Loaded weights from {checkpoint_path}")
+
+        if Path(state_path).exists():
+            with open(state_path, "r", encoding="utf-8") as fp:
+                state = json.load(fp)
+            resume_epoch = int(state.get("last_epoch", 0))
+            print(f"   Resuming training from epoch {resume_epoch + 1}")
+
+    return resume_epoch
+
+def train_model(X_train, y_train, X_val, y_val, resume=True):
     """Train the schedule prediction model with enhanced regularization"""
     print("\n🚀 Starting model training with anti-overfitting measures...")
     
     model = build_schedule_predictor(input_shape=(X_train.shape[1], X_train.shape[2]))
     
+    initial_epoch = 0
+    if resume:
+        initial_epoch = load_training_checkpoint(model)
+        if initial_epoch >= EPOCHS:
+            print("   ✅ Existing checkpoint already reached configured epochs. Running a final consolidation epoch for safety.")
+            initial_epoch = max(0, EPOCHS - 1)
+
     # Enhanced callbacks for better training control
     early_stopping = keras.callbacks.EarlyStopping(
         monitor='val_loss',
@@ -418,14 +578,24 @@ def train_model(X_train, y_train, X_val, y_val):
     )
     
     checkpoint = keras.callbacks.ModelCheckpoint(
-        MODELS_DIR / 'schedule_predictor_best.keras',
+        BEST_MODEL_PATH,
         monitor='val_loss',
         save_best_only=True,
         verbose=1
     )
+
+    latest_checkpoint = keras.callbacks.ModelCheckpoint(
+        CHECKPOINT_WEIGHTS_PATH,
+        monitor='val_loss',
+        save_best_only=False,
+        save_weights_only=True,
+        verbose=0
+    )
     
     # Overfitting monitor
     overfitting_monitor = OverfittingMonitor(gap_threshold=0.15)
+    resource_monitor = ResourceMonitorCallback()
+    state_saver = TrainingStateSaver()
     
     # Train with all callbacks
     history = model.fit(
@@ -438,10 +608,14 @@ def train_model(X_train, y_train, X_val, y_val):
             reduce_lr,
             lr_schedule,
             checkpoint,
-            overfitting_monitor
+            latest_checkpoint,
+            overfitting_monitor,
+            resource_monitor,
+            state_saver
         ],
         verbose=1,
-        shuffle=True  # Shuffle training data each epoch
+        shuffle=True,  # Shuffle training data each epoch
+        initial_epoch=initial_epoch
     )
     
     # Print training diagnostics
@@ -465,6 +639,18 @@ def train_model(X_train, y_train, X_val, y_val):
         print("   ✅ Validation loss lower than training - good sign!")
     elif final_val_loss > final_train_loss * 1.2:
         print("   ⚠️  Validation loss much higher - possible overfitting")
+    
+    final_epoch = initial_epoch + len(history.history['loss'])
+    completion_state = {
+        "last_epoch": int(final_epoch),
+        "completed_at": datetime.now().isoformat(),
+        "status": "completed"
+    }
+    try:
+        with open(TRAINING_STATE_PATH, "w", encoding="utf-8") as fp:
+            json.dump(completion_state, fp, indent=2)
+    except OSError:
+        pass
     
     return model, history
 
@@ -527,6 +713,12 @@ def save_model(model, preprocessor, metrics):
     
     print(f"   Saved metadata to {metadata_path}")
 
+    # Clear transient training state once artifacts are persisted
+    try:
+        TRAINING_STATE_PATH.unlink()
+    except FileNotFoundError:
+        pass
+
 # ==================== MAIN PIPELINE ====================
 def main():
     """Main training pipeline"""
@@ -588,7 +780,7 @@ def main():
     print("STEP 3: MODEL TRAINING")
     print("="*70)
     
-    model, history = train_model(X_train, y_train, X_val, y_val)
+    model, history = train_model(X_train, y_train, X_val, y_val, resume=True)
     
     # Step 6: Evaluate
     print("\n" + "="*70)

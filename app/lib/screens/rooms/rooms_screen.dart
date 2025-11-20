@@ -10,12 +10,24 @@ import 'add_room_screen.dart';
 import '../../core/constants/routes.dart';
 
 // Provider for rooms
-final roomsProvider = StreamProvider<List<RoomModel>>((ref) {
+final roomsProvider = StreamProvider.autoDispose<List<RoomModel>>((ref) {
   final user = FirebaseAuth.instance.currentUser;
   if (user == null) return Stream.value([]);
 
-  final firebaseService = FirebaseService();
-  return firebaseService.getUserRooms(user.uid);
+  try {
+    final firebaseService = FirebaseService();
+    return firebaseService.getUserRooms(user.uid).timeout(
+      const Duration(seconds: 30),
+      onTimeout: (sink) {
+        sink.addError('Request timed out. Please check your connection.');
+      },
+    ).handleError((error) {
+      // Return empty list on error instead of crashing
+      return <RoomModel>[];
+    });
+  } catch (e) {
+    return Stream.value(<RoomModel>[]);
+  }
 });
 
 class RoomsScreen extends ConsumerStatefulWidget {
@@ -44,21 +56,21 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
         : ref.watch(deviceControllerProvider(user.uid));
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: const Color(0xFF0A0E27),
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFF1A1F3A),
         elevation: 0,
         title: const Text(
           'My Rooms',
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
-            color: Colors.black87,
+            color: Colors.white,
           ),
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.search, color: Colors.grey.shade700),
+            icon: const Icon(Icons.search, color: Colors.white70),
             onPressed: () {
               final rooms = ref.read(roomsProvider).maybeWhen(
                     data: (rooms) => rooms,
@@ -122,11 +134,16 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
                 },
                 loading: () => const Center(
                   child: CircularProgressIndicator(
-                    valueColor:
-                        AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
                   ),
                 ),
-                error: (error, _) => _buildErrorState(error.toString()),
+                error: (error, stackTrace) {
+                  // Handle errors gracefully with timeout
+                  final errorMessage = error.toString().contains('timeout')
+                      ? 'Connection timed out. Please check your internet and try again.'
+                      : error.toString();
+                  return _buildErrorState(errorMessage);
+                },
               ),
             ),
           ],
@@ -138,7 +155,7 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
   Widget _buildFilterChips() {
     return Container(
       height: 60,
-      color: Colors.white,
+      color: const Color(0xFF1A1F3A),
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
@@ -154,7 +171,7 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
               label: Text(
                 filter,
                 style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.grey.shade700,
+                  color: isSelected ? Colors.white : Colors.white70,
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                 ),
               ),
@@ -164,8 +181,8 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
                   _selectedFilter = filter;
                 });
               },
-              backgroundColor: Colors.grey.shade100,
-              selectedColor: const Color(0xFF00BFA5),
+              backgroundColor: Colors.white.withOpacity(0.1),
+              selectedColor: Colors.blue,
               checkmarkColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               elevation: 0,

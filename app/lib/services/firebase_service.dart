@@ -1,6 +1,8 @@
 // app/lib/services/firebase_service.dart - UPDATED
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import '../models/device_model.dart';
 import '../models/room_model.dart';
 import '../models/sensor_data.dart';
@@ -10,6 +12,7 @@ import '../models/daily_analytics.dart';
 
 class FirebaseService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseStorage _storage = FirebaseStorage.instance;
 
   // ==================== DEVICES ====================
 
@@ -259,25 +262,33 @@ class FirebaseService {
   // ==================== ENERGY CONSUMPTION ====================
 
   Future<double> getTodayEnergyConsumption(String userId) async {
-    final today = DateTime.now();
-    final startOfDay = DateTime(today.year, today.month, today.day);
+    try {
+      final today = DateTime.now();
+      final startOfDay = DateTime(today.year, today.month, today.day);
 
-    final logs = await _firestore
-        .collection('sensor_logs')
-        .where('userId', isEqualTo: userId)
-        .where('timestamp', isGreaterThan: Timestamp.fromDate(startOfDay))
-        .get();
+      final logs = await _firestore
+          .collection('sensor_logs')
+          .where('userId', isEqualTo: userId)
+          .where('timestamp', isGreaterThan: Timestamp.fromDate(startOfDay))
+          .limit(1000) // Limit to prevent timeout
+          .get();
 
-    // Calculate energy (simplified)
-    double totalEnergy = 0;
-    for (var doc in logs.docs) {
-      final data = doc.data();
-      // Assume average device power consumption
-      totalEnergy += (data['fanSpeed'] ?? 0) * 0.001; // 1W per unit
-      totalEnergy += (data['ledBrightness'] ?? 0) * 0.0005; // 0.5W per unit
+      // Calculate energy (simplified)
+      double totalEnergy = 0;
+      for (var doc in logs.docs) {
+        final data = doc.data();
+        // Assume average device power consumption
+        final fanSpeed = (data['fanSpeed'] as num?)?.toInt() ?? 0;
+        final ledBrightness = (data['ledBrightness'] as num?)?.toInt() ?? 0;
+        totalEnergy += (fanSpeed / 255.0) * 0.05; // Fan: 50W max
+        totalEnergy += (ledBrightness / 255.0) * 0.01; // LED: 10W max
+      }
+
+      return totalEnergy;
+    } catch (e) {
+      // Return 0 on error instead of throwing
+      return 0.0;
     }
-
-    return totalEnergy;
   }
 
   Future<double> getRoomEnergyConsumption(String userId, String roomId) async {
@@ -332,16 +343,38 @@ class FirebaseService {
   }
 
   Stream<List<AlertModel>> getAlerts(String userId) {
-    return _firestore
-        .collection('alerts')
-        .where('userId', isEqualTo: userId)
-        .orderBy('timestamp', descending: true)
-        .snapshots()
-        .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => AlertModel.fromFirestore(doc))
-              .toList(),
-        );
+    try {
+      return _firestore
+          .collection('alerts')
+          .where('userId', isEqualTo: userId)
+          .snapshots()
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: (sink) {
+              sink.addError('Request timed out. Please check your connection.');
+            },
+          )
+          .map(
+            (snapshot) {
+              final alerts = snapshot.docs
+                  .map((doc) => AlertModel.fromFirestore(doc))
+                  .toList();
+              // Sort by timestamp descending in memory to avoid index requirement
+              alerts.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+              return alerts;
+            },
+          )
+          .handleError((error) {
+            // Handle Firestore errors gracefully
+            if (error.toString().contains('index')) {
+              throw Exception(
+                  'Database index required. Please contact support or wait a few minutes for the index to be created automatically.');
+            }
+            throw error;
+          });
+    } catch (e) {
+      return Stream.value(<AlertModel>[]);
+    }
   }
 
   Future<void> markAlertRead(String alertId,
@@ -437,6 +470,30 @@ class FirebaseService {
     }
 
     await batch.commit();
+  }
+
+  // ==================== ROOM IMAGE UPLOAD ====================
+
+  Future<String> uploadRoomImage({
+    required String userId,
+    required String roomId,
+    required File imageFile,
+  }) async {
+    try {
+      final ref = _storage
+          .ref()
+          .child('rooms')
+          .child(userId)
+          .child(roomId)
+          .child('${DateTime.now().millisecondsSinceEpoch}.jpg');
+
+      final uploadTask = ref.putFile(imageFile);
+      final snapshot = await uploadTask;
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+      return downloadUrl;
+    } catch (e) {
+      throw Exception('Failed to upload room image: $e');
+    }
   }
 }
 

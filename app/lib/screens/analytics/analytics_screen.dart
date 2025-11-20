@@ -13,57 +13,128 @@ import '../../models/device_model.dart';
 import '../../models/schedule_model.dart';
 import '../../core/widgets/app_notifications.dart';
 import '../../core/utils/analytics_utils.dart';
+import '../../core/utils/logger.dart';
 
 // ==================== PROVIDERS ====================
 final mlServiceProvider = Provider((ref) => MLService());
 final sensorHistoryProvider =
-    FutureProvider.family<List<SensorData>, Map<String, dynamic>>(
+    FutureProvider.autoDispose.family<List<SensorData>, Map<String, dynamic>>(
   (ref, params) async {
     final firebase = ref.watch(firebaseServiceProvider);
-    return firebase.getUserSensorHistory(
-      params['userId'] as String,
-      params['days'] as int,
-    );
+    Logger.debug('AnalyticsScreen: Loading sensor history for ${params['userId']}, days: ${params['days']}');
+    try {
+      final history = await firebase.getUserSensorHistory(
+        params['userId'] as String,
+        params['days'] as int,
+      ).timeout(
+        const Duration(seconds: 10), // Reduced timeout
+        onTimeout: () {
+          Logger.warning('AnalyticsScreen: Timeout loading sensor history');
+          return <SensorData>[];
+        },
+      );
+      Logger.debug('AnalyticsScreen: Sensor history loaded: ${history.length} records');
+      return history;
+    } catch (e) {
+      Logger.error('AnalyticsScreen: Error loading sensor history: $e');
+      return <SensorData>[];
+    }
   },
 );
 final dailyAnalyticsProvider =
-    FutureProvider.family<List<DailyAnalytics>, Map<String, dynamic>>(
+    FutureProvider.autoDispose.family<List<DailyAnalytics>, Map<String, dynamic>>(
   (ref, params) async {
     final firebase = ref.watch(firebaseServiceProvider);
-    return firebase.getDailyAnalytics(
-      params['userId'] as String,
-      params['days'] as int,
-    );
+    Logger.debug('AnalyticsScreen: Loading daily analytics for ${params['userId']}, days: ${params['days']}');
+    try {
+      final analytics = await firebase.getDailyAnalytics(
+        params['userId'] as String,
+        params['days'] as int,
+      ).timeout(
+        const Duration(seconds: 10), // Reduced timeout
+        onTimeout: () {
+          Logger.warning('AnalyticsScreen: Timeout loading daily analytics');
+          return <DailyAnalytics>[];
+        },
+      );
+      Logger.debug('AnalyticsScreen: Daily analytics loaded: ${analytics.length} records');
+      return analytics;
+    } catch (e) {
+      Logger.error('AnalyticsScreen: Error loading daily analytics: $e');
+      return <DailyAnalytics>[];
+    }
   },
 );
 
 final analyticsTimeRangeProvider = StateProvider<int>((ref) => 7); // Days
 
 final analyticsInsightsProvider =
-    FutureProvider.family<AnalyticsInsights, Map<String, dynamic>>(
+    FutureProvider.autoDispose.family<AnalyticsInsights, Map<String, dynamic>>(
   (ref, params) async {
     final mlService = ref.watch(mlServiceProvider);
     final userId = params['userId'] as String;
     final days = params['days'] as int;
-    return await mlService.getInsights(userId, days);
+    Logger.debug('AnalyticsScreen: Loading insights for user $userId, days: $days');
+    try {
+      final insights = await mlService.getInsights(userId, days).timeout(
+        const Duration(seconds: 15), // Reduced timeout
+        onTimeout: () {
+          Logger.warning('AnalyticsScreen: Timeout loading insights, returning default');
+          // Return default insights instead of throwing
+          return AnalyticsInsights(
+            totalLogs: 0,
+            avgTemperature: 22.0,
+            avgHumidity: 50.0,
+            motionEvents: 0,
+            energyConsumption: 0.0,
+            avgFanUsage: 0.0,
+            avgLightUsage: 0.0,
+            peakUsageHour: 12,
+          );
+        },
+      );
+      Logger.debug('AnalyticsScreen: Insights loaded successfully');
+      return insights;
+    } catch (e) {
+      Logger.error('AnalyticsScreen: Error loading insights: $e');
+      // Return default insights on error
+      return AnalyticsInsights(
+        totalLogs: 0,
+        avgTemperature: 22.0,
+        avgHumidity: 50.0,
+        motionEvents: 0,
+        energyConsumption: 0.0,
+        avgFanUsage: 0.0,
+        avgLightUsage: 0.0,
+        peakUsageHour: 12,
+      );
+    }
   },
 );
 
 final schedulePredictionsProvider =
-    FutureProvider.family<List<SchedulePrediction>, Map<String, String>>(
+    FutureProvider.autoDispose.family<List<SchedulePrediction>, Map<String, String>>(
   (ref, params) async {
     final mlService = ref.watch(mlServiceProvider);
-    return await mlService.predictSchedules(
-        params['userId']!, params['deviceId'] ?? 'all');
+    Logger.debug('AnalyticsScreen: Loading schedule predictions for ${params['userId']}');
+    try {
+      final predictions = await mlService.predictSchedules(
+          params['userId']!, params['deviceId'] ?? 'all').timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          Logger.warning('AnalyticsScreen: Timeout loading schedule predictions');
+          return <SchedulePrediction>[];
+        },
+      );
+      Logger.debug('AnalyticsScreen: Schedule predictions loaded: ${predictions.length} predictions');
+      return predictions;
+    } catch (e) {
+      Logger.error('AnalyticsScreen: Error loading schedule predictions: $e');
+      return <SchedulePrediction>[];
+    }
   },
 );
 
-final anomalyReportProvider = FutureProvider.family<AnomalyReport?, String>(
-  (ref, userId) async {
-    final mlService = ref.watch(mlServiceProvider);
-    return await mlService.detectAnomalies(userId, const Duration(hours: 24));
-  },
-);
 
 // ==================== ANALYTICS SCREEN ====================
 class AnalyticsScreen extends ConsumerStatefulWidget {
@@ -80,7 +151,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
 
     // Initialize ML Service
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -98,13 +169,16 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
+      Logger.warning('AnalyticsScreen: User is null');
       return const Scaffold(
         body: Center(child: Text('Please login to view analytics')),
       );
     }
+    
+    Logger.debug('AnalyticsScreen: Building for user ${user.uid}');
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: const Color(0xFF0A0E27),
       body: NestedScrollView(
         headerSliverBuilder: (context, innerBoxIsScrolled) => [
           _buildSliverAppBar(user.uid),
@@ -115,10 +189,9 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
             _buildOverviewTab(user.uid),
             _buildInsightsTab(user.uid),
             _buildPredictionsTab(user.uid),
-            _buildAnomaliesTab(user.uid),
           ],
         ),
-      ),
+      );
     );
   }
 
@@ -127,7 +200,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
     final timeRange = ref.watch(analyticsTimeRangeProvider);
 
     return SliverAppBar(
-      expandedHeight: 180,
+      expandedHeight: 140,
       floating: false,
       pinned: true,
       backgroundColor: const Color(0xFF00BFA5),
@@ -136,8 +209,8 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
-                const Color(0xFF00BFA5),
-                const Color(0xFF00897B),
+                const Color(0xFF1A1F3A),
+                const Color(0xFF0F1419),
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -145,10 +218,10 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
           ),
           child: SafeArea(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 40, 20, 20),
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.start,
                 children: [
                   Row(
                     children: [
@@ -169,7 +242,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
+                            const Text(
                               'Analytics',
                               style: TextStyle(
                                 fontSize: 28,
@@ -177,7 +250,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                                 color: Colors.white,
                               ),
                             ),
-                            Text(
+                            const Text(
                               'AI-Powered Insights',
                               style: TextStyle(
                                 fontSize: 14,
@@ -224,15 +297,15 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
       ),
       bottom: TabBar(
         controller: _tabController,
-        labelColor: Colors.white,
-        unselectedLabelColor: Colors.white70,
-        indicatorColor: Colors.white,
+        labelColor: Colors.blue,
+        unselectedLabelColor: Colors.white60,
+        indicatorColor: Colors.blue,
         indicatorWeight: 3,
+        labelStyle: const TextStyle(fontWeight: FontWeight.bold),
         tabs: const [
           Tab(text: 'Overview'),
           Tab(text: 'Insights'),
           Tab(text: 'Predictions'),
-          Tab(text: 'Anomalies'),
         ],
       ),
     );
@@ -260,7 +333,10 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
 
   // ==================== OVERVIEW TAB ====================
   Widget _buildOverviewTab(String userId) {
+    Logger.debug('AnalyticsScreen: Building overview tab for user $userId');
     final timeRange = ref.watch(analyticsTimeRangeProvider);
+    Logger.debug('AnalyticsScreen: Time range: $timeRange days');
+    
     final insightsAsync = ref.watch(analyticsInsightsProvider({
       'userId': userId,
       'days': timeRange,
@@ -273,6 +349,10 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
       'userId': userId,
       'days': timeRange,
     }));
+    
+    Logger.debug('AnalyticsScreen: insightsAsync state: ${insightsAsync.runtimeType}');
+    Logger.debug('AnalyticsScreen: historyAsync state: ${historyAsync.runtimeType}');
+    Logger.debug('AnalyticsScreen: dailyAnalyticsAsync state: ${dailyAnalyticsAsync.runtimeType}');
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -286,57 +366,150 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
         }));
       },
       child: insightsAsync.when(
-        data: (insights) => dailyAnalyticsAsync.when(
-          data: (dailyData) => historyAsync.when(
-            data: (history) {
-              final trendData = dailyData.isNotEmpty
-                  ? _mapDailyAnalytics(dailyData)
-                  : buildDailyTrends(history, timeRange);
-              final hourlyActivity = buildHourlyActivity(history);
+        data: (insights) {
+          Logger.debug('AnalyticsScreen: Insights loaded successfully');
+          return dailyAnalyticsAsync.when(
+            data: (dailyData) {
+              Logger.debug('AnalyticsScreen: Daily analytics loaded: ${dailyData.length} entries');
+              return historyAsync.when(
+                data: (history) {
+                  Logger.debug('AnalyticsScreen: History loaded: ${history.length} entries');
+                  final trendData = dailyData.isNotEmpty
+                      ? _mapDailyAnalytics(dailyData)
+                      : buildDailyTrends(history, timeRange);
+                  final hourlyActivity = buildHourlyActivity(history);
 
-              return SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                physics: const AlwaysScrollableScrollPhysics(),
+              return Container(
+                color: const Color(0xFF0A0E27),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSummaryCards(insights),
+                      const SizedBox(height: 24),
+                      _buildSectionHeader('Environmental Trends'),
+                      const SizedBox(height: 16),
+                      _buildEnvironmentalChart(trendData),
+                      const SizedBox(height: 24),
+                      _buildSectionHeader('Usage Patterns'),
+                      const SizedBox(height: 16),
+                      _buildUsageChart(hourlyActivity, insights.peakUsageHour),
+                      const SizedBox(height: 24),
+                      _buildSectionHeader('Energy Breakdown'),
+                      const SizedBox(height: 16),
+                      _buildEnergyBreakdown(insights),
+                    ],
+                  ),
+                ),
+              );
+                },
+                loading: () {
+                  Logger.debug('AnalyticsScreen: History loading...');
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Loading sensor history...',
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                error: (error, stackTrace) {
+                  Logger.error('AnalyticsScreen: History error: $error');
+                  Logger.error('AnalyticsScreen: History stack trace: $stackTrace');
+                  return _buildErrorState(
+                    error.toString(),
+                    onRetry: () {
+                      Logger.debug('AnalyticsScreen: Retrying history load');
+                      ref.invalidate(sensorHistoryProvider({
+                        'userId': userId,
+                        'days': timeRange,
+                      }));
+                    },
+                  );
+                },
+              );
+            },
+            loading: () {
+              Logger.debug('AnalyticsScreen: Daily analytics loading...');
+              return Center(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _buildSummaryCards(insights),
-                    const SizedBox(height: 24),
-                    _buildSectionHeader('Environmental Trends'),
+                    const CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
+                    ),
                     const SizedBox(height: 16),
-                    _buildEnvironmentalChart(trendData),
-                    const SizedBox(height: 24),
-                    _buildSectionHeader('Usage Patterns'),
-                    const SizedBox(height: 16),
-                    _buildUsageChart(hourlyActivity, insights.peakUsageHour),
-                    const SizedBox(height: 24),
-                    _buildSectionHeader('Energy Breakdown'),
-                    const SizedBox(height: 16),
-                    _buildEnergyBreakdown(insights),
+                    Text(
+                      'Loading daily analytics...',
+                      style: TextStyle(color: Colors.white70),
+                    ),
                   ],
                 ),
               );
             },
-            loading: () => const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
-              ),
+            error: (error, stackTrace) {
+              Logger.error('AnalyticsScreen: Daily analytics error: $error');
+              Logger.error('AnalyticsScreen: Daily analytics stack trace: $stackTrace');
+              return _buildErrorState(
+                error.toString(),
+                onRetry: () {
+                  Logger.debug('AnalyticsScreen: Retrying daily analytics load');
+                  ref.invalidate(dailyAnalyticsProvider({
+                    'userId': userId,
+                    'days': timeRange,
+                  }));
+                },
+              );
+            },
+          );
+        },
+        loading: () {
+          Logger.debug('AnalyticsScreen: Insights loading...');
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Loading insights...',
+                  style: TextStyle(color: Colors.white70),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'This may take a few seconds',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ],
             ),
-            error: (error, _) => _buildErrorState(error.toString()),
-          ),
-          loading: () => const Center(
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
-            ),
-          ),
-          error: (error, _) => _buildErrorState(error.toString()),
-        ),
-        loading: () => const Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
-          ),
-        ),
-        error: (error, _) => _buildErrorState(error.toString()),
+          );
+        },
+        error: (error, stackTrace) {
+          Logger.error('AnalyticsScreen: Insights error: $error');
+          Logger.error('AnalyticsScreen: Stack trace: $stackTrace');
+          return _buildErrorState(
+            error.toString(),
+            onRetry: () {
+              Logger.debug('AnalyticsScreen: Retrying insights load');
+              ref.invalidate(analyticsInsightsProvider({
+                'userId': userId,
+                'days': timeRange,
+              }));
+            },
+          );
+        },
       ),
     );
   }
@@ -406,13 +579,21 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1A1F3A),
+            const Color(0xFF0F1419),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.3)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: color.withOpacity(0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -459,7 +640,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
             style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.bold,
-              color: Colors.black87,
+              color: Colors.white,
             ),
           ),
           const SizedBox(height: 4),
@@ -467,7 +648,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
             label,
             style: TextStyle(
               fontSize: 12,
-              color: Colors.grey.shade600,
+              color: Colors.white70,
             ),
           ),
           if (subtitle != null) ...[
@@ -496,22 +677,31 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
       height: 280,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1A1F3A),
+            const Color(0xFF0F1419),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: SfCartesianChart(
         title: ChartTitle(
-          text: 'Temperature & Humidity Trends',
+          text: 'Temperature Trends',
           textStyle: const TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.bold,
+            color: Colors.white,
           ),
         ),
         legend: Legend(
@@ -519,22 +709,16 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
           position: LegendPosition.bottom,
         ),
         primaryXAxis: CategoryAxis(
-          majorGridLines: const MajorGridLines(width: 0),
+          majorGridLines: const MajorGridLines(width: 0, color: Colors.white24),
+          labelStyle: const TextStyle(color: Colors.white70),
         ),
         primaryYAxis: NumericAxis(
-          title: AxisTitle(text: 'Temperature (°C)'),
+          title: AxisTitle(text: 'Temperature (°C)', textStyle: TextStyle(color: Colors.white)),
           minimum: 15,
           maximum: 35,
+          majorGridLines: const MajorGridLines(width: 1, color: Colors.white24, dashArray: [5, 5]),
+          labelStyle: const TextStyle(color: Colors.white70),
         ),
-        axes: <ChartAxis>[
-          NumericAxis(
-            name: 'yAxis',
-            opposedPosition: true,
-            title: AxisTitle(text: 'Humidity (%)'),
-            minimum: 0,
-            maximum: 100,
-          ),
-        ],
         series: <CartesianSeries>[
           LineSeries<DailyTrendPoint, String>(
             name: 'Temperature',
@@ -542,16 +726,6 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
             xValueMapper: (data, _) => data.label,
             yValueMapper: (data, _) => data.temperature,
             color: const Color(0xFFFF6B6B),
-            width: 3,
-            markerSettings: const MarkerSettings(isVisible: true),
-          ),
-          LineSeries<DailyTrendPoint, String>(
-            name: 'Humidity',
-            dataSource: trendData,
-            xValueMapper: (data, _) => data.label,
-            yValueMapper: (data, _) => data.humidity,
-            yAxisName: 'yAxis',
-            color: const Color(0xFF4ECDC4),
             width: 3,
             markerSettings: const MarkerSettings(isVisible: true),
           ),
@@ -576,13 +750,21 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
       height: 250,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1A1F3A),
+            const Color(0xFF0F1419),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -597,14 +779,14 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+                  color: Colors.white,
                 ),
               ),
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF00BFA5).withOpacity(0.1),
+                  color: Colors.blue.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -612,7 +794,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF00BFA5),
+                    color: Colors.blue,
                   ),
                 ),
               ),
@@ -622,21 +804,24 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
           Expanded(
             child: SfCartesianChart(
               primaryXAxis: CategoryAxis(
-                majorGridLines: const MajorGridLines(width: 0),
+                majorGridLines: const MajorGridLines(width: 0, color: Colors.white24),
+                labelStyle: const TextStyle(color: Colors.white70),
               ),
               primaryYAxis: NumericAxis(
-                title: AxisTitle(text: 'Activity Level'),
+                title: AxisTitle(text: 'Activity Level', textStyle: TextStyle(color: Colors.white)),
                 majorGridLines: const MajorGridLines(
                   width: 1,
                   dashArray: [5, 5],
+                  color: Colors.white24,
                 ),
+                labelStyle: const TextStyle(color: Colors.white70),
               ),
               series: <CartesianSeries>[
                 ColumnSeries<HourlyActivityPoint, String>(
                   dataSource: activityData,
                   xValueMapper: (data, _) => data.hourLabel,
                   yValueMapper: (data, _) => data.activityValue,
-                  color: const Color(0xFF00BFA5),
+                  color: Colors.blue,
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(8),
                   ),
@@ -695,7 +880,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: Colors.white,
                 ),
               ),
               Text(
@@ -703,7 +888,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF00BFA5),
+                  color: Colors.blue,
                 ),
               ),
             ],
@@ -726,7 +911,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
-                color: Colors.black87,
+                color: Colors.white,
               ),
             ),
             Text(
@@ -745,7 +930,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
           child: LinearProgressIndicator(
             value: percentage,
             minHeight: 12,
-            backgroundColor: Colors.grey.shade200,
+            backgroundColor: Colors.white.withOpacity(0.1),
             valueColor: AlwaysStoppedAnimation<Color>(color),
           ),
         ),
@@ -805,6 +990,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
 
   // ==================== INSIGHTS TAB ====================
   Widget _buildInsightsTab(String userId) {
+    Logger.debug('AnalyticsScreen: Building insights tab for user $userId');
     final timeRange = ref.watch(analyticsTimeRangeProvider);
     final insightsAsync = ref.watch(analyticsInsightsProvider({
       'userId': userId,
@@ -812,7 +998,9 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
     }));
 
     return insightsAsync.when(
-      data: (insights) => SingleChildScrollView(
+      data: (insights) {
+        Logger.debug('AnalyticsScreen: Insights data loaded');
+        return SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -862,12 +1050,38 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
           ],
         ),
       ),
-      loading: () => const Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
-        ),
-      ),
-      error: (error, _) => _buildErrorState(error.toString()),
+      loading: () {
+        Logger.debug('AnalyticsScreen: Insights tab loading...');
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Loading insights...',
+                style: TextStyle(color: Colors.white70),
+              ),
+            ],
+          ),
+        );
+      },
+      error: (error, stackTrace) {
+        Logger.error('AnalyticsScreen: Insights tab error: $error');
+        Logger.error('AnalyticsScreen: Insights tab stack trace: $stackTrace');
+        return _buildErrorState(
+          error.toString(),
+          onRetry: () {
+            Logger.debug('AnalyticsScreen: Retrying insights tab load');
+            ref.invalidate(analyticsInsightsProvider({
+              'userId': userId,
+              'days': timeRange,
+            }));
+          },
+        );
+      },
     );
   }
 
@@ -912,7 +1126,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                    color: Colors.white,
                   ),
                 ),
               ),
@@ -921,9 +1135,9 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
           const SizedBox(height: 16),
           Text(
             description,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 14,
-              color: Colors.grey.shade700,
+              color: Colors.white70,
               height: 1.5,
             ),
           ),
@@ -983,12 +1197,38 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
             },
           );
         },
-        loading: () => const Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
-          ),
-        ),
-        error: (error, _) => _buildErrorState(error.toString()),
+        loading: () {
+          Logger.debug('AnalyticsScreen: Predictions loading...');
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Loading predictions...',
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ],
+            ),
+          );
+        },
+        error: (error, stackTrace) {
+          Logger.error('AnalyticsScreen: Predictions error: $error');
+          Logger.error('AnalyticsScreen: Predictions stack trace: $stackTrace');
+          return _buildErrorState(
+            error.toString(),
+            onRetry: () {
+              Logger.debug('AnalyticsScreen: Retrying predictions load');
+              ref.invalidate(schedulePredictionsProvider({
+                'userId': userId,
+                'deviceId': 'all',
+              }));
+            },
+          );
+        },
       ),
     );
   }
@@ -1180,367 +1420,6 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
     );
   }
 
-  // ==================== ANOMALIES TAB ====================
-  Widget _buildAnomaliesTab(String userId) {
-    final anomalyAsync = ref.watch(anomalyReportProvider(userId));
-
-    return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(anomalyReportProvider);
-      },
-      child: anomalyAsync.when(
-        data: (report) {
-          if (report == null || !report.hasAnomalies) {
-            return _buildNoAnomalies();
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(20),
-            itemCount: report.anomalies.length + 1, // +1 for summary card
-            itemBuilder: (context, index) {
-              if (index == 0) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: _buildAnomalySummaryCard(report),
-                );
-              }
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: _buildAnomalyCard(report.anomalies[index - 1]),
-              );
-            },
-          );
-        },
-        loading: () => const Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
-          ),
-        ),
-        error: (error, _) => _buildErrorState(error.toString()),
-      ),
-    );
-  }
-
-  Widget _buildAnomalySummaryCard(AnomalyReport report) {
-    final criticalCount =
-        report.anomalies.where((a) => a.severity == 'high').length;
-    final mediumCount =
-        report.anomalies.where((a) => a.severity == 'medium').length;
-    final lowCount = report.anomalies.where((a) => a.severity == 'low').length;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: report.hasCritical
-              ? [Colors.red.shade400, Colors.red.shade600]
-              : [const Color(0xFF00BFA5), const Color(0xFF00897B)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: (report.hasCritical ? Colors.red : const Color(0xFF00BFA5))
-                .withOpacity(0.3),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  report.hasCritical
-                      ? Icons.warning_rounded
-                      : Icons.info_rounded,
-                  color: Colors.white,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      report.hasCritical
-                          ? 'Action Required'
-                          : 'Anomalies Detected',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Last 24 hours',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.white.withOpacity(0.9),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              if (criticalCount > 0) ...[
-                _buildSeverityBadge('Critical', criticalCount, Colors.white),
-                const SizedBox(width: 8),
-              ],
-              if (mediumCount > 0) ...[
-                _buildSeverityBadge('Medium', mediumCount, Colors.white70),
-                const SizedBox(width: 8),
-              ],
-              if (lowCount > 0)
-                _buildSeverityBadge('Low', lowCount, Colors.white60),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSeverityBadge(String label, int count, Color textColor) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        '$count $label',
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: textColor,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAnomalyCard(Anomaly anomaly) {
-    Color severityColor;
-    IconData severityIcon;
-
-    switch (anomaly.severity) {
-      case 'high':
-        severityColor = Colors.red;
-        severityIcon = Icons.error_rounded;
-        break;
-      case 'medium':
-        severityColor = Colors.orange;
-        severityIcon = Icons.warning_rounded;
-        break;
-      default:
-        severityColor = Colors.blue;
-        severityIcon = Icons.info_rounded;
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: severityColor.withOpacity(0.3), width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: severityColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(severityIcon, color: severityColor, size: 24),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      anomaly.type.toString().split('.').last.toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: severityColor,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      anomaly.message,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Icon(Icons.access_time_rounded,
-                  size: 14, color: Colors.grey.shade600),
-              const SizedBox(width: 4),
-              Text(
-                'Detected ${_timeAgo(anomaly.timestamp)}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600,
-                ),
-              ),
-              const Spacer(),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: severityColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.analytics_rounded,
-                        size: 12, color: severityColor),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${(anomaly.confidence * 100).toStringAsFixed(0)}%',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: severityColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          if (anomaly.severity == 'high') ...[
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () => _handleAnomalyAction(anomaly),
-                icon: const Icon(Icons.phone_rounded, size: 18),
-                label: const Text('Contact Caregiver'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: severityColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  elevation: 0,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNoAnomalies() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(40),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(30),
-              decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.check_circle_rounded,
-                size: 64,
-                color: Colors.green.shade500,
-              ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'All Clear!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'No unusual activity detected\nin the last 24 hours',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-                height: 1.5,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.blue.shade200),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline,
-                      color: Colors.blue.shade700, size: 20),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'AI monitors activity patterns 24/7 to detect anomalies',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.blue.shade900,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   // ==================== HELPER METHODS ====================
   Widget _buildSectionHeader(String title) {
     return Text(
@@ -1548,12 +1427,13 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
       style: const TextStyle(
         fontSize: 18,
         fontWeight: FontWeight.bold,
-        color: Colors.black87,
+        color: Colors.white,
       ),
     );
   }
 
-  Widget _buildErrorState(String error) {
+  Widget _buildErrorState(String error, {VoidCallback? onRetry}) {
+    Logger.error('AnalyticsScreen: Displaying error state: $error');
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(40),
@@ -1567,22 +1447,27 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: Colors.black87,
+                color: Colors.white,
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              error,
+              error.length > 100 ? '${error.substring(0, 100)}...' : error,
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,
-                color: Colors.grey.shade600,
+                color: Colors.white70,
               ),
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: () {
+              onPressed: onRetry ?? () {
+                Logger.debug('AnalyticsScreen: Retry button pressed');
+                // Default retry - invalidate all analytics providers
                 ref.invalidate(analyticsInsightsProvider);
+                ref.invalidate(sensorHistoryProvider);
+                ref.invalidate(dailyAnalyticsProvider);
+                ref.invalidate(schedulePredictionsProvider);
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF00BFA5),
@@ -1645,26 +1530,6 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
       type: AppNotificationType.info,
       primaryLabel: 'Create',
       onPrimaryPressed: () => _handlePredictionCreate(prediction),
-      secondaryLabel: 'Cancel',
-      onSecondaryPressed: () async {},
-    );
-  }
-
-  void _handleAnomalyAction(Anomaly anomaly) {
-    AppNotifications.showDialog(
-      context,
-      title: 'Contact Caregiver',
-      message:
-          'This will send an alert to all registered caregivers.\n\nDo you want to proceed?',
-      type: AppNotificationType.warning,
-      primaryLabel: 'Send Alert',
-      onPrimaryPressed: () async {
-        AppNotifications.showSnackBar(
-          context,
-          message: 'Alert sent to caregivers',
-          type: AppNotificationType.error,
-        );
-      },
       secondaryLabel: 'Cancel',
       onSecondaryPressed: () async {},
     );

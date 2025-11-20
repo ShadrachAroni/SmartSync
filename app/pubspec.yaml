@@ -43,6 +43,7 @@ dependencies:
   device_info_plus: ^12.2.0
   connectivity_plus: ^7.0.0
   package_info_plus: ^8.0.0
+  image_picker: ^1.2.1
   
   # Security
   flutter_secure_storage: ^9.0.0
@@ -80,6 +81,7 @@ flutter:
     - assets/models/schedule_predictor.tflite
     - assets/models/anomaly_detector.tflite
     - assets/icons/smart-house.png
+    - assets/icons/fan.png
   
   fonts:
     - family: Roboto

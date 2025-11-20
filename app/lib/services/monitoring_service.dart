@@ -16,8 +16,8 @@ class MonitoringService {
   final FirebaseService _firebaseService = FirebaseService();
   final MLService _mlService = MLService();
 
-  final StreamController<SensorData> _sensorController =
-      StreamController<SensorData>.broadcast();
+  final StreamController<SensorData?> _sensorController =
+      StreamController<SensorData?>.broadcast();
   final StreamController<AnomalyReport?> _anomalyController =
       StreamController<AnomalyReport?>.broadcast();
 
@@ -27,7 +27,7 @@ class MonitoringService {
   String? _userId;
   bool _initialized = false;
 
-  Stream<SensorData> get sensorStream => _sensorController.stream;
+  Stream<SensorData?> get sensorStream => _sensorController.stream;
   Stream<AnomalyReport?> get anomalyStream => _anomalyController.stream;
   SensorData? get latestReading => _latestReading;
 

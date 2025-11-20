@@ -16,14 +16,15 @@ class EnergyCard extends StatelessWidget {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF00BFA5), Color(0xFF00897B)],
+          colors: [Color(0xFF1A1F3A), Color(0xFF0F1419)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
+        border: Border.all(color: Colors.blue.withOpacity(0.3)),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF00BFA5).withOpacity(0.3),
+            color: Colors.blue.withOpacity(0.3),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),

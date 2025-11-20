@@ -1,4 +1,4 @@
-// app/lib/screens/home/home_screen.dart
+// app/lib/screens/home/home_screen.dart - COMPLETELY RESTRUCTURED
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,40 +7,43 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../services/firebase_service.dart';
-import '../../models/room_model.dart';
 import '../../models/sensor_data.dart';
 import '../widgets/energy_card.dart';
-import '../widgets/device_card.dart';
-import '../widgets/sensor_card.dart';
-import '../widgets/room_card.dart';
-import '../rooms/rooms_screen.dart';
 import '../devices/device_scan_screen.dart';
 import '../auth/login_screen.dart';
-import '../../core/constants/routes.dart'; // <-- Ensure you import the routes
+import '../rooms/rooms_screen.dart';
+import '../../core/constants/routes.dart';
 import '../../providers/device_provider.dart';
 import '../../providers/sensor_provider.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/utils/logger.dart';
+import '../../core/widgets/live_time_widget.dart';
+import '../../core/utils/time_utils.dart';
 
 // ==================== PROVIDERS ====================
 
-final userRoomsProvider =
-    StreamProvider.family<List<RoomModel>, String>((ref, userId) {
-  final firebaseService = ref.watch(firebaseServiceProvider);
-  return firebaseService.getUserRooms(userId);
-});
 final bleConnectionProvider = StreamProvider<bool>((ref) {
   final bluetoothService = ref.watch(bluetoothServiceProvider);
   return bluetoothService.connectionStream;
 });
+
 final energyConsumptionProvider =
     FutureProvider.family<double, String>((ref, userId) async {
   final firebaseService = ref.watch(firebaseServiceProvider);
-  return await firebaseService.getTodayEnergyConsumption(userId);
+  try {
+    return await firebaseService
+        .getTodayEnergyConsumption(userId)
+        .timeout(const Duration(seconds: 10), onTimeout: () => 0.0);
+  } catch (e) {
+    return 0.0;
+  }
 });
 
 // ==================== HOME SCREEN ====================
+
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
+
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
@@ -51,27 +54,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF0A0E27),
       body: _getCurrentScreen(context),
       bottomNavigationBar: _buildBottomNav(context),
     );
   }
 
-  // ------------ Routing Logic -------------
   Widget _getCurrentScreen(BuildContext context) {
     switch (_currentIndex) {
       case 0:
         return const HomeTab();
       case 1:
-        return const RoomsScreen();
+        return RoomsScreen();
       case 2:
         return const DeviceScanScreen();
       case 3:
-        // Instead of directly returning AnalyticsScreen, route using Navigator per the routing setup
         WidgetsBinding.instance.addPostFrameCallback((_) {
           Navigator.of(context).pushNamed(Routes.analytics);
-          setState(() {
-            _currentIndex = 0;
-          });
+          setState(() => _currentIndex = 0);
         });
         return const HomeTab();
       default:
@@ -82,10 +82,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget _buildBottomNav(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: const Color(0xFF1A1F3A),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withOpacity(0.3),
             blurRadius: 10,
             offset: const Offset(0, -5),
           ),
@@ -125,12 +125,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           setState(() => _currentIndex = index);
         }
       },
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected
-              ? const Color(0xFF00BFA5).withOpacity(0.1)
-              : Colors.transparent,
+          color: isSelected ? Colors.blue.withOpacity(0.2) : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Column(
@@ -138,8 +137,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           children: [
             Icon(
               icon,
-              color:
-                  isSelected ? const Color(0xFF00BFA5) : Colors.grey.shade400,
+              color: isSelected ? Colors.blue : Colors.white60,
               size: isCenter ? 32 : 24,
             ),
             if (!isCenter) ...[
@@ -149,9 +147,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                  color: isSelected
-                      ? const Color(0xFF00BFA5)
-                      : Colors.grey.shade600,
+                  color: isSelected ? Colors.blue : Colors.white60,
                 ),
               ),
             ],
@@ -173,21 +169,66 @@ class HomeTab extends ConsumerStatefulWidget {
 
 class _HomeTabState extends ConsumerState<HomeTab> {
   bool _securityToggleInProgress = false;
+  bool _allAppliancesOn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize from sensor data if available
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final sensorData = ref.read(sensorStreamProvider);
+      sensorData.whenData((data) {
+        if (data != null && mounted) {
+          setState(() {
+            _allAppliancesOn = (data.fanSpeed > 0 || data.ledBrightness > 0);
+          });
+        }
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
 
     if (user == null) {
+      Logger.warning('HomeTab: User is null');
       return const Center(child: Text('Please login'));
     }
 
+    Logger.debug('HomeTab: Building with user ${user.uid}');
     final currentUserAsync = ref.watch(currentUserProvider);
     final bleConnection = ref.watch(bleConnectionProvider);
     final sensorData = ref.watch(sensorStreamProvider);
+    
+    Logger.debug('HomeTab: currentUserAsync state: ${currentUserAsync.runtimeType}');
+    Logger.debug('HomeTab: bleConnection state: ${bleConnection.runtimeType}');
+    Logger.debug('HomeTab: sensorData state: ${sensorData.runtimeType}');
+    
+    sensorData.when(
+      data: (data) => Logger.debug('HomeTab: sensorData has data: ${data != null}'),
+      loading: () => Logger.debug('HomeTab: sensorData is loading'),
+      error: (error, stack) => Logger.error('HomeTab: sensorData error: $error'),
+    );
+
+    // Sync appliance state from sensor data
+    sensorData.whenData((data) {
+      if (data != null && mounted) {
+        final allOn = (data.fanSpeed > 0 || data.ledBrightness > 0);
+        if (allOn != _allAppliancesOn) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _allAppliancesOn = allOn;
+              });
+            }
+          });
+        }
+      }
+    });
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: const Color(0xFF0A0E27),
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
@@ -199,24 +240,18 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildBLEBanner(bleConnection),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
                     _buildSecurityCard(sensorData, bleConnection),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
                     _buildEnergyCard(user.uid),
                     const SizedBox(height: 24),
                     _buildSectionHeader('Environmental Status'),
                     const SizedBox(height: 16),
                     _buildSensorGrid(sensorData),
                     const SizedBox(height: 24),
-                    _buildSectionHeader('Quick Controls'),
-                    const SizedBox(height: 16),
-                    _buildDeviceGrid(user.uid),
+                    _buildGlobalControlCard(bleConnection),
                     const SizedBox(height: 24),
                     _buildSOSButton(),
-                    const SizedBox(height: 24),
-                    _buildSectionHeader('My Rooms', showSeeAll: true),
-                    const SizedBox(height: 16),
-                    _buildRoomsList(user.uid),
                     const SizedBox(height: 32),
                   ],
                 ),
@@ -238,11 +273,20 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       expandedHeight: 140,
       floating: false,
       pinned: true,
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF1A1F3A),
       elevation: 0,
       flexibleSpace: FlexibleSpaceBar(
         background: Container(
-          color: Colors.white,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                const Color(0xFF1A1F3A),
+                const Color(0xFF0F1419),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
           padding: const EdgeInsets.fromLTRB(20, 60, 20, 20),
           child: currentUserAsync.when(
             data: (userData) => Row(
@@ -259,12 +303,51 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                 _buildMenuButton(),
               ],
             ),
-            loading: () => const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation(Color(0xFF00BFA5)),
-              ),
-            ),
-            error: (_, __) => const SizedBox(),
+            loading: () {
+              Logger.debug('HomeScreen: Loading user data...');
+              // Show loading with timeout indicator
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Loading...',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              );
+            },
+            error: (error, stackTrace) {
+              Logger.error('HomeScreen: Error loading user data: $error');
+              Logger.error('HomeScreen: Stack trace: $stackTrace');
+              // Show error state with retry option
+              return Row(
+                children: [
+                  Icon(Icons.error_outline, color: Colors.red.shade300, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Error loading user',
+                      style: TextStyle(
+                        color: Colors.red.shade300,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -277,12 +360,12 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       height: 50,
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF00BFA5), Color(0xFF00897B)],
+          colors: [Colors.blue, Colors.cyan],
         ),
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF00BFA5).withOpacity(0.3),
+            color: Colors.blue.withOpacity(0.3),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -321,6 +404,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   }
 
   Widget _buildWelcomeText(String name) {
+    final displayName = name.isNotEmpty ? name : 'User';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.center,
@@ -329,21 +413,32 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           'Welcome back,',
           style: TextStyle(
             fontSize: 14,
-            color: Colors.grey.shade600,
+            color: Colors.white70,
             fontWeight: FontWeight.w400,
           ),
         ),
         const SizedBox(height: 4),
         Text(
-          name.split(' ').first,
+          displayName,
           style: const TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.bold,
-            color: Colors.black87,
+            color: Colors.white,
             height: 1.2,
           ),
-          maxLines: 1,
+          maxLines: 2,
           overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: 8),
+        // Live time display
+        LiveTimeWidget(
+          showSeconds: false,
+          showDayNight: true,
+          textStyle: TextStyle(
+            fontSize: 12,
+            color: Colors.white70,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ],
     );
@@ -354,7 +449,9 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       data: (isConnected) => Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: isConnected ? Colors.green.shade50 : Colors.red.shade50,
+          color: isConnected
+              ? Colors.green.withOpacity(0.2)
+              : Colors.red.withOpacity(0.2),
           shape: BoxShape.circle,
         ),
         child: Icon(
@@ -377,13 +474,13 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       width: 44,
       height: 44,
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
+        color: Colors.white.withOpacity(0.1),
         shape: BoxShape.circle,
       ),
       child: IconButton(
-        icon: Icon(
+        icon: const Icon(
           Icons.notifications_outlined,
-          color: Colors.grey.shade700,
+          color: Colors.white,
           size: 22,
         ),
         onPressed: () {
@@ -399,26 +496,27 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          color: Colors.grey.shade100,
+          color: Colors.white.withOpacity(0.1),
           shape: BoxShape.circle,
         ),
-        child: Icon(
+        child: const Icon(
           Icons.more_vert,
-          color: Colors.grey.shade700,
+          color: Colors.white,
           size: 22,
         ),
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       offset: const Offset(0, 55),
       elevation: 8,
+      color: const Color(0xFF1A1F3A),
       itemBuilder: (context) => [
         _buildMenuItem(
-            'profile', Icons.person_outline, 'Profile', Colors.grey.shade700),
-        _buildMenuItem('settings', Icons.settings_outlined, 'Settings',
-            Colors.grey.shade700),
+            'settings', Icons.settings_outlined, 'Settings', Colors.white),
+        _buildMenuItem(
+            'security', Icons.security_rounded, 'Security', Colors.white),
         const PopupMenuDivider(),
         _buildMenuItem(
-            'logout', Icons.logout_rounded, 'Logout', Colors.red.shade600),
+            'logout', Icons.logout_rounded, 'Logout', Colors.red.shade400),
       ],
       onSelected: _handleMenuAction,
     );
@@ -444,19 +542,11 @@ class _HomeTabState extends ConsumerState<HomeTab> {
 
   void _handleMenuAction(String value) {
     switch (value) {
-      case 'profile':
-        AppNotifications.showSnackBar(
-          context,
-          message: 'Profile - Coming Soon',
-          type: AppNotificationType.info,
-        );
-        break;
       case 'settings':
-        AppNotifications.showSnackBar(
-          context,
-          message: 'Settings - Coming Soon',
-          type: AppNotificationType.info,
-        );
+        Navigator.of(context).pushNamed(Routes.settings);
+        break;
+      case 'security':
+        Navigator.of(context).pushNamed(Routes.security);
         break;
       case 'logout':
         _showLogoutDialog();
@@ -465,26 +555,72 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   }
 
   void _showLogoutDialog() {
-    AppNotifications.showDialog(
-      context,
-      title: 'Logout',
-      message: 'Are you sure you want to logout from SmartSync?',
-      type: AppNotificationType.warning,
-      primaryLabel: 'Logout',
-      onPrimaryPressed: () async {
-        final bleService = ref.read(bluetoothServiceProvider);
-        await bleService.disconnect();
-        await FirebaseAuth.instance.signOut();
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1F3A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.logout_rounded, color: Colors.orange, size: 28),
+            const SizedBox(width: 12),
+            const Text('Logout', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to logout from SmartSync?',
+          style: TextStyle(fontSize: 16, height: 1.5, color: Colors.white70),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey.shade400, fontSize: 16),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              try {
+                final bleService = ref.read(bluetoothServiceProvider);
+                await bleService.disconnect().timeout(
+                  const Duration(seconds: 5),
+                  onTimeout: () {
+                    // Ignore timeout, continue with logout
+                  },
+                );
+                await FirebaseAuth.instance.signOut();
 
-        if (mounted) {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (context) => const LoginScreen()),
-            (route) => false,
-          );
-        }
-      },
-      secondaryLabel: 'Cancel',
-      onSecondaryPressed: () async {},
+                if (mounted) {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    (route) => false,
+                  );
+                }
+              } catch (e) {
+                // Even if logout fails, try to navigate away
+                if (mounted) {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    (route) => false,
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange.shade600,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+            child: const Text('Logout', style: TextStyle(fontSize: 16)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -496,15 +632,20 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           ? Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.orange.shade200),
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.orange.withOpacity(0.2),
+                    Colors.orange.withOpacity(0.1),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.orange.withOpacity(0.3)),
               ),
               child: Row(
                 children: [
                   Icon(
                     Icons.bluetooth_disabled,
-                    color: Colors.orange.shade700,
+                    color: Colors.orange,
                     size: 24,
                   ),
                   const SizedBox(width: 12),
@@ -517,25 +658,27 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: Colors.orange.shade900,
+                            color: Colors.orange,
                           ),
                         ),
                         Text(
                           'Connect to your SmartSync device',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.orange.shade700,
+                            color: Colors.orange.shade300,
                           ),
                         ),
                       ],
                     ),
                   ),
                   TextButton(
-                    onPressed: () {},
+                    onPressed: () {
+                      Navigator.of(context).pushNamed(Routes.deviceScan);
+                    },
                     child: Text(
                       'Connect',
                       style: TextStyle(
-                        color: Colors.orange.shade700,
+                        color: Colors.orange,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -549,139 +692,150 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     );
   }
 
+  // ==================== SECURITY CARD ====================
+
   Widget _buildSecurityCard(
     AsyncValue<SensorData?> sensorData,
     AsyncValue<bool> bleConnection,
   ) {
     final bool? connectionValue = bleConnection.asData?.value;
     final bool isConnected = connectionValue ?? false;
-    final Color statusColor =
-        isConnected ? Colors.green.shade600 : Colors.red.shade600;
-    final String connectionLabel = connectionValue == null
-        ? 'Connecting...'
-        : isConnected
-            ? 'Device Connected'
-            : 'Disconnected';
 
     return sensorData.when(
       data: (reading) {
-        final bool isArmed = reading?.securityEnabled ?? true;
+        // Only show as armed if connected AND reading indicates it's armed
+        // If not connected, default to false (disarmed)
+        final bool isArmed = isConnected && (reading?.securityEnabled ?? false);
 
-        return Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.03),
-                blurRadius: 15,
-                offset: const Offset(0, 10),
+        return GestureDetector(
+          onTap: () => Navigator.of(context).pushNamed(Routes.security),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: isArmed
+                    ? [Colors.green.shade700, Colors.green.shade900]
+                    : [Colors.orange.shade700, Colors.orange.shade900],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isArmed
-                          ? Colors.green.shade50
-                          : Colors.orange.shade50,
-                      shape: BoxShape.circle,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color:
+                      (isArmed ? Colors.green : Colors.orange).withOpacity(0.4),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        isArmed ? Icons.shield_rounded : Icons.shield_outlined,
+                        color: Colors.white,
+                        size: 28,
+                      ),
                     ),
-                    child: Icon(
-                      isArmed ? Icons.shield_outlined : Icons.shield,
-                      color: isArmed
-                          ? Colors.green.shade600
-                          : Colors.orange.shade600,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Security System',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w700),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          isArmed
-                              ? 'Your safety protocols are active.'
-                              : 'Security automations paused.',
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 13,
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Security System',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
                           ),
+                          const SizedBox(height: 4),
+                          Text(
+                            isArmed
+                                ? 'Your safety protocols are active.'
+                                : 'Security automations paused.',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.9),
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch.adaptive(
+                      value: isArmed,
+                      onChanged: (!isConnected || _securityToggleInProgress)
+                          ? null
+                          : (value) {
+                            Logger.info('Security toggle: ${value ? "arming" : "disarming"}');
+                            _handleSecurityToggle(value);
+                          },
+                      activeColor: Colors.white,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Icon(Icons.bluetooth, size: 16, color: Colors.white70),
+                    const SizedBox(width: 6),
+                    Text(
+                      isConnected ? 'Device Connected' : 'Disconnected',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (_securityToggleInProgress)
+                      const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.white),
                         ),
-                      ],
-                    ),
-                  ),
-                  Switch.adaptive(
-                    value: isArmed,
-                    onChanged: (!isConnected || _securityToggleInProgress)
-                        ? null
-                        : _handleSecurityToggle,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Icon(Icons.bluetooth, size: 16, color: statusColor),
-                  const SizedBox(width: 6),
-                  Text(
-                    connectionLabel,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: statusColor,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (_securityToggleInProgress)
-                    const SizedBox(
-                      height: 16,
-                      width: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                ],
-              ),
-            ],
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
         );
       },
       loading: () => Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.grey.shade200,
+          color: const Color(0xFF1A1F3A),
           borderRadius: BorderRadius.circular(20),
         ),
         child: const Center(
-          child: SizedBox(
-            height: 20,
-            width: 20,
-            child: CircularProgressIndicator(strokeWidth: 2),
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
           ),
         ),
       ),
       error: (_, __) => Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.red.shade50,
+          color: Colors.red.withOpacity(0.1),
           borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.red.withOpacity(0.3)),
         ),
-        child: Text(
+        child: const Text(
           'Unable to load security status',
-          style: TextStyle(color: Colors.red.shade800),
+          style: TextStyle(color: Colors.red),
         ),
       ),
     );
@@ -713,56 +867,234 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     );
   }
 
-  // ==================== SECTION HEADER ====================
+  // ==================== GLOBAL CONTROL CARD ====================
 
-  Widget _buildSectionHeader(String title, {bool showSeeAll = false}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
+  Widget _buildGlobalControlCard(AsyncValue<bool> bleConnection) {
+    final bool? connectionValue = bleConnection.asData?.value;
+    final bool isConnected = connectionValue ?? false;
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.blue.shade700.withOpacity(0.3),
+            Colors.purple.shade700.withOpacity(0.3),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        if (showSeeAll)
-          TextButton(
-            onPressed: () {},
-            child: const Text(
-              'See all',
-              style: TextStyle(
-                color: Color(0xFF00BFA5),
-                fontWeight: FontWeight.w600,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.blue.withOpacity(0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.withOpacity(0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.power_settings_new_rounded,
+                  color: Colors.white,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Global Control',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Switch all appliances on/off at once',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.9),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: (!isConnected)
+                  ? null
+                  : () => _handleGlobalToggle(!_allAppliancesOn),
+              icon: Icon(
+                _allAppliancesOn ? Icons.power_off_rounded : Icons.power_settings_new_rounded,
+                size: 20,
+              ),
+              label: Text(
+                _allAppliancesOn ? 'Turn Off All Appliances' : 'Turn On All Appliances',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _allAppliancesOn ? Colors.red.shade600 : Colors.green.shade600,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
               ),
             ),
           ),
-      ],
+          if (!isConnected) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: Colors.white.withOpacity(0.7),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Connect to your SmartSync hub to use this feature',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white.withOpacity(0.7),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleGlobalToggle(bool turnOn) async {
+    final bleService = ref.read(bluetoothServiceProvider);
+    if (!bleService.isConnected) {
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Connect to your SmartSync hub first.',
+        type: AppNotificationType.warning,
+      );
+      return;
+    }
+
+    try {
+      if (turnOn) {
+        // Turn on all devices to 50%
+        await bleService.setFanSpeed(128).timeout(const Duration(seconds: 5));
+        await bleService.setLEDBrightness(128).timeout(const Duration(seconds: 5));
+        await bleService.setSecurityEnabled(true).timeout(const Duration(seconds: 5));
+
+        if (mounted) {
+          AppNotifications.showSnackBar(
+            context,
+            message: 'All appliances turned on.',
+            type: AppNotificationType.success,
+          );
+        }
+      } else {
+        // Turn off all devices
+        await bleService.setFanSpeed(0).timeout(const Duration(seconds: 5));
+        await bleService.setLEDBrightness(0).timeout(const Duration(seconds: 5));
+        await bleService.setSecurityEnabled(false).timeout(const Duration(seconds: 5));
+
+        if (mounted) {
+          AppNotifications.showSnackBar(
+            context,
+            message: 'All appliances turned off.',
+            type: AppNotificationType.success,
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        AppNotifications.showSnackBar(
+          context,
+          message: 'Failed to ${turnOn ? 'turn on' : 'turn off'} appliances: ${e.toString()}',
+          type: AppNotificationType.error,
+        );
+      }
+    }
+  }
+
+  // ==================== SECTION HEADER ====================
+
+  Widget _buildSectionHeader(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 20,
+        fontWeight: FontWeight.bold,
+        color: Colors.white,
+      ),
     );
   }
 
   // ==================== ENERGY CARD ====================
 
   Widget _buildEnergyCard(String userId) {
+    Logger.debug('HomeTab: Building energy card for user $userId');
     final energyAsync = ref.watch(energyConsumptionProvider(userId));
     return energyAsync.when(
-      data: (consumption) => EnergyCard(
-        consumption: consumption,
-        status: 'System performing well',
-      ),
-      loading: () => const EnergyCard(consumption: 0, status: 'Loading...'),
-      error: (_, __) =>
-          const EnergyCard(consumption: 0, status: 'Error loading data'),
+      data: (consumption) {
+        Logger.debug('HomeTab: Energy consumption loaded: $consumption');
+        return EnergyCard(
+          consumption: consumption,
+          status:
+              consumption > 0 ? 'System performing well' : 'No data available',
+        );
+      },
+      loading: () {
+        Logger.debug('HomeTab: Energy consumption loading...');
+        return const EnergyCard(consumption: 0, status: 'Loading...');
+      },
+      error: (error, _) {
+        Logger.error('HomeTab: Energy consumption error: $error');
+        return const EnergyCard(
+          consumption: 0,
+          status: 'Unable to load energy data',
+        );
+      },
     );
   }
 
   // ==================== SENSOR GRID ====================
 
   Widget _buildSensorGrid(AsyncValue<SensorData?> sensorDataAsync) {
+    Logger.debug('HomeTab: Building sensor grid');
     return sensorDataAsync.when(
       data: (sensorData) {
-        if (sensorData == null) return _buildDefaultSensorGrid();
+        Logger.debug('HomeTab: Sensor data received: ${sensorData != null}');
+        if (sensorData == null) {
+          Logger.warning('HomeTab: Sensor data is null, showing default grid');
+          return _buildDefaultSensorGrid();
+        }
 
         return GridView.count(
           shrinkWrap: true,
@@ -770,45 +1102,134 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           crossAxisCount: 2,
           crossAxisSpacing: 16,
           mainAxisSpacing: 16,
-          childAspectRatio: 1.5,
+          childAspectRatio: 1.1,
           children: [
-            SensorCard(
+            _buildAnimatedSensorCard(
               icon: Icons.thermostat_rounded,
               title: 'Temperature',
               value: sensorData.temperatureDisplay,
               subtitle: _getTemperatureStatus(sensorData.temperature),
               color: const Color(0xFFFF6B6B),
-              onTap: () {},
             ),
-            SensorCard(
-              icon: Icons.water_drop_rounded,
-              title: 'Humidity',
-              value: sensorData.humidityDisplay,
-              subtitle: _getHumidityStatus(sensorData.humidity),
-              color: const Color(0xFF4ECDC4),
-              onTap: () {},
-            ),
-            SensorCard(
+            _buildAnimatedSensorCard(
               icon: Icons.directions_walk_rounded,
               title: 'Motion',
               value: sensorData.motionDetected ? 'Detected' : 'No Motion',
               subtitle: _getMotionTime(sensorData.timestamp),
               color: const Color(0xFFFFE66D),
-              onTap: () {},
             ),
-            SensorCard(
+            _buildAnimatedSensorCard(
               icon: Icons.social_distance_rounded,
               title: 'Proximity',
               value: sensorData.distanceDisplay,
               subtitle: _getProximityStatus(sensorData.distance),
               color: const Color(0xFFA8E6CF),
-              onTap: () {},
             ),
           ],
         );
       },
-      loading: () => _buildDefaultSensorGrid(),
-      error: (_, __) => _buildDefaultSensorGrid(),
+      loading: () {
+        Logger.debug('HomeTab: Sensor grid loading...');
+        return _buildDefaultSensorGrid();
+      },
+      error: (error, stack) {
+        Logger.error('HomeTab: Sensor grid error: $error');
+        return _buildDefaultSensorGrid();
+      },
+    );
+  }
+
+  Widget _buildAnimatedSensorCard({
+    required IconData icon,
+    required String title,
+    required String value,
+    required String subtitle,
+    required Color color,
+  }) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 500),
+      builder: (context, animValue, child) {
+        return Transform.scale(
+          scale: animValue,
+          child: Opacity(
+            opacity: animValue,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF1A1F3A),
+                    const Color(0xFF0F1419),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: color.withOpacity(0.3)),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withOpacity(0.2),
+                    blurRadius: 15,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 32, color: color),
+                    const SizedBox(height: 10),
+                    Flexible(
+                      child: Text(
+                        value,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Flexible(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.white70,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Flexible(
+                      child: Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: color,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -819,39 +1240,28 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       crossAxisCount: 2,
       crossAxisSpacing: 16,
       mainAxisSpacing: 16,
-      childAspectRatio: 1.5,
+      childAspectRatio: 1.2,
       children: [
-        SensorCard(
+        _buildAnimatedSensorCard(
           icon: Icons.thermostat_rounded,
           title: 'Temperature',
           value: '--°C',
           subtitle: 'No data',
           color: const Color(0xFFFF6B6B),
-          onTap: () {},
         ),
-        SensorCard(
-          icon: Icons.water_drop_rounded,
-          title: 'Humidity',
-          value: '--%',
-          subtitle: 'No data',
-          color: const Color(0xFF4ECDC4),
-          onTap: () {},
-        ),
-        SensorCard(
+        _buildAnimatedSensorCard(
           icon: Icons.directions_walk_rounded,
           title: 'Motion',
           value: 'No data',
           subtitle: 'Connect device',
           color: const Color(0xFFFFE66D),
-          onTap: () {},
         ),
-        SensorCard(
+        _buildAnimatedSensorCard(
           icon: Icons.social_distance_rounded,
           title: 'Proximity',
           value: '-- cm',
           subtitle: 'No data',
           color: const Color(0xFFA8E6CF),
-          onTap: () {},
         ),
       ],
     );
@@ -862,12 +1272,6 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     if (temp < 24) return 'Comfortable';
     if (temp < 28) return 'Warm';
     return 'Hot';
-  }
-
-  String _getHumidityStatus(double humidity) {
-    if (humidity < 30) return 'Dry';
-    if (humidity < 60) return 'Normal';
-    return 'Humid';
   }
 
   String _getMotionTime(DateTime timestamp) {
@@ -883,83 +1287,6 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     return 'Far';
   }
 
-  // ==================== DEVICE GRID ====================
-
-  Widget _buildDeviceGrid(String userId) {
-    final devicesAsync = ref.watch(deviceControllerProvider(userId));
-
-    return devicesAsync.when(
-      data: (devices) {
-        if (devices.isEmpty) {
-          return _buildEmptyDevices();
-        }
-
-        return GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-            childAspectRatio: 1.1,
-          ),
-          itemCount: devices.length > 4 ? 4 : devices.length,
-          itemBuilder: (context, index) => DeviceCard(device: devices[index]),
-        );
-      },
-      loading: () => const Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation(Color(0xFF00BFA5)),
-        ),
-      ),
-      error: (error, _) => Container(
-        height: 120,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.red.shade50,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Center(
-          child: Text(
-            'Error loading devices',
-            style: TextStyle(color: Colors.red.shade900),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyDevices() {
-    return Container(
-      padding: const EdgeInsets.all(40),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.devices_other, size: 48, color: Colors.grey.shade400),
-            const SizedBox(height: 16),
-            Text(
-              'No devices yet',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: () {},
-              child: const Text('Add Device'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   // ==================== SOS BUTTON ====================
 
@@ -1021,35 +1348,37 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1F3A),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.red.shade50,
+                color: Colors.red.withOpacity(0.2),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 Icons.emergency,
-                color: Colors.red.shade600,
+                color: Colors.red,
                 size: 28,
               ),
             ),
             const SizedBox(width: 12),
-            const Text('Emergency Alert'),
+            const Text('Emergency Alert',
+                style: TextStyle(color: Colors.white)),
           ],
         ),
         content: const Text(
           'This will notify all your caregivers immediately.\n\nDo you need emergency assistance?',
-          style: TextStyle(fontSize: 16, height: 1.5),
+          style: TextStyle(fontSize: 16, height: 1.5, color: Colors.white70),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text(
               'Cancel',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
+              style: TextStyle(color: Colors.grey.shade400, fontSize: 16),
             ),
           ),
           ElevatedButton(
@@ -1111,100 +1440,5 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       );
     }
     return success;
-  }
-
-  // ==================== ROOMS LIST ====================
-
-  Widget _buildRoomsList(String userId) {
-    final roomsAsync = ref.watch(userRoomsProvider(userId));
-
-    return roomsAsync.when(
-      data: (rooms) {
-        if (rooms.isEmpty) {
-          return _buildEmptyRooms();
-        }
-
-        return SizedBox(
-          height: 120,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            itemCount: rooms.length,
-            itemBuilder: (context, index) {
-              return Padding(
-                padding: EdgeInsets.only(
-                  right: index < rooms.length - 1 ? 16 : 0,
-                ),
-                child: RoomCard(room: rooms[index]),
-              );
-            },
-          ),
-        );
-      },
-      loading: () => _buildLoadingRooms(),
-      error: (error, _) => _buildErrorRooms(),
-    );
-  }
-
-  Widget _buildEmptyRooms() {
-    return Container(
-      height: 120,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.meeting_room_rounded,
-              size: 32,
-              color: Colors.grey.shade400,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'No rooms created yet',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLoadingRooms() {
-    return Container(
-      height: 120,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: const Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation(Color(0xFF00BFA5)),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildErrorRooms() {
-    return Container(
-      height: 120,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.red.shade50,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Center(
-        child: Text(
-          'Error loading rooms',
-          style: TextStyle(color: Colors.red.shade900),
-        ),
-      ),
-    );
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -175,5 +176,62 @@ class AuthService {
 
   Future<void> resetPassword(String email) async {
     await _auth.sendPasswordResetEmail(email: email);
+  }
+
+  Future<void> deleteAccount(String password) async {
+    final user = _auth.currentUser;
+    if (user == null || user.email == null) {
+      throw FirebaseAuthException(
+        code: 'user-not-found',
+        message: 'Session expired. Please sign in again.',
+      );
+    }
+
+    try {
+      final credential = EmailAuthProvider.credential(
+        email: user.email!,
+        password: password,
+      );
+
+      await user.reauthenticateWithCredential(credential).timeout(
+        const Duration(seconds: 10),
+      );
+
+      await _firestore.collection('users').doc(user.uid).delete();
+      await user.delete();
+    } on FirebaseAuthException catch (e) {
+      throw FirebaseAuthException(
+        code: e.code,
+        message: _mapDeleteAccountError(e),
+      );
+    } on FirebaseException catch (e) {
+      throw FirebaseAuthException(
+        code: e.code,
+        message: 'Failed to remove your data. Please try again.',
+      );
+    } on TimeoutException {
+      throw FirebaseAuthException(
+        code: 'timeout',
+        message: 'Request timed out. Please check your connection.',
+      );
+    } catch (_) {
+      throw FirebaseAuthException(
+        code: 'unknown',
+        message: 'Failed to delete account. Please try again.',
+      );
+    }
+  }
+
+  String _mapDeleteAccountError(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'wrong-password':
+        return 'Current password is incorrect.';
+      case 'requires-recent-login':
+        return 'Please log in again and retry account deletion.';
+      case 'network-request-failed':
+        return 'Network error. Please check your connection.';
+      default:
+        return e.message ?? 'Failed to delete account. Please try again.';
+    }
   }
 }

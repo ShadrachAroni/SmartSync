@@ -55,6 +55,14 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: 'View all app actions and events',
             onTap: () => Navigator.pushNamed(context, Routes.logs),
           ),
+          const SizedBox(height: 12),
+          _buildNavTile(
+            context,
+            icon: Icons.delete_forever_outlined,
+            title: 'Delete Account',
+            subtitle: 'Permanently remove your SmartSync data',
+            onTap: () => _showDeleteAccountDialog(context, ref),
+          ),
           const SizedBox(height: 24),
           _buildSectionHeader('Notifications'),
           _buildSwitchTile(
@@ -246,6 +254,174 @@ class SettingsScreen extends ConsumerWidget {
           value: value,
           onChanged: onChanged,
           activeColor: Colors.blue,
+        ),
+      ),
+    );
+  }
+
+  void _showDeleteAccountDialog(BuildContext context, WidgetRef ref) {
+    final rootContext = context;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.email == null) {
+      AppNotifications.showSnackBar(
+        rootContext,
+        message: 'Please log in again to manage your account.',
+        type: AppNotificationType.error,
+      );
+      return;
+    }
+
+    final passwordController = TextEditingController();
+    final confirmController = TextEditingController();
+    bool obscurePassword = true;
+    bool isLoading = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setState) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1F3A),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text(
+            'Delete Account',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'This action permanently deletes your SmartSync account, automation profiles, and history. This cannot be undone.',
+                  style: const TextStyle(color: Colors.white70, height: 1.4),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: passwordController,
+                  obscureText: obscurePassword,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'Confirm your password',
+                    labelStyle: const TextStyle(color: Colors.white70),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscurePassword ? Icons.visibility : Icons.visibility_off,
+                        color: Colors.white70,
+                      ),
+                      onPressed: () {
+                        setState(() => obscurePassword = !obscurePassword);
+                      },
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: confirmController,
+                  style: const TextStyle(color: Colors.white),
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: InputDecoration(
+                    labelText: 'Type DELETE to confirm',
+                    labelStyle: const TextStyle(color: Colors.white70),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isLoading
+                  ? null
+                  : () {
+                      passwordController.dispose();
+                      confirmController.dispose();
+                      Navigator.pop(dialogContext);
+                    },
+              child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            ),
+            ElevatedButton(
+              onPressed: isLoading
+                  ? null
+                  : () async {
+                      if (confirmController.text.trim().toUpperCase() != 'DELETE') {
+                        AppNotifications.showSnackBar(
+                          rootContext,
+                          message: 'Please type DELETE to confirm account removal.',
+                          type: AppNotificationType.warning,
+                        );
+                        return;
+                      }
+
+                      if (passwordController.text.isEmpty) {
+                        AppNotifications.showSnackBar(
+                          rootContext,
+                          message: 'Password is required to delete your account.',
+                          type: AppNotificationType.error,
+                        );
+                        return;
+                      }
+
+                      setState(() => isLoading = true);
+
+                      try {
+                        await ref.read(authServiceProvider).deleteAccount(
+                              passwordController.text.trim(),
+                            );
+
+                        if (!dialogContext.mounted) return;
+                        passwordController.dispose();
+                        confirmController.dispose();
+                        Navigator.pop(dialogContext);
+
+                        if (!rootContext.mounted) return;
+                        AppNotifications.showSnackBar(
+                          rootContext,
+                          message: 'Account deleted successfully.',
+                          type: AppNotificationType.success,
+                        );
+                        Navigator.of(rootContext, rootNavigator: true).pushNamedAndRemoveUntil(
+                          Routes.login,
+                          (route) => false,
+                        );
+                      } on FirebaseAuthException catch (e) {
+                        setState(() => isLoading = false);
+                        AppNotifications.showSnackBar(
+                          rootContext,
+                          message: e.message ?? 'Failed to delete account.',
+                          type: AppNotificationType.error,
+                        );
+                      } catch (_) {
+                        setState(() => isLoading = false);
+                        AppNotifications.showSnackBar(
+                          rootContext,
+                          message: 'Unexpected error. Please try again.',
+                          type: AppNotificationType.error,
+                        );
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+              ),
+              child: isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Text('Delete Account'),
+            ),
+          ],
         ),
       ),
     );

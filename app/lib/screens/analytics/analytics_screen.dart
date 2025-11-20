@@ -21,19 +21,23 @@ final sensorHistoryProvider =
     FutureProvider.autoDispose.family<List<SensorData>, Map<String, dynamic>>(
   (ref, params) async {
     final firebase = ref.watch(firebaseServiceProvider);
-    Logger.debug('AnalyticsScreen: Loading sensor history for ${params['userId']}, days: ${params['days']}');
+    Logger.debug(
+        'AnalyticsScreen: Loading sensor history for ${params['userId']}, days: ${params['days']}');
     try {
-      final history = await firebase.getUserSensorHistory(
+      final history = await firebase
+          .getUserSensorHistory(
         params['userId'] as String,
         params['days'] as int,
-      ).timeout(
+      )
+          .timeout(
         const Duration(seconds: 10), // Reduced timeout
         onTimeout: () {
           Logger.warning('AnalyticsScreen: Timeout loading sensor history');
           return <SensorData>[];
         },
       );
-      Logger.debug('AnalyticsScreen: Sensor history loaded: ${history.length} records');
+      Logger.debug(
+          'AnalyticsScreen: Sensor history loaded: ${history.length} records');
       return history;
     } catch (e) {
       Logger.error('AnalyticsScreen: Error loading sensor history: $e');
@@ -41,23 +45,27 @@ final sensorHistoryProvider =
     }
   },
 );
-final dailyAnalyticsProvider =
-    FutureProvider.autoDispose.family<List<DailyAnalytics>, Map<String, dynamic>>(
+final dailyAnalyticsProvider = FutureProvider.autoDispose
+    .family<List<DailyAnalytics>, Map<String, dynamic>>(
   (ref, params) async {
     final firebase = ref.watch(firebaseServiceProvider);
-    Logger.debug('AnalyticsScreen: Loading daily analytics for ${params['userId']}, days: ${params['days']}');
+    Logger.debug(
+        'AnalyticsScreen: Loading daily analytics for ${params['userId']}, days: ${params['days']}');
     try {
-      final analytics = await firebase.getDailyAnalytics(
+      final analytics = await firebase
+          .getDailyAnalytics(
         params['userId'] as String,
         params['days'] as int,
-      ).timeout(
+      )
+          .timeout(
         const Duration(seconds: 10), // Reduced timeout
         onTimeout: () {
           Logger.warning('AnalyticsScreen: Timeout loading daily analytics');
           return <DailyAnalytics>[];
         },
       );
-      Logger.debug('AnalyticsScreen: Daily analytics loaded: ${analytics.length} records');
+      Logger.debug(
+          'AnalyticsScreen: Daily analytics loaded: ${analytics.length} records');
       return analytics;
     } catch (e) {
       Logger.error('AnalyticsScreen: Error loading daily analytics: $e');
@@ -74,12 +82,14 @@ final analyticsInsightsProvider =
     final mlService = ref.watch(mlServiceProvider);
     final userId = params['userId'] as String;
     final days = params['days'] as int;
-    Logger.debug('AnalyticsScreen: Loading insights for user $userId, days: $days');
+    Logger.debug(
+        'AnalyticsScreen: Loading insights for user $userId, days: $days');
     try {
       final insights = await mlService.getInsights(userId, days).timeout(
         const Duration(seconds: 15), // Reduced timeout
         onTimeout: () {
-          Logger.warning('AnalyticsScreen: Timeout loading insights, returning default');
+          Logger.warning(
+              'AnalyticsScreen: Timeout loading insights, returning default');
           // Return default insights instead of throwing
           return AnalyticsInsights(
             totalLogs: 0,
@@ -112,21 +122,25 @@ final analyticsInsightsProvider =
   },
 );
 
-final schedulePredictionsProvider =
-    FutureProvider.autoDispose.family<List<SchedulePrediction>, Map<String, String>>(
+final schedulePredictionsProvider = FutureProvider.autoDispose
+    .family<List<SchedulePrediction>, Map<String, String>>(
   (ref, params) async {
     final mlService = ref.watch(mlServiceProvider);
-    Logger.debug('AnalyticsScreen: Loading schedule predictions for ${params['userId']}');
+    Logger.debug(
+        'AnalyticsScreen: Loading schedule predictions for ${params['userId']}');
     try {
-      final predictions = await mlService.predictSchedules(
-          params['userId']!, params['deviceId'] ?? 'all').timeout(
+      final predictions = await mlService
+          .predictSchedules(params['userId']!, params['deviceId'] ?? 'all')
+          .timeout(
         const Duration(seconds: 10),
         onTimeout: () {
-          Logger.warning('AnalyticsScreen: Timeout loading schedule predictions');
+          Logger.warning(
+              'AnalyticsScreen: Timeout loading schedule predictions');
           return <SchedulePrediction>[];
         },
       );
-      Logger.debug('AnalyticsScreen: Schedule predictions loaded: ${predictions.length} predictions');
+      Logger.debug(
+          'AnalyticsScreen: Schedule predictions loaded: ${predictions.length} predictions');
       return predictions;
     } catch (e) {
       Logger.error('AnalyticsScreen: Error loading schedule predictions: $e');
@@ -134,7 +148,6 @@ final schedulePredictionsProvider =
     }
   },
 );
-
 
 // ==================== ANALYTICS SCREEN ====================
 class AnalyticsScreen extends ConsumerStatefulWidget {
@@ -174,7 +187,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
         body: Center(child: Text('Please login to view analytics')),
       );
     }
-    
+
     Logger.debug('AnalyticsScreen: Building for user ${user.uid}');
 
     return Scaffold(
@@ -191,7 +204,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
             _buildPredictionsTab(user.uid),
           ],
         ),
-      );
+      ),
     );
   }
 
@@ -336,7 +349,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
     Logger.debug('AnalyticsScreen: Building overview tab for user $userId');
     final timeRange = ref.watch(analyticsTimeRangeProvider);
     Logger.debug('AnalyticsScreen: Time range: $timeRange days');
-    
+
     final insightsAsync = ref.watch(analyticsInsightsProvider({
       'userId': userId,
       'days': timeRange,
@@ -349,10 +362,13 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
       'userId': userId,
       'days': timeRange,
     }));
-    
-    Logger.debug('AnalyticsScreen: insightsAsync state: ${insightsAsync.runtimeType}');
-    Logger.debug('AnalyticsScreen: historyAsync state: ${historyAsync.runtimeType}');
-    Logger.debug('AnalyticsScreen: dailyAnalyticsAsync state: ${dailyAnalyticsAsync.runtimeType}');
+
+    Logger.debug(
+        'AnalyticsScreen: insightsAsync state: ${insightsAsync.runtimeType}');
+    Logger.debug(
+        'AnalyticsScreen: historyAsync state: ${historyAsync.runtimeType}');
+    Logger.debug(
+        'AnalyticsScreen: dailyAnalyticsAsync state: ${dailyAnalyticsAsync.runtimeType}');
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -370,40 +386,43 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
           Logger.debug('AnalyticsScreen: Insights loaded successfully');
           return dailyAnalyticsAsync.when(
             data: (dailyData) {
-              Logger.debug('AnalyticsScreen: Daily analytics loaded: ${dailyData.length} entries');
+              Logger.debug(
+                  'AnalyticsScreen: Daily analytics loaded: ${dailyData.length} entries');
               return historyAsync.when(
                 data: (history) {
-                  Logger.debug('AnalyticsScreen: History loaded: ${history.length} entries');
+                  Logger.debug(
+                      'AnalyticsScreen: History loaded: ${history.length} entries');
                   final trendData = dailyData.isNotEmpty
                       ? _mapDailyAnalytics(dailyData)
                       : buildDailyTrends(history, timeRange);
                   final hourlyActivity = buildHourlyActivity(history);
 
-              return Container(
-                color: const Color(0xFF0A0E27),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildSummaryCards(insights),
-                      const SizedBox(height: 24),
-                      _buildSectionHeader('Environmental Trends'),
-                      const SizedBox(height: 16),
-                      _buildEnvironmentalChart(trendData),
-                      const SizedBox(height: 24),
-                      _buildSectionHeader('Usage Patterns'),
-                      const SizedBox(height: 16),
-                      _buildUsageChart(hourlyActivity, insights.peakUsageHour),
-                      const SizedBox(height: 24),
-                      _buildSectionHeader('Energy Breakdown'),
-                      const SizedBox(height: 16),
-                      _buildEnergyBreakdown(insights),
-                    ],
-                  ),
-                ),
-              );
+                  return Container(
+                    color: const Color(0xFF0A0E27),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(20),
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildSummaryCards(insights),
+                          const SizedBox(height: 24),
+                          _buildSectionHeader('Environmental Trends'),
+                          const SizedBox(height: 16),
+                          _buildEnvironmentalChart(trendData),
+                          const SizedBox(height: 24),
+                          _buildSectionHeader('Usage Patterns'),
+                          const SizedBox(height: 16),
+                          _buildUsageChart(
+                              hourlyActivity, insights.peakUsageHour),
+                          const SizedBox(height: 24),
+                          _buildSectionHeader('Energy Breakdown'),
+                          const SizedBox(height: 16),
+                          _buildEnergyBreakdown(insights),
+                        ],
+                      ),
+                    ),
+                  );
                 },
                 loading: () {
                   Logger.debug('AnalyticsScreen: History loading...');
@@ -412,7 +431,8 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         const CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
                         ),
                         const SizedBox(height: 16),
                         Text(
@@ -425,7 +445,8 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                 },
                 error: (error, stackTrace) {
                   Logger.error('AnalyticsScreen: History error: $error');
-                  Logger.error('AnalyticsScreen: History stack trace: $stackTrace');
+                  Logger.error(
+                      'AnalyticsScreen: History stack trace: $stackTrace');
                   return _buildErrorState(
                     error.toString(),
                     onRetry: () {
@@ -446,7 +467,8 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
                     ),
                     const SizedBox(height: 16),
                     Text(
@@ -459,11 +481,13 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
             },
             error: (error, stackTrace) {
               Logger.error('AnalyticsScreen: Daily analytics error: $error');
-              Logger.error('AnalyticsScreen: Daily analytics stack trace: $stackTrace');
+              Logger.error(
+                  'AnalyticsScreen: Daily analytics stack trace: $stackTrace');
               return _buildErrorState(
                 error.toString(),
                 onRetry: () {
-                  Logger.debug('AnalyticsScreen: Retrying daily analytics load');
+                  Logger.debug(
+                      'AnalyticsScreen: Retrying daily analytics load');
                   ref.invalidate(dailyAnalyticsProvider({
                     'userId': userId,
                     'days': timeRange,
@@ -713,10 +737,13 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
           labelStyle: const TextStyle(color: Colors.white70),
         ),
         primaryYAxis: NumericAxis(
-          title: AxisTitle(text: 'Temperature (°C)', textStyle: TextStyle(color: Colors.white)),
+          title: AxisTitle(
+              text: 'Temperature (°C)',
+              textStyle: TextStyle(color: Colors.white)),
           minimum: 15,
           maximum: 35,
-          majorGridLines: const MajorGridLines(width: 1, color: Colors.white24, dashArray: [5, 5]),
+          majorGridLines: const MajorGridLines(
+              width: 1, color: Colors.white24, dashArray: [5, 5]),
           labelStyle: const TextStyle(color: Colors.white70),
         ),
         series: <CartesianSeries>[
@@ -737,8 +764,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
 
   Widget _buildUsageChart(
       List<HourlyActivityPoint> activityData, int peakUsageHour) {
-    final hasActivity =
-        activityData.any((point) => point.activityValue > 0.0);
+    final hasActivity = activityData.any((point) => point.activityValue > 0.0);
 
     if (!hasActivity) {
       return _buildNoDataCard(
@@ -804,11 +830,14 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
           Expanded(
             child: SfCartesianChart(
               primaryXAxis: CategoryAxis(
-                majorGridLines: const MajorGridLines(width: 0, color: Colors.white24),
+                majorGridLines:
+                    const MajorGridLines(width: 0, color: Colors.white24),
                 labelStyle: const TextStyle(color: Colors.white70),
               ),
               primaryYAxis: NumericAxis(
-                title: AxisTitle(text: 'Activity Level', textStyle: TextStyle(color: Colors.white)),
+                title: AxisTitle(
+                    text: 'Activity Level',
+                    textStyle: TextStyle(color: Colors.white)),
                 majorGridLines: const MajorGridLines(
                   width: 1,
                   dashArray: [5, 5],
@@ -949,8 +978,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.insights_rounded,
-              size: 36, color: Colors.grey.shade500),
+          Icon(Icons.insights_rounded, size: 36, color: Colors.grey.shade500),
           const SizedBox(height: 12),
           Text(
             'Not enough data yet',
@@ -987,7 +1015,6 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
         .toList();
   }
 
-
   // ==================== INSIGHTS TAB ====================
   Widget _buildInsightsTab(String userId) {
     Logger.debug('AnalyticsScreen: Building insights tab for user $userId');
@@ -1001,55 +1028,57 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
       data: (insights) {
         Logger.debug('AnalyticsScreen: Insights data loaded');
         return SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildInsightCard(
-              icon: Icons.lightbulb_rounded,
-              title: 'Energy Saving Tip',
-              description:
-                  'Your fan usage is ${_getFanUsageLevel(insights.avgFanUsage)}. '
-                  'Consider reducing speed by 20% during off-peak hours to save energy.',
-              color: const Color(0xFFFFA726),
-              actionLabel: 'Optimize',
-              onTap: () {},
-            ),
-            const SizedBox(height: 16),
-            _buildInsightCard(
-              icon: Icons.thermostat_rounded,
-              title: 'Temperature Pattern',
-              description: 'Temperature peaks at ${insights.peakUsageHour}:00. '
-                  'Schedule cooling to start 30 minutes earlier for optimal comfort.',
-              color: const Color(0xFFFF6B6B),
-              actionLabel: 'Create Schedule',
-              onTap: () {},
-            ),
-            const SizedBox(height: 16),
-            _buildInsightCard(
-              icon: Icons.emoji_events_rounded,
-              title: 'Efficiency Score',
-              description:
-                  'Your home is ${_getEfficiencyScore(insights)}% more efficient '
-                  'than similar households. Great job!',
-              color: const Color(0xFF66BB6A),
-              actionLabel: 'View Details',
-              onTap: () {},
-            ),
-            const SizedBox(height: 16),
-            _buildInsightCard(
-              icon: Icons.timeline_rounded,
-              title: 'Usage Trend',
-              description:
-                  'Motion activity has ${_getMotionTrend(insights.motionEvents)} '
-                  'compared to last week. Monitor for health changes.',
-              color: const Color(0xFF7C4DFF),
-              actionLabel: 'View History',
-              onTap: () {},
-            ),
-          ],
-        ),
-      ),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildInsightCard(
+                icon: Icons.lightbulb_rounded,
+                title: 'Energy Saving Tip',
+                description:
+                    'Your fan usage is ${_getFanUsageLevel(insights.avgFanUsage)}. '
+                    'Consider reducing speed by 20% during off-peak hours to save energy.',
+                color: const Color(0xFFFFA726),
+                actionLabel: 'Optimize',
+                onTap: () {},
+              ),
+              const SizedBox(height: 16),
+              _buildInsightCard(
+                icon: Icons.thermostat_rounded,
+                title: 'Temperature Pattern',
+                description:
+                    'Temperature peaks at ${insights.peakUsageHour}:00. '
+                    'Schedule cooling to start 30 minutes earlier for optimal comfort.',
+                color: const Color(0xFFFF6B6B),
+                actionLabel: 'Create Schedule',
+                onTap: () {},
+              ),
+              const SizedBox(height: 16),
+              _buildInsightCard(
+                icon: Icons.emoji_events_rounded,
+                title: 'Efficiency Score',
+                description:
+                    'Your home is ${_getEfficiencyScore(insights)}% more efficient '
+                    'than similar households. Great job!',
+                color: const Color(0xFF66BB6A),
+                actionLabel: 'View Details',
+                onTap: () {},
+              ),
+              const SizedBox(height: 16),
+              _buildInsightCard(
+                icon: Icons.timeline_rounded,
+                title: 'Usage Trend',
+                description:
+                    'Motion activity has ${_getMotionTrend(insights.motionEvents)} '
+                    'compared to last week. Monitor for health changes.',
+                color: const Color(0xFF7C4DFF),
+                actionLabel: 'View History',
+                onTap: () {},
+              ),
+            ],
+          ),
+        );
+      },
       loading: () {
         Logger.debug('AnalyticsScreen: Insights tab loading...');
         return Center(
@@ -1461,14 +1490,15 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: onRetry ?? () {
-                Logger.debug('AnalyticsScreen: Retry button pressed');
-                // Default retry - invalidate all analytics providers
-                ref.invalidate(analyticsInsightsProvider);
-                ref.invalidate(sensorHistoryProvider);
-                ref.invalidate(dailyAnalyticsProvider);
-                ref.invalidate(schedulePredictionsProvider);
-              },
+              onPressed: onRetry ??
+                  () {
+                    Logger.debug('AnalyticsScreen: Retry button pressed');
+                    // Default retry - invalidate all analytics providers
+                    ref.invalidate(analyticsInsightsProvider);
+                    ref.invalidate(sensorHistoryProvider);
+                    ref.invalidate(dailyAnalyticsProvider);
+                    ref.invalidate(schedulePredictionsProvider);
+                  },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF00BFA5),
                 foregroundColor: Colors.white,
@@ -1535,8 +1565,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
     );
   }
 
-  Future<void> _handlePredictionCreate(
-      SchedulePrediction prediction) async {
+  Future<void> _handlePredictionCreate(SchedulePrediction prediction) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       AppNotifications.showSnackBar(
@@ -1622,8 +1651,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
     }
   }
 
-  Future<DeviceModel?> _promptDeviceSelection(
-      List<DeviceModel> devices) async {
+  Future<DeviceModel?> _promptDeviceSelection(List<DeviceModel> devices) async {
     return showModalBottomSheet<DeviceModel>(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -1689,4 +1717,3 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
     return null;
   }
 }
-

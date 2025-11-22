@@ -105,3 +105,12 @@ flutter_launcher_icons:
   image_path: assets/icons/smart-house.png
   min_sdk_android: 21
   remove_alpha_ios: true
+  adaptive_icon_background: "#00000000"
+  adaptive_icon_foreground: assets/icons/smart-house.png
+
+# Dependency overrides for packages with Dart 3.0 compatibility fixes
+dependency_overrides:
+  # Use local fixed version of tflite_flutter with Dart 3.0 compatibility
+  # Fix: Replaced deprecated UnmodifiableUint8ListView with Uint8List.fromList
+  tflite_flutter:
+    path: packages/tflite_flutter

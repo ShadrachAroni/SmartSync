@@ -1,6 +1,7 @@
 import 'package:intl/intl.dart';
 
 import '../../models/sensor_data.dart';
+import 'logger.dart';
 
 class DailyTrendPoint {
   final String label;
@@ -29,52 +30,109 @@ List<DailyTrendPoint> buildDailyTrends(
   int days, {
   DateTime? reference,
 }) {
-  if (logs.isEmpty) return [];
+  return Logger.safeExecute(
+    'buildDailyTrends',
+    () {
+      if (logs.isEmpty) {
+        Logger.info('buildDailyTrends: Empty logs, returning empty list');
+        return <DailyTrendPoint>[];
+      }
 
-  final cutoff = (reference ?? DateTime.now()).subtract(Duration(days: days));
-  final Map<DateTime, List<SensorData>> grouped = {};
+      final cutoff = (reference ?? DateTime.now()).subtract(Duration(days: days));
+      final Map<DateTime, List<SensorData>> grouped = {};
 
-  for (final log in logs) {
-    if (log.timestamp.isBefore(cutoff)) continue;
-    final dayKey =
-        DateTime(log.timestamp.year, log.timestamp.month, log.timestamp.day);
-    grouped.putIfAbsent(dayKey, () => []).add(log);
-  }
+      for (final log in logs) {
+        try {
+          if (log.timestamp.isBefore(cutoff)) continue;
+          final dayKey = DateTime(
+            log.timestamp.year,
+            log.timestamp.month,
+            log.timestamp.day,
+          );
+          grouped.putIfAbsent(dayKey, () => []).add(log);
+        } catch (e, stackTrace) {
+          Logger.error('buildDailyTrends: Error processing log', e, stackTrace);
+        }
+      }
 
-  final sortedKeys = grouped.keys.toList()..sort();
+      if (grouped.isEmpty) {
+        Logger.info('buildDailyTrends: No logs after filtering, returning empty list');
+        return <DailyTrendPoint>[];
+      }
 
-  return sortedKeys.map((day) {
-    final entries = grouped[day]!;
-    final avgTemp =
-        entries.fold<double>(0, (sum, log) => sum + log.temperature) /
-            entries.length;
-    final avgHumidity =
-        entries.fold<double>(0, (sum, log) => sum + log.humidity) /
-            entries.length;
+      final sortedKeys = grouped.keys.toList()..sort();
 
-    return DailyTrendPoint(
-      label: DateFormat('MMM dd').format(day),
-      temperature: double.parse(avgTemp.toStringAsFixed(2)),
-      humidity: double.parse(avgHumidity.toStringAsFixed(2)),
-    );
-  }).toList();
+      return sortedKeys.map((day) {
+        try {
+          final entries = grouped[day]!;
+          if (entries.isEmpty) {
+            return DailyTrendPoint(
+              label: DateFormat('MMM dd').format(day),
+              temperature: 0.0,
+              humidity: 0.0,
+            );
+          }
+          
+          final avgTemp = entries.fold<double>(
+                0,
+                (sum, log) => sum + log.temperature,
+              ) /
+              entries.length;
+          final avgHumidity = entries.fold<double>(
+                0,
+                (sum, log) => sum + log.humidity,
+              ) /
+              entries.length;
+
+          return DailyTrendPoint(
+            label: DateFormat('MMM dd').format(day),
+            temperature: double.parse(avgTemp.toStringAsFixed(2)),
+            humidity: double.parse(avgHumidity.toStringAsFixed(2)),
+          );
+        } catch (e, stackTrace) {
+          Logger.error('buildDailyTrends: Error processing day $day', e, stackTrace);
+          return DailyTrendPoint(
+            label: DateFormat('MMM dd').format(day),
+            temperature: 0.0,
+            humidity: 0.0,
+          );
+        }
+      }).toList();
+    },
+    defaultValue: <DailyTrendPoint>[],
+  )!;
 }
 
 List<HourlyActivityPoint> buildHourlyActivity(List<SensorData> logs) {
-  if (logs.isEmpty) return [];
+  return Logger.safeExecute(
+    'buildHourlyActivity',
+    () {
+      if (logs.isEmpty) {
+        Logger.info('buildHourlyActivity: Empty logs, returning empty list');
+        return <HourlyActivityPoint>[];
+      }
 
-  final buckets = List<double>.filled(24, 0);
+      final buckets = List<double>.filled(24, 0);
 
-  for (final log in logs) {
-    final hour = log.timestamp.hour;
-    buckets[hour] += log.motionDetected ? 1 : 0;
-  }
+      for (final log in logs) {
+        try {
+          final hour = log.timestamp.hour;
+          if (hour >= 0 && hour < 24) {
+            buckets[hour] += log.motionDetected ? 1 : 0;
+          }
+        } catch (e, stackTrace) {
+          Logger.error('buildHourlyActivity: Error processing log', e, stackTrace);
+        }
+      }
 
-  return List.generate(
-    24,
-    (hour) => HourlyActivityPoint(
-      hourLabel: hour.toString().padLeft(2, '0'),
-      activityValue: buckets[hour],
-    ),
-  );
+      return List.generate(
+        24,
+        (hour) => HourlyActivityPoint(
+          hourLabel: hour.toString().padLeft(2, '0'),
+          activityValue: buckets[hour],
+        ),
+      );
+    },
+    defaultValue: <HourlyActivityPoint>[],
+  )!;
 }

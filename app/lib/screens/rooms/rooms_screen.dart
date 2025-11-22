@@ -6,6 +6,7 @@ import '../../models/room_model.dart';
 import '../../models/device_model.dart';
 import '../../services/firebase_service.dart';
 import '../../providers/device_provider.dart';
+import '../../core/widgets/lottie_loading.dart';
 import 'add_room_screen.dart';
 import '../../core/constants/routes.dart';
 
@@ -133,8 +134,10 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
                   return _buildRoomsGrid(filteredRooms, devices);
                 },
                 loading: () => const Center(
-                  child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                  child: LottieLoading(
+                    size: 80,
+                    message: 'Loading rooms...',
+                    showMessage: true,
                   ),
                 ),
                 error: (error, stackTrace) {

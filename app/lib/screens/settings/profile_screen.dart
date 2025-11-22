@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/widgets/lottie_loading.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -224,9 +225,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
           return const Center(child: Text('No user data'));
         },
         loading: () => const Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-          ),
+          child: LottieLoading.medium(),
         ),
         error: (error, _) => Center(
           child: Text('Error: $error', style: const TextStyle(color: Colors.red)),

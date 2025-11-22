@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/room_model.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/widgets/lottie_loading.dart';
 
 // ============================================================================
 // app/lib/screens/rooms/edit_room_screen.dart
@@ -193,15 +194,7 @@ class _EditRoomScreenState extends State<EditRoomScreen> {
                     elevation: 0,
                   ),
                   child: _isLoading
-                      ? const SizedBox(
-                          height: 24,
-                          width: 24,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
+                      ? const LottieLoading.small()
                       : const Text(
                           'Save Changes',
                           style: TextStyle(

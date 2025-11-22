@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,74 +9,172 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'firebase_options.dart';
 import 'core/theme/app_theme.dart';
 import 'core/constants/routes.dart';
+import 'core/widgets/lottie_loading.dart';
+import 'core/widgets/app_error_handler.dart';
+import 'core/widgets/error_boundary.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'providers/auth_provider.dart';
+import 'services/ml_service.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  debugPrint('🚀 ========== APP STARTUP BEGIN ==========');
+  debugPrint('🚀 Timestamp: ${DateTime.now().toIso8601String()}');
 
-  // Load environment variables (optional - app can work without .env)
-  try {
-    await dotenv.load(fileName: ".env");
-    debugPrint('✅ Environment variables loaded');
-  } catch (e) {
-    debugPrint('⚠️ .env file not found or could not be loaded: $e');
-    debugPrint('⚠️ App will continue with default values');
-  }
+  // Initialize error handlers
+  AppErrorHandler.initialize();
 
-  // Initialize Firebase only once
-  if (Firebase.apps.isEmpty) {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    debugPrint('✅ Firebase initialized: ${Firebase.app().name}');
-  } else {
-    debugPrint('⚠️ Firebase already initialized');
-  }
+  // Handle async errors
+  runZonedGuarded(() async {
+    debugPrint('📱 Step 1: Ensuring Flutter binding initialized...');
+    WidgetsFlutterBinding.ensureInitialized();
+    debugPrint('✅ Step 1: Flutter binding initialized');
 
-  // Force refresh auth state to ensure we get fresh state, not cached
-  // This prevents showing old layout on first build
-  try {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser != null) {
-      // Reload user to get fresh data
-      await currentUser.reload();
-      debugPrint('✅ Auth state refreshed for user: ${currentUser.uid}');
+    // Load environment variables (optional - app can work without .env)
+    debugPrint('📱 Step 2: Loading environment variables...');
+    try {
+      await dotenv.load(fileName: ".env");
+      debugPrint('✅ Step 2: Environment variables loaded');
+    } catch (e) {
+      debugPrint('⚠️ Step 2: .env file not found or could not be loaded: $e');
+      debugPrint('⚠️ Step 2: App will continue with default values');
     }
-  } catch (e) {
-    debugPrint('⚠️ Could not refresh auth state: $e');
-  }
 
-  // Enable Firebase App Check
-  try {
-    await FirebaseAppCheck.instance.activate(
-      androidProvider:
-          kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
-      appleProvider:
-          kDebugMode ? AppleProvider.debug : AppleProvider.deviceCheck,
-    );
-    debugPrint('✅ Firebase App Check initialized successfully');
-  } catch (e) {
-    debugPrint('⚠️ App Check activation failed — falling back to Debug: $e');
-    await FirebaseAppCheck.instance
-        .activate(androidProvider: AndroidProvider.debug);
-  }
+    // Initialize Firebase only once
+    debugPrint('📱 Step 3: Initializing Firebase...');
+    try {
+      if (Firebase.apps.isEmpty) {
+        debugPrint(
+            '📱 Step 3: No existing Firebase apps, initializing new instance...');
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+        debugPrint('✅ Step 3: Firebase initialized: ${Firebase.app().name}');
+      } else {
+        debugPrint(
+            '⚠️ Step 3: Firebase already initialized (${Firebase.apps.length} app(s))');
+      }
+    } catch (e, stackTrace) {
+      debugPrint('❌ Step 3: Firebase initialization failed: $e');
+      debugPrint('❌ Step 3: Stack trace: $stackTrace');
+      debugPrint(
+          '⚠️ Step 3: Continuing without Firebase - some features may not work');
+    }
 
-  // Set system UI overlay style
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-    ),
-  );
+    // Force refresh auth state to ensure we get fresh state, not cached
+    // This prevents showing old layout on first build
+    debugPrint('📱 Step 4: Refreshing auth state...');
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null) {
+        debugPrint('📱 Step 4: User found (${currentUser.uid}), reloading...');
+        // Reload user to get fresh data
+        await currentUser.reload();
+        debugPrint(
+            '✅ Step 4: Auth state refreshed for user: ${currentUser.uid}');
+      } else {
+        debugPrint('📱 Step 4: No current user found');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Step 4: Could not refresh auth state: $e');
+    }
 
-  runApp(
-    const ProviderScope(
-      child: SmartSyncApp(),
-    ),
-  );
+    // Enable Firebase App Check (non-blocking - don't wait if it fails)
+    debugPrint('📱 Step 5: Initializing Firebase App Check...');
+    debugPrint('📱 Step 5: Debug mode: $kDebugMode');
+    try {
+      debugPrint('📱 Step 5: Activating App Check with timeout (5s)...');
+      await FirebaseAppCheck.instance
+          .activate(
+        androidProvider:
+            kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
+        appleProvider:
+            kDebugMode ? AppleProvider.debug : AppleProvider.deviceCheck,
+      )
+          .timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          debugPrint(
+              '⚠️ Step 5: App Check activation timed out after 5 seconds');
+          throw TimeoutException('App Check timeout');
+        },
+      );
+      debugPrint('✅ Step 5: Firebase App Check initialized successfully');
+    } on TimeoutException {
+      debugPrint(
+          '⚠️ Step 5: App Check activation timed out - continuing without App Check');
+    } catch (e) {
+      debugPrint(
+          '⚠️ Step 5: App Check activation failed — falling back to Debug: $e');
+      try {
+        debugPrint('📱 Step 5: Attempting fallback with Debug provider...');
+        await FirebaseAppCheck.instance
+            .activate(androidProvider: AndroidProvider.debug)
+            .timeout(const Duration(seconds: 3));
+        debugPrint('✅ Step 5: Firebase App Check fallback initialized');
+      } catch (e2) {
+        debugPrint('⚠️ Step 5: App Check fallback also failed: $e2');
+        debugPrint('⚠️ Step 5: App will continue without App Check');
+      }
+    }
+
+    // Set system UI overlay style
+    debugPrint('📱 Step 6: Setting system UI overlay style...');
+    try {
+      SystemChrome.setSystemUIOverlayStyle(
+        const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.dark,
+        ),
+      );
+      debugPrint('✅ Step 6: System UI overlay style set');
+    } catch (e) {
+      debugPrint('⚠️ Step 6: Failed to set system UI overlay: $e');
+    }
+
+    // Pre-initialize ML Service in background (non-blocking)
+    // This ensures models are loaded early for better UX
+    // Use a delayed future to ensure it doesn't block app startup
+    debugPrint(
+        '📱 Step 7: Scheduling ML Service pre-initialization (non-blocking)...');
+    Future.delayed(const Duration(milliseconds: 100), () {
+      debugPrint('📱 Step 7: Starting ML Service pre-initialization...');
+      try {
+        final mlService = MLService();
+        mlService.initialize().then((_) {
+          debugPrint('✅ Step 7: ML Service pre-initialized successfully');
+        }).catchError((e, stackTrace) {
+          debugPrint('⚠️ Step 7: ML Service pre-initialization failed: $e');
+          debugPrint('⚠️ Step 7: Stack: $stackTrace');
+          debugPrint('⚠️ Step 7: Models will be loaded on first use');
+        });
+      } catch (e, stackTrace) {
+        debugPrint('⚠️ Step 7: Could not pre-initialize ML Service: $e');
+        debugPrint('⚠️ Step 7: Stack: $stackTrace');
+      }
+    });
+
+    debugPrint('📱 Step 8: Starting runApp...');
+    try {
+      runApp(
+        const ProviderScope(
+          child: SmartSyncApp(),
+        ),
+      );
+      debugPrint('✅ Step 8: runApp called successfully');
+      debugPrint('✅ ========== APP STARTUP COMPLETE ==========');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Step 8: runApp failed: $e');
+      debugPrint('❌ Step 8: Stack: $stackTrace');
+      rethrow;
+    }
+  }, (error, stack) {
+    debugPrint('❌ ========== UNHANDLED ERROR IN MAIN ==========');
+    debugPrint('❌ Error: $error');
+    debugPrint('❌ Stack: $stack');
+    debugPrint('❌ ============================================');
+  });
 }
 
 class SmartSyncApp extends ConsumerStatefulWidget {
@@ -88,58 +187,135 @@ class SmartSyncApp extends ConsumerStatefulWidget {
 class _SmartSyncAppState extends ConsumerState<SmartSyncApp> {
   @override
   void initState() {
+    debugPrint('📱 SmartSyncApp: initState called');
     super.initState();
     // Refresh auth provider on app start to force fresh state
     // This ensures we don't use cached/stale auth state from previous session
     // Wait a frame to ensure ref is available
+    debugPrint('📱 SmartSyncApp: Scheduling auth state refresh...');
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      debugPrint(
+          '📱 SmartSyncApp: Post-frame callback executed, mounted: $mounted');
       if (mounted) {
         // Small delay to ensure Firebase Auth has finished reloading
         Future.delayed(const Duration(milliseconds: 50), () {
           if (mounted) {
-            ref.refresh(authStateProvider);
+            debugPrint('📱 SmartSyncApp: Invalidating auth state provider...');
+            // Refresh auth state
+            ref.invalidate(authStateProvider);
+            debugPrint('✅ SmartSyncApp: Auth state provider invalidated');
+          } else {
+            debugPrint(
+                '⚠️ SmartSyncApp: Widget not mounted, skipping auth refresh');
           }
         });
+      } else {
+        debugPrint(
+            '⚠️ SmartSyncApp: Widget not mounted in post-frame callback');
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authStateProvider);
+    debugPrint('📱 SmartSyncApp: build() called');
+    try {
+      debugPrint('📱 SmartSyncApp: Watching authStateProvider...');
+      final authState = ref.watch(authStateProvider);
+      debugPrint(
+          '📱 SmartSyncApp: Auth state received: ${authState.runtimeType}');
 
-    return MaterialApp(
-      title: 'SmartSync',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.darkTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.dark,
+      authState.when(
+        data: (user) => debugPrint(
+            '📱 SmartSyncApp: Auth state data - user: ${user?.uid ?? "null"}'),
+        loading: () => debugPrint('📱 SmartSyncApp: Auth state loading...'),
+        error: (error, stack) =>
+            debugPrint('📱 SmartSyncApp: Auth state error: $error'),
+      );
 
-      // ✅ Use onGenerateRoute for internal navigation
-      onGenerateRoute: AppRoutes.generateRoute,
-
-      // ✅ Use home widget for auth-based initial screen
-      // This takes precedence and handles authentication logic
-      home: authState.when(
+      debugPrint('📱 SmartSyncApp: Building MaterialApp...');
+      final homeWidget = authState.when(
         data: (user) {
+          debugPrint(
+              '📱 SmartSyncApp: Auth data received - user: ${user?.uid ?? "null"}');
           if (user == null) {
+            debugPrint('📱 SmartSyncApp: No user - showing OnboardingScreen');
             // Not logged in - show onboarding
             return const OnboardingScreen();
           }
 
           if (!user.emailVerified) {
+            debugPrint(
+                '📱 SmartSyncApp: User email not verified - showing OnboardingScreen');
             // Email not verified - show onboarding/login
             // User can verify and login again
             return const OnboardingScreen();
           }
 
+          debugPrint(
+              '📱 SmartSyncApp: User authenticated and verified - showing HomeScreen');
           // Logged in and verified - show home
           return const HomeScreen();
         },
-        loading: () => const SplashScreen(),
-        error: (_, __) => const OnboardingScreen(),
-      ),
-    );
+        loading: () {
+          debugPrint(
+              '📱 SmartSyncApp: Auth state loading - showing SplashScreen');
+          return const SplashScreen();
+        },
+        error: (error, stackTrace) {
+          debugPrint('❌ SmartSyncApp: Auth state error: $error');
+          debugPrint('❌ SmartSyncApp: Stack: $stackTrace');
+          debugPrint('📱 SmartSyncApp: Showing OnboardingScreen due to error');
+          return const OnboardingScreen();
+        },
+      );
+
+      debugPrint(
+          '📱 SmartSyncApp: Creating MaterialApp with home widget: ${homeWidget.runtimeType}');
+      final materialApp = MaterialApp(
+        title: 'SmartSync',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.darkTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: ThemeMode.dark,
+        builder: (context, child) {
+          // Wrap with error boundary (performance monitor disabled by default)
+          // Enable PerformanceMonitor only when needed for debugging
+          return AppErrorHandler.wrapWithErrorBoundary(
+            child ?? const SizedBox.shrink(),
+            context: 'MaterialApp',
+          );
+        },
+
+        // ✅ Use onGenerateRoute for internal navigation
+        onGenerateRoute: AppRoutes.generateRoute,
+
+        // ✅ Use home widget for auth-based initial screen
+        // This takes precedence and handles authentication logic
+        home: AppErrorHandler.wrapWithErrorBoundary(
+          homeWidget,
+          context: 'HomeWidget',
+        ),
+      );
+      debugPrint('✅ SmartSyncApp: MaterialApp created successfully');
+      return materialApp;
+    } catch (e, stackTrace) {
+      debugPrint('❌ ========== ERROR BUILDING APP ==========');
+      debugPrint('❌ Exception: $e');
+      debugPrint('❌ Stack: $stackTrace');
+      debugPrint('❌ ========================================');
+      // Return a minimal error screen - fallback to onboarding
+      debugPrint(
+          '📱 SmartSyncApp: Returning fallback MaterialApp with OnboardingScreen');
+      return MaterialApp(
+        title: 'SmartSync',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.darkTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: ThemeMode.dark,
+        home: const OnboardingScreen(),
+      );
+    }
   }
 }
 
@@ -158,7 +334,7 @@ class SplashScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: const Color(0xFF00BFA5).withOpacity(0.1),
+                color: const Color(0xFF00BFA5).withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
@@ -185,8 +361,8 @@ class SplashScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 60),
-            const CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
+            const LottieLoading(
+              size: 80,
             ),
           ],
         ),

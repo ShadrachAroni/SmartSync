@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![SmartSync Logo](app/assets/images/logo.png)
+![SmartSync Logo](app/assets/icons/smart-house.png)
 
 **Smart Home Automation with AI-Powered Elderly Monitoring**
 
@@ -32,24 +32,35 @@ SmartSync is a comprehensive IoT home automation solution designed specifically 
 ## ✨ Features
 
 ### For Elderly Users
-- **Simple Controls**: Large buttons and intuitive interface
-- **Voice Commands**: (Coming soon) Voice-activated device control
-- **Emergency SOS**: One-tap emergency alert to caregivers
-- **Automated Schedules**: Devices adjust based on learned routines
-- **Fall Detection**: Motion sensor-based activity monitoring
+- **Simple Controls**: Large buttons and intuitive interface designed for accessibility
+- **Emergency SOS**: One-tap emergency alert system to notify caregivers
+- **Automated Schedules**: AI-powered device schedules that learn from usage patterns
+- **Adaptive Auto Mode**: Intelligent automatic control of fan and lights based on real-time sensor data
+- **Activity Monitoring**: Motion and proximity sensors track daily activity patterns
+- **Weather Integration**: Real-time weather data displayed on home screen
+- **Energy Tracking**: Monitor and understand energy consumption patterns
 
 ### For Caregivers
-- **Remote Monitoring**: Real-time access to sensor data
-- **Health Alerts**: Anomaly detection for unusual patterns
-- **Activity Reports**: Daily/weekly activity summaries
-- **Multi-User Access**: Multiple caregivers can monitor one elderly user
-- **Custom Notifications**: Configure alert thresholds
+- **Remote Monitoring Dashboard**: Real-time access to sensor data and device status
+- **Caregiver System**: Multi-user access allowing multiple caregivers to monitor one elderly user
+- **Remote Control**: Control devices remotely for the elderly user
+- **Health Alerts**: Anomaly detection for unusual activity patterns with push notifications
+- **Activity Reports**: Comprehensive daily/weekly activity summaries and analytics
+- **Activity Logs**: Detailed logs of all system actions with revert functionality
+- **Custom Notifications**: Configure alert thresholds and notification preferences
+- **Patient List**: Manage multiple patients from a single caregiver account
 
 ### Smart Features
-- **ML Schedule Prediction**: Learns usage patterns and suggests optimal schedules
-- **Anomaly Detection**: Identifies unusual activity that may indicate health issues
-- **Energy Optimization**: Recommends energy-saving adjustments
-- **Predictive Maintenance**: Alerts for device issues before they fail
+- **AI-Powered Adaptive Auto Mode**: Real-time ML-driven automatic device control using sensor data
+- **ML Schedule Prediction**: TFLite-based local inference learns usage patterns and suggests optimal schedules
+- **Anomaly Detection**: Identifies unusual activity patterns that may indicate health issues
+- **Local ML Inference**: On-device TFLite models for fast, privacy-preserving predictions
+- **Cloud ML Integration**: Server-side ML inference via Firebase Cloud Functions
+- **Energy Optimization**: Tracks and recommends energy-saving adjustments
+- **Smart Scheduling**: AI-suggested schedules based on historical usage data
+- **Activity Timeline**: Visual timeline of all activities and device changes
+- **Revert Functionality**: Undo automation changes with full change history tracking
+- **Weather Integration**: Real-time weather data displayed on home screen
 
 ## 🏗️ Architecture
 
@@ -280,17 +291,29 @@ alerts/
 
 ## 🤖 Machine Learning Models
 
-### 1. Schedule Predictor
-- **Architecture**: LSTM (64 units)
-- **Input**: Historical usage data (7 days)
-- **Output**: Predicted device schedules
-- **Accuracy**: ~85% on test data
+### 1. Schedule Predictor (TFLite)
+- **Architecture**: LSTM-based model
+- **Input**: Historical usage data (7 days), sensor readings, time features
+- **Output**: Predicted device schedules with confidence scores
+- **Deployment**: Local on-device inference via TFLite
+- **Features**: Cyclical time encoding (sin/cos), feature scaling, caching
+- **Accuracy**: Optimized for real-time performance
 
-### 2. Anomaly Detector
-- **Architecture**: Autoencoder
+### 2. Adaptive Auto Mode
+- **Type**: Real-time adaptive automation
+- **Input**: Live sensor data (temperature, humidity, motion), ML predictions, weather data
+- **Output**: Automatic fan speed and LED brightness adjustments
+- **Features**: 
+  - Context-aware decisions (temperature, humidity, motion, time)
+  - Change history tracking with revert functionality
+  - Notification system for automation changes
+  - Prevents unnecessary updates (tracks last applied values)
+
+### 3. Anomaly Detector (Cloud)
+- **Architecture**: Autoencoder (deployed via Cloud Functions)
 - **Input**: Activity patterns, sensor readings
-- **Output**: Anomaly score (0-1)
-- **Detection Rate**: 90% for critical anomalies
+- **Output**: Anomaly score (0-1) with alert generation
+- **Detection Rate**: Monitors for unusual patterns in real-time
 
 ### Training Pipeline
 ```bash
@@ -436,36 +459,42 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for deta
 
 ## 🐛 Known Issues
 
-- [ ] iOS BLE background scanning limited by iOS
-- [ ] ML model retraining requires manual trigger
-- [ ] Voice commands not yet implemented
-- [ ] Multi-language support in progress
+- [ ] iOS BLE background scanning limited by iOS system restrictions
+- [ ] ML model retraining requires manual trigger (automated retraining planned)
+- [ ] Voice commands scaffolded but not fully implemented
+- [ ] Multi-language support in progress (currently English only)
 
-See [Issues](https://github.com/yourusername/smartsync/issues) for full list.
+See [Issues](https://github.com/ShadrachAroni/smartsync/issues) for full list.
 
 ## 🗺️ Roadmap
 
-### Q1 2025
-- ✅ Core BLE functionality
-- ✅ Firebase integration
-- ✅ ML schedule prediction
-- ✅ Basic analytics dashboard
+### ✅ Completed (Q1 2025)
+- ✅ Core BLE functionality with device scanning and control
+- ✅ Firebase integration (Auth, Firestore, Storage, Functions)
+- ✅ ML schedule prediction (local TFLite + cloud inference)
+- ✅ Analytics dashboard with insights and predictions
+- ✅ Adaptive Auto Mode with AI-powered automation
+- ✅ Room management system
+- ✅ Caregiver system with remote monitoring
+- ✅ Activity logging with revert functionality
+- ✅ Alerts system with configurable thresholds
+- ✅ Energy tracking and optimization
+- ✅ Weather integration
+- ✅ Onboarding flow
 
-### Q2 2025
-- [ ] Voice control integration
+### 🚧 In Progress
+- [ ] Voice control integration (voice_service.dart scaffolded)
+- [ ] Enhanced fall detection algorithms
+- [ ] Multi-language support
+
+### 📅 Planned (Q2-Q4 2025)
 - [ ] Apple Watch support
-- [ ] Advanced fall detection
 - [ ] Medication reminders
-
-### Q3 2025
 - [ ] Video monitoring integration
 - [ ] Multi-home support
-- [ ] Third-party device integrations
+- [ ] Third-party device integrations (HomeKit, Alexa, Google Home)
 - [ ] Web dashboard
-
-### Q4 2025
-- [ ] AI health insights
-- [ ] Doctor consultation integration
+- [ ] AI health insights with doctor consultation integration
 - [ ] Insurance integration
 - [ ] Enterprise features
 

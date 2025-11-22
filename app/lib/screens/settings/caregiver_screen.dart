@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/widgets/lottie_loading.dart';
 import '../../core/utils/logger.dart';
 import '../../services/logging_service.dart';
 import '../../models/log_entry.dart';
+
 // Email validation helper
 bool _isValidEmail(String email) {
   return RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
@@ -122,7 +124,8 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
       await loggingService.logAction(
         action: 'Caregiver Added',
         category: 'caregiver',
-        details: 'Added caregiver: ${_nameController.text.trim()} (${_emailController.text.trim()})',
+        details:
+            'Added caregiver: ${_nameController.text.trim()} (${_emailController.text.trim()})',
         level: LogLevel.info,
         metadata: {
           'caregiverName': _nameController.text.trim(),
@@ -139,7 +142,8 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
       if (mounted) {
         AppNotifications.showSnackBar(
           context,
-          message: 'Caregiver added successfully! They will receive alerts when enabled.',
+          message:
+              'Caregiver added successfully! They will receive alerts when enabled.',
           type: AppNotificationType.success,
         );
       }
@@ -159,7 +163,8 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
     }
   }
 
-  Future<void> _deleteCaregiver(String relationshipId, String caregiverName) async {
+  Future<void> _deleteCaregiver(
+      String relationshipId, String caregiverName) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -176,7 +181,8 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white70)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
@@ -190,7 +196,10 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
     if (confirmed != true) return;
 
     try {
-      await _firestore.collection('caregiver_relationships').doc(relationshipId).delete();
+      await _firestore
+          .collection('caregiver_relationships')
+          .doc(relationshipId)
+          .delete();
 
       final loggingService = LoggingService();
       await loggingService.logAction(
@@ -296,7 +305,8 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
                                 color: Colors.blue.withOpacity(0.2),
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: const Icon(Icons.person_add, color: Colors.blue, size: 24),
+                              child: const Icon(Icons.person_add,
+                                  color: Colors.blue, size: 24),
                             ),
                             const SizedBox(width: 12),
                             const Text(
@@ -316,7 +326,8 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
                           decoration: InputDecoration(
                             labelText: 'Name *',
                             labelStyle: const TextStyle(color: Colors.white70),
-                            prefixIcon: const Icon(Icons.person, color: Color(0xFF00BFA5)),
+                            prefixIcon: const Icon(Icons.person,
+                                color: Color(0xFF00BFA5)),
                             filled: true,
                             fillColor: Colors.white.withOpacity(0.1),
                             border: OutlineInputBorder(
@@ -325,11 +336,13 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+                              borderSide: BorderSide(
+                                  color: Colors.white.withOpacity(0.2)),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFF00BFA5), width: 2),
+                              borderSide: const BorderSide(
+                                  color: Color(0xFF00BFA5), width: 2),
                             ),
                           ),
                           validator: (value) {
@@ -347,7 +360,8 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
                           decoration: InputDecoration(
                             labelText: 'Email *',
                             labelStyle: const TextStyle(color: Colors.white70),
-                            prefixIcon: const Icon(Icons.email, color: Color(0xFF00BFA5)),
+                            prefixIcon: const Icon(Icons.email,
+                                color: Color(0xFF00BFA5)),
                             filled: true,
                             fillColor: Colors.white.withOpacity(0.1),
                             border: OutlineInputBorder(
@@ -356,11 +370,13 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+                              borderSide: BorderSide(
+                                  color: Colors.white.withOpacity(0.2)),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFF00BFA5), width: 2),
+                              borderSide: const BorderSide(
+                                  color: Color(0xFF00BFA5), width: 2),
                             ),
                           ),
                           validator: (value) {
@@ -381,7 +397,8 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
                           decoration: InputDecoration(
                             labelText: 'Phone (Optional)',
                             labelStyle: const TextStyle(color: Colors.white70),
-                            prefixIcon: const Icon(Icons.phone, color: Color(0xFF00BFA5)),
+                            prefixIcon: const Icon(Icons.phone,
+                                color: Color(0xFF00BFA5)),
                             filled: true,
                             fillColor: Colors.white.withOpacity(0.1),
                             border: OutlineInputBorder(
@@ -390,11 +407,13 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+                              borderSide: BorderSide(
+                                  color: Colors.white.withOpacity(0.2)),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFF00BFA5), width: 2),
+                              borderSide: const BorderSide(
+                                  color: Color(0xFF00BFA5), width: 2),
                             ),
                           ),
                         ),
@@ -405,7 +424,8 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
                           decoration: InputDecoration(
                             labelText: 'Relationship (Optional)',
                             labelStyle: const TextStyle(color: Colors.white70),
-                            prefixIcon: const Icon(Icons.family_restroom, color: Color(0xFF00BFA5)),
+                            prefixIcon: const Icon(Icons.family_restroom,
+                                color: Color(0xFF00BFA5)),
                             filled: true,
                             fillColor: Colors.white.withOpacity(0.1),
                             border: OutlineInputBorder(
@@ -414,14 +434,17 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+                              borderSide: BorderSide(
+                                  color: Colors.white.withOpacity(0.2)),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFF00BFA5), width: 2),
+                              borderSide: const BorderSide(
+                                  color: Color(0xFF00BFA5), width: 2),
                             ),
                             hintText: 'e.g., Son, Daughter, Friend',
-                            hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+                            hintStyle:
+                                TextStyle(color: Colors.white.withOpacity(0.5)),
                           ),
                         ),
                         const SizedBox(height: 24),
@@ -437,14 +460,7 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
                               ),
                             ),
                             child: _isLoading
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                    ),
-                                  )
+                                ? const LottieLoading.small()
                                 : const Text(
                                     'Add Caregiver',
                                     style: TextStyle(
@@ -519,7 +535,8 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
                           end: Alignment.bottomRight,
                         ),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                        border:
+                            Border.all(color: Colors.white.withOpacity(0.1)),
                       ),
                       child: Row(
                         children: [
@@ -529,7 +546,8 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
                               color: Colors.blue.withOpacity(0.2),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Icon(Icons.person, color: Colors.blue, size: 24),
+                            child: const Icon(Icons.person,
+                                color: Colors.blue, size: 24),
                           ),
                           const SizedBox(width: 16),
                           Expanded(
@@ -566,7 +584,8 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
                             ),
                           ),
                           IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                            icon: const Icon(Icons.delete_outline,
+                                color: Colors.redAccent),
                             onPressed: () => _deleteCaregiver(
                               doc.id,
                               data['caregiverName'] ?? 'Caregiver',
@@ -575,7 +594,7 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
                         ],
                       ),
                     );
-                  }).toList(),
+                  }),
               ],
             ),
           );
@@ -584,4 +603,3 @@ class _CaregiverScreenState extends ConsumerState<CaregiverScreen> {
     );
   }
 }
-

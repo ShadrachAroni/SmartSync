@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
@@ -58,34 +59,52 @@ class WeatherService {
       // If coordinates not provided, try to get current location
       if (lat == 0.0 && lon == 0.0) {
         try {
-          // Check location permission
-          final locationPermission = await Permission.location.status;
+          // Check location permission with timeout
+          final locationPermission = await Permission.location.status
+              .timeout(const Duration(seconds: 2));
+          
           if (locationPermission.isDenied) {
-            final result = await Permission.location.request();
+            final result = await Permission.location.request()
+                .timeout(const Duration(seconds: 2));
             if (result.isDenied) {
-              Logger.warning('WeatherService: Location permission denied');
+              // Skip location, use fallback
             }
           }
           
-          if (locationPermission.isGranted || await Permission.location.isGranted) {
-            // Check if location services are enabled
-            bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-            if (!serviceEnabled) {
-              Logger.warning('WeatherService: Location services are disabled');
-            } else {
-              // Get current position
-              Position position = await Geolocator.getCurrentPosition(
-                desiredAccuracy: LocationAccuracy.low,
-                timeLimit: const Duration(seconds: 5),
-              );
-              lat = position.latitude;
-              lon = position.longitude;
-              Logger.info('WeatherService: Got location: $lat, $lon');
+          final isGranted = locationPermission.isGranted || 
+              await Permission.location.isGranted;
+          
+          if (isGranted) {
+            // Check if location services are enabled with timeout
+            bool serviceEnabled = false;
+            try {
+              serviceEnabled = await Geolocator.isLocationServiceEnabled()
+                  .timeout(const Duration(seconds: 1));
+            } catch (e) {
+              // Skip if check times out
+            }
+            
+            if (serviceEnabled) {
+              // Get current position with shorter timeout to prevent hanging
+              try {
+                Position position = await Geolocator.getCurrentPosition(
+                  desiredAccuracy: LocationAccuracy.low,
+                  timeLimit: const Duration(seconds: 3),
+                ).timeout(
+                  const Duration(seconds: 3),
+                  onTimeout: () => throw TimeoutException('Location timeout'),
+                );
+                lat = position.latitude;
+                lon = position.longitude;
+              } on TimeoutException {
+                // Skip location on timeout
+              }
             }
           }
+        } on TimeoutException {
+          // Silently use fallback on timeout
         } catch (e) {
-          Logger.warning('WeatherService: Failed to get location: $e');
-          // Continue with fallback
+          // Continue with fallback on any error
         }
       }
 
@@ -181,4 +200,5 @@ class WeatherService {
     return WeatherCondition.sunny;
   }
 }
+
 

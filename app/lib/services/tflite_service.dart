@@ -1,10 +1,20 @@
 import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:math';
 import 'package:flutter/services.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import '../core/utils/logger.dart';
 import '../models/sensor_data.dart';
 import '../models/ml_prediction.dart';
+
+/// Cached prediction for TFLite service
+class _CachedPrediction {
+  final List<SchedulePrediction> predictions;
+  final DateTime timestamp;
+  
+  _CachedPrediction(this.predictions, this.timestamp);
+  
+  bool get isExpired => DateTime.now().difference(timestamp) > const Duration(minutes: 30);
+}
 
 /// TFLite Service for local ML inference
 ///
@@ -20,24 +30,16 @@ class TFLiteService {
   // Scaler parameters from training
   List<double>? _scalerMean;
   List<double>? _scalerStd;
-  List<String>? _featureColumns;
   
   // Prediction cache
   final Map<String, _CachedPrediction> _predictionCache = {};
-  static const _cacheDuration = Duration(minutes: 30);
-  
-  class _CachedPrediction {
-    final List<SchedulePrediction> predictions;
-    final DateTime timestamp;
-    
-    _CachedPrediction(this.predictions, this.timestamp);
-    
-    bool get isExpired => DateTime.now().difference(timestamp) > TFLiteService._cacheDuration;
-  }
 
   /// Initialize TFLite service and load models
   Future<bool> initialize() async {
-    if (_isInitialized) return true;
+    if (_isInitialized) {
+      Logger.debug('TFLite Service already initialized');
+      return _schedulePredictor != null;
+    }
 
     try {
       Logger.info('Initializing TFLite Service...');
@@ -45,14 +47,22 @@ class TFLiteService {
       // Load schedule predictor model
       await _loadSchedulePredictor();
       
-      // Load scaler parameters
-      await _loadScalerParameters();
+      // Load scaler parameters (non-critical, can fail gracefully)
+      try {
+        await _loadScalerParameters();
+      } catch (e) {
+        Logger.warning('Scaler parameters loading failed, using defaults: $e');
+        // Continue without scaler - will use default normalization
+      }
 
       _isInitialized = true;
       Logger.success('TFLite Service initialized');
       return true;
     } catch (e) {
       Logger.error('TFLite initialization failed: $e');
+      // Mark as initialized to prevent infinite retries
+      // Service will fall back to server-side inference
+      _isInitialized = true;
       return false;
     }
   }
@@ -70,23 +80,36 @@ class TFLiteService {
       // Load model from assets (local file, not server)
       final modelBytes = await rootBundle.load('assets/models/schedule_predictor.tflite');
       final modelBuffer = modelBytes.buffer.asUint8List();
-
       Logger.info('   Model size: ${(modelBuffer.length / 1024).toStringAsFixed(2)} KB');
 
       // Create interpreter (runs locally on device)
-      _schedulePredictor = Interpreter.fromBuffer(modelBuffer);
+      try {
+        _schedulePredictor = Interpreter.fromBuffer(modelBuffer);
+      } catch (e) {
+        Logger.error('❌ Failed to create TFLite interpreter: $e');
+        Logger.error('   This might be a compatibility issue with the TFLite library');
+        throw Exception('TFLite interpreter creation failed: $e');
+      }
 
       // Get input/output details
-      final inputDetails = _schedulePredictor!.getInputTensors();
-      final outputDetails = _schedulePredictor!.getOutputTensors();
+      try {
+        final inputDetails = _schedulePredictor!.getInputTensors();
+        final outputDetails = _schedulePredictor!.getOutputTensors();
 
-      Logger.success('✅ LOCAL TFLite model loaded successfully');
-      Logger.info('   📊 Input shape: ${inputDetails[0].shape}, type: ${inputDetails[0].type}');
-      Logger.info('   📊 Output shape: ${outputDetails[0].shape}, type: ${outputDetails[0].type}');
-      Logger.info('   🎯 Model ready for local inference (no server required)');
-    } catch (e) {
+        Logger.success('✅ LOCAL TFLite model loaded successfully');
+        Logger.info('   📊 Input shape: ${inputDetails[0].shape}, type: ${inputDetails[0].type}');
+        Logger.info('   📊 Output shape: ${outputDetails[0].shape}, type: ${outputDetails[0].type}');
+        Logger.info('   🎯 Model ready for local inference (no server required)');
+      } catch (e) {
+        Logger.warning('⚠️ Could not get model tensor details: $e');
+        // Don't throw - model is loaded, just missing metadata
+        Logger.success('✅ LOCAL TFLite model loaded (metadata unavailable)');
+      }
+    } catch (e, stackTrace) {
       Logger.error('❌ Failed to load LOCAL TFLite model: $e');
+      Logger.error('   Stack: $stackTrace');
       Logger.error('   Make sure schedule_predictor.tflite exists in app/assets/models/');
+      // Rethrow to let initialize() handle it gracefully
       rethrow;
     }
   }
@@ -103,7 +126,7 @@ class TFLiteService {
         
         _scalerMean = (scalerData['mean'] as List?)?.map((e) => (e as num).toDouble()).toList();
         _scalerStd = (scalerData['std'] as List?)?.map((e) => (e as num).toDouble()).toList();
-        _featureColumns = (scalerData['feature_columns'] as List?)?.map((e) => e.toString()).toList();
+        // Note: feature_columns from scaler_params.json is loaded but not currently used
         
         if (_scalerMean != null && _scalerStd != null) {
           Logger.success('✅ Loaded scaler parameters from training data');
@@ -112,8 +135,8 @@ class TFLiteService {
           Logger.warning('⚠️  Scaler parameters missing mean/std, using defaults');
         }
       } catch (e) {
-        Logger.warning('⚠️  Could not load scaler_params.json: $e');
-        Logger.info('   Using default normalization parameters');
+        // scaler_params.json is optional - use defaults if not found
+        Logger.info('ℹ️  scaler_params.json not found, using default normalization parameters');
       }
     } catch (e) {
       Logger.warning('⚠️  Failed to load scaler parameters: $e');
@@ -310,12 +333,12 @@ class TFLiteService {
 
   /// Sin encoding for cyclical features
   double _sinEncode(int value, int period) {
-    return (2 * 3.141592653589793 * value / period).sin();
+    return sin(2 * 3.141592653589793 * value / period);
   }
 
   /// Cos encoding for cyclical features
   double _cosEncode(int value, int period) {
-    return (2 * 3.141592653589793 * value / period).cos();
+    return cos(2 * 3.141592653589793 * value / period);
   }
 
   /// Post-process model output into schedule predictions

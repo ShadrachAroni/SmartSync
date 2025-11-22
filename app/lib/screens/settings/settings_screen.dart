@@ -5,6 +5,7 @@ import '../../providers/settings_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../core/constants/routes.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/widgets/lottie_loading.dart';
 import '../../services/logging_service.dart';
 import '../../models/log_entry.dart';
 import 'notifications_settings.dart';
@@ -212,7 +213,8 @@ class SettingsScreen extends ConsumerWidget {
             fontSize: 13,
           ),
         ),
-        trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.white70),
+        trailing:
+            Icon(Icons.arrow_forward_ios, size: 16, color: Colors.white70),
         onTap: onTap,
       ),
     );
@@ -322,7 +324,9 @@ class SettingsScreen extends ConsumerWidget {
                     labelStyle: const TextStyle(color: Colors.white70),
                     suffixIcon: IconButton(
                       icon: Icon(
-                        obscurePassword ? Icons.visibility : Icons.visibility_off,
+                        obscurePassword
+                            ? Icons.visibility
+                            : Icons.visibility_off,
                         color: Colors.white70,
                       ),
                       onPressed: () {
@@ -359,16 +363,19 @@ class SettingsScreen extends ConsumerWidget {
                       confirmController.dispose();
                       Navigator.pop(dialogContext);
                     },
-              child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+              child:
+                  const Text('Cancel', style: TextStyle(color: Colors.white70)),
             ),
             ElevatedButton(
               onPressed: isLoading
                   ? null
                   : () async {
-                      if (confirmController.text.trim().toUpperCase() != 'DELETE') {
+                      if (confirmController.text.trim().toUpperCase() !=
+                          'DELETE') {
                         AppNotifications.showSnackBar(
                           rootContext,
-                          message: 'Please type DELETE to confirm account removal.',
+                          message:
+                              'Please type DELETE to confirm account removal.',
                           type: AppNotificationType.warning,
                         );
                         return;
@@ -377,7 +384,8 @@ class SettingsScreen extends ConsumerWidget {
                       if (passwordController.text.isEmpty) {
                         AppNotifications.showSnackBar(
                           rootContext,
-                          message: 'Password is required to delete your account.',
+                          message:
+                              'Password is required to delete your account.',
                           type: AppNotificationType.error,
                         );
                         return;
@@ -401,7 +409,8 @@ class SettingsScreen extends ConsumerWidget {
                           message: 'Account deleted successfully.',
                           type: AppNotificationType.success,
                         );
-                        Navigator.of(rootContext, rootNavigator: true).pushNamedAndRemoveUntil(
+                        Navigator.of(rootContext, rootNavigator: true)
+                            .pushNamedAndRemoveUntil(
                           Routes.login,
                           (route) => false,
                         );
@@ -425,14 +434,7 @@ class SettingsScreen extends ConsumerWidget {
                 backgroundColor: Colors.redAccent,
               ),
               child: isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
+                  ? const LottieLoading.small()
                   : const Text('Delete Account'),
             ),
           ],
@@ -470,17 +472,21 @@ class SettingsScreen extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white70)),
           ),
           ElevatedButton(
             onPressed: () async {
               try {
-                await FirebaseAuth.instance.sendPasswordResetEmail(
+                await FirebaseAuth.instance
+                    .sendPasswordResetEmail(
                   email: user.email!,
-                ).timeout(
+                )
+                    .timeout(
                   const Duration(seconds: 10),
                   onTimeout: () {
-                    throw Exception('Request timed out. Please check your connection.');
+                    throw Exception(
+                        'Request timed out. Please check your connection.');
                   },
                 );
                 if (context.mounted) {
@@ -496,7 +502,8 @@ class SettingsScreen extends ConsumerWidget {
                   Navigator.pop(context);
                   AppNotifications.showSnackBar(
                     context,
-                    message: 'Failed to send reset email: ${e.toString().replaceAll('Exception: ', '')}',
+                    message:
+                        'Failed to send reset email: ${e.toString().replaceAll('Exception: ', '')}',
                     type: AppNotificationType.error,
                   );
                 }
@@ -556,11 +563,14 @@ class SettingsScreen extends ConsumerWidget {
                     labelStyle: const TextStyle(color: Colors.white70),
                     suffixIcon: IconButton(
                       icon: Icon(
-                        obscureOldPassword ? Icons.visibility : Icons.visibility_off,
+                        obscureOldPassword
+                            ? Icons.visibility
+                            : Icons.visibility_off,
                         color: Colors.white70,
                       ),
                       onPressed: () {
-                        setState(() => obscureOldPassword = !obscureOldPassword);
+                        setState(
+                            () => obscureOldPassword = !obscureOldPassword);
                       },
                     ),
                     border: OutlineInputBorder(
@@ -578,11 +588,14 @@ class SettingsScreen extends ConsumerWidget {
                     labelStyle: const TextStyle(color: Colors.white70),
                     suffixIcon: IconButton(
                       icon: Icon(
-                        obscureNewPassword ? Icons.visibility : Icons.visibility_off,
+                        obscureNewPassword
+                            ? Icons.visibility
+                            : Icons.visibility_off,
                         color: Colors.white70,
                       ),
                       onPressed: () {
-                        setState(() => obscureNewPassword = !obscureNewPassword);
+                        setState(
+                            () => obscureNewPassword = !obscureNewPassword);
                       },
                     ),
                     border: OutlineInputBorder(
@@ -600,11 +613,14 @@ class SettingsScreen extends ConsumerWidget {
                     labelStyle: const TextStyle(color: Colors.white70),
                     suffixIcon: IconButton(
                       icon: Icon(
-                        obscureConfirmPassword ? Icons.visibility : Icons.visibility_off,
+                        obscureConfirmPassword
+                            ? Icons.visibility
+                            : Icons.visibility_off,
                         color: Colors.white70,
                       ),
                       onPressed: () {
-                        setState(() => obscureConfirmPassword = !obscureConfirmPassword);
+                        setState(() =>
+                            obscureConfirmPassword = !obscureConfirmPassword);
                       },
                     ),
                     border: OutlineInputBorder(
@@ -617,90 +633,101 @@ class SettingsScreen extends ConsumerWidget {
           ),
           actions: [
             TextButton(
-              onPressed: isLoading ? null : () {
-                oldPasswordController.dispose();
-                newPasswordController.dispose();
-                confirmPasswordController.dispose();
-                Navigator.pop(context);
-              },
-              child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+              onPressed: isLoading
+                  ? null
+                  : () {
+                      oldPasswordController.dispose();
+                      newPasswordController.dispose();
+                      confirmPasswordController.dispose();
+                      Navigator.pop(context);
+                    },
+              child:
+                  const Text('Cancel', style: TextStyle(color: Colors.white70)),
             ),
             ElevatedButton(
-              onPressed: isLoading ? null : () async {
-                if (newPasswordController.text.length < 6) {
-                  AppNotifications.showSnackBar(
-                    context,
-                    message: 'New password must be at least 6 characters',
-                    type: AppNotificationType.error,
-                  );
-                  return;
-                }
+              onPressed: isLoading
+                  ? null
+                  : () async {
+                      if (newPasswordController.text.length < 6) {
+                        AppNotifications.showSnackBar(
+                          context,
+                          message: 'New password must be at least 6 characters',
+                          type: AppNotificationType.error,
+                        );
+                        return;
+                      }
 
-                if (newPasswordController.text != confirmPasswordController.text) {
-                  AppNotifications.showSnackBar(
-                    context,
-                    message: 'New passwords do not match',
-                    type: AppNotificationType.error,
-                  );
-                  return;
-                }
+                      if (newPasswordController.text !=
+                          confirmPasswordController.text) {
+                        AppNotifications.showSnackBar(
+                          context,
+                          message: 'New passwords do not match',
+                          type: AppNotificationType.error,
+                        );
+                        return;
+                      }
 
-                setState(() => isLoading = true);
+                      setState(() => isLoading = true);
 
-                try {
-                  // Re-authenticate user
-                  final credential = EmailAuthProvider.credential(
-                    email: user.email!,
-                    password: oldPasswordController.text,
-                  );
-                  await user.reauthenticateWithCredential(credential).timeout(
-                    const Duration(seconds: 10),
-                  );
+                      try {
+                        // Re-authenticate user
+                        final credential = EmailAuthProvider.credential(
+                          email: user.email!,
+                          password: oldPasswordController.text,
+                        );
+                        await user
+                            .reauthenticateWithCredential(credential)
+                            .timeout(
+                              const Duration(seconds: 10),
+                            );
 
-                  // Update password
-                  await user.updatePassword(newPasswordController.text).timeout(
-                    const Duration(seconds: 10),
-                  );
+                        // Update password
+                        await user
+                            .updatePassword(newPasswordController.text)
+                            .timeout(
+                              const Duration(seconds: 10),
+                            );
 
-                  // Log password change
-                  final loggingService = LoggingService();
-                  await loggingService.logAction(
-                    action: 'Password changed',
-                    category: 'auth',
-                    details: 'User successfully changed their password',
-                    level: LogLevel.info,
-                  );
+                        // Log password change
+                        final loggingService = LoggingService();
+                        await loggingService.logAction(
+                          action: 'Password changed',
+                          category: 'auth',
+                          details: 'User successfully changed their password',
+                          level: LogLevel.info,
+                        );
 
-                  if (context.mounted) {
-                    oldPasswordController.dispose();
-                    newPasswordController.dispose();
-                    confirmPasswordController.dispose();
-                    Navigator.pop(context);
-                    AppNotifications.showSnackBar(
-                      context,
-                      message: 'Password changed successfully!',
-                      type: AppNotificationType.success,
-                    );
-                  }
-                } catch (e) {
-                  setState(() => isLoading = false);
-                  if (context.mounted) {
-                    String errorMessage = 'Failed to change password';
-                    if (e.toString().contains('wrong-password')) {
-                      errorMessage = 'Current password is incorrect';
-                    } else if (e.toString().contains('weak-password')) {
-                      errorMessage = 'New password is too weak';
-                    } else if (e.toString().contains('timeout')) {
-                      errorMessage = 'Request timed out. Please check your connection.';
-                    }
-                    AppNotifications.showSnackBar(
-                      context,
-                      message: errorMessage,
-                      type: AppNotificationType.error,
-                    );
-                  }
-                }
-              },
+                        if (context.mounted) {
+                          oldPasswordController.dispose();
+                          newPasswordController.dispose();
+                          confirmPasswordController.dispose();
+                          Navigator.pop(context);
+                          AppNotifications.showSnackBar(
+                            context,
+                            message: 'Password changed successfully!',
+                            type: AppNotificationType.success,
+                          );
+                        }
+                      } catch (e) {
+                        setState(() => isLoading = false);
+                        if (context.mounted) {
+                          String errorMessage = 'Failed to change password';
+                          if (e.toString().contains('wrong-password')) {
+                            errorMessage = 'Current password is incorrect';
+                          } else if (e.toString().contains('weak-password')) {
+                            errorMessage = 'New password is too weak';
+                          } else if (e.toString().contains('timeout')) {
+                            errorMessage =
+                                'Request timed out. Please check your connection.';
+                          }
+                          AppNotifications.showSnackBar(
+                            context,
+                            message: errorMessage,
+                            type: AppNotificationType.error,
+                          );
+                        }
+                      }
+                    },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue,
               ),
@@ -708,10 +735,7 @@ class SettingsScreen extends ConsumerWidget {
                   ? const SizedBox(
                       width: 20,
                       height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
+                      child: LottieLoading.small(),
                     )
                   : const Text('Change Password'),
             ),

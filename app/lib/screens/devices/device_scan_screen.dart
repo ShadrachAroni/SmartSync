@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart' as flutter_blue;
@@ -5,8 +6,10 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/bluetooth_service.dart';
 import '../../services/firebase_service.dart';
+import '../../models/sensor_data.dart';
 import '../../core/utils/logger.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/widgets/lottie_loading.dart';
 import 'device_registration_dialog.dart';
 
 // Provider for BLE scanning state
@@ -103,7 +106,22 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
             final existingDevice = await firebaseService.getDeviceById(deviceId);
             
             if (existingDevice == null) {
-              // Device not registered, show registration dialog
+              // Device not registered, try to get initial sensor data for auto-detection
+              SensorData? initialSensorData;
+              try {
+                Logger.info('DeviceRegistration: Waiting for initial sensor data for auto-detection...');
+                initialSensorData = await _bluetoothService.getFirstSensorData(
+                  timeout: const Duration(seconds: 3),
+                );
+                
+                if (initialSensorData != null) {
+                  Logger.info('DeviceRegistration: Received initial sensor data for auto-detection');
+                }
+              } catch (e) {
+                Logger.warning('DeviceRegistration: Could not get initial sensor data: $e');
+              }
+              
+              // Show registration dialog with auto-detection
               Logger.info('DeviceRegistration: Device $deviceId not found, showing registration dialog');
               final registered = await showDialog<bool>(
                 context: context,
@@ -113,6 +131,7 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
                   deviceName: device.advName.isNotEmpty 
                       ? device.advName 
                       : 'SmartSync Device',
+                  initialSensorData: initialSensorData,
                 ),
               );
               
@@ -291,16 +310,7 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          SizedBox(
-            width: 80,
-            height: 80,
-            child: CircularProgressIndicator(
-              strokeWidth: 4,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                const Color(0xFF00BFA5),
-              ),
-            ),
-          ),
+          const LottieLoading.medium(),
           const SizedBox(height: 32),
           const Text(
             'Searching for devices...',
@@ -480,16 +490,7 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
 
                     // Connect Button
                     if (isConnecting)
-                      const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            Color(0xFF00BFA5),
-                          ),
-                        ),
-                      )
+                      const LottieLoading.small()
                     else
                       Container(
                         padding: const EdgeInsets.all(12),

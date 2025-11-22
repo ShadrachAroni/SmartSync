@@ -1,7 +1,7 @@
 {
   "config_hash": "a354afd95743f2db3f7507b9f6e19d07",
-  "last_epoch": 0,
+  "last_epoch": 20,
   "status": "running",
-  "updated_at": "2025-11-20T21:59:44.094805",
-  "message": "Fresh run"
+  "updated_at": "2025-11-22T22:17:37.383820",
+  "message": "Resumed"
 }

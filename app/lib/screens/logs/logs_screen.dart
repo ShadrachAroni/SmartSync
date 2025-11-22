@@ -6,25 +6,29 @@ import '../../services/adaptive_auto_service.dart';
 import '../../models/log_entry.dart';
 import '../../core/utils/logger.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/widgets/lottie_loading.dart';
+import '../../core/widgets/lottie_error_indicator.dart';
 
 final loggingServiceProvider = Provider((ref) => LoggingService());
 
 final userLogsProvider = StreamProvider<List<LogEntry>>((ref) async* {
   final service = ref.watch(loggingServiceProvider);
   Logger.debug('LogsScreen: Starting to fetch user logs');
-  
+
   // Emit local logs immediately
   final localLogs = service.getLocalLogs();
-  Logger.debug('LogsScreen: Emitting ${localLogs.length} local logs immediately');
+  Logger.debug(
+      'LogsScreen: Emitting ${localLogs.length} local logs immediately');
   yield localLogs;
-  
+
   // Then try to get Firestore logs with timeout
   try {
     Logger.debug('LogsScreen: Attempting to get logs from Firestore...');
     yield* service.getUserLogs(limit: 200).timeout(
       const Duration(seconds: 10),
       onTimeout: (sink) {
-        Logger.warning('LogsScreen: Timeout fetching logs from Firestore, keeping local logs');
+        Logger.warning(
+            'LogsScreen: Timeout fetching logs from Firestore, keeping local logs');
         sink.add(localLogs);
         sink.close();
       },
@@ -55,7 +59,7 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
   Widget build(BuildContext context) {
     Logger.debug('LogsScreen: Building screen');
     final logsAsync = ref.watch(userLogsProvider);
-    
+
     Logger.debug('LogsScreen: logsAsync state: ${logsAsync.runtimeType}');
     logsAsync.when(
       data: (logs) => Logger.debug('LogsScreen: Received ${logs.length} logs'),
@@ -118,7 +122,8 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
           }
 
           final filteredLogs = logs.where((log) {
-            if (_selectedCategory != null && log.category != _selectedCategory) {
+            if (_selectedCategory != null &&
+                log.category != _selectedCategory) {
               return false;
             }
             if (_selectedLevel != null && log.level != _selectedLevel) {
@@ -135,7 +140,12 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
               padding: const EdgeInsets.all(16),
               itemCount: filteredLogs.length,
               itemBuilder: (context, index) {
-                return _LogEntryCard(log: filteredLogs[index]);
+                return _LogEntryCard(
+                  log: filteredLogs[index],
+                  onRevertChange: (changeId, details) {
+                    ref.invalidate(userLogsProvider);
+                  },
+                );
               },
             ),
           );
@@ -143,8 +153,10 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
         loading: () {
           Logger.debug('LogsScreen: Showing loading indicator');
           return const Center(
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+            child: LottieLoading(
+              size: 80,
+              message: 'Loading logs...',
+              showMessage: true,
             ),
           );
         },
@@ -156,11 +168,7 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.error_outline_rounded,
-                    size: 64,
-                    color: Colors.red.shade300,
-                  ),
+                  const LottieErrorIndicator(size: 80),
                   const SizedBox(height: 16),
                   Text(
                     'Error Loading Logs',
@@ -212,7 +220,7 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             DropdownButtonFormField<String?>(
-              value: _selectedCategory,
+              initialValue: _selectedCategory,
               decoration: const InputDecoration(
                 labelText: 'Category',
                 labelStyle: TextStyle(color: Colors.white70),
@@ -220,12 +228,16 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
               dropdownColor: const Color(0xFF1A1F3A),
               style: const TextStyle(color: Colors.white),
               items: [
-                const DropdownMenuItem(value: null, child: Text('All Categories')),
-                const DropdownMenuItem(value: 'auth', child: Text('Authentication')),
+                const DropdownMenuItem(
+                    value: null, child: Text('All Categories')),
+                const DropdownMenuItem(
+                    value: 'auth', child: Text('Authentication')),
                 const DropdownMenuItem(value: 'device', child: Text('Devices')),
                 const DropdownMenuItem(value: 'room', child: Text('Rooms')),
-                const DropdownMenuItem(value: 'settings', child: Text('Settings')),
-                const DropdownMenuItem(value: 'security', child: Text('Security')),
+                const DropdownMenuItem(
+                    value: 'settings', child: Text('Settings')),
+                const DropdownMenuItem(
+                    value: 'security', child: Text('Security')),
               ],
               onChanged: (value) {
                 setState(() => _selectedCategory = value);
@@ -233,7 +245,7 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<LogLevel?>(
-              value: _selectedLevel,
+              initialValue: _selectedLevel,
               decoration: const InputDecoration(
                 labelText: 'Level',
                 labelStyle: TextStyle(color: Colors.white70),
@@ -242,10 +254,14 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
               style: const TextStyle(color: Colors.white),
               items: [
                 const DropdownMenuItem(value: null, child: Text('All Levels')),
-                const DropdownMenuItem(value: LogLevel.debug, child: Text('Debug')),
-                const DropdownMenuItem(value: LogLevel.info, child: Text('Info')),
-                const DropdownMenuItem(value: LogLevel.warning, child: Text('Warning')),
-                const DropdownMenuItem(value: LogLevel.error, child: Text('Error')),
+                const DropdownMenuItem(
+                    value: LogLevel.debug, child: Text('Debug')),
+                const DropdownMenuItem(
+                    value: LogLevel.info, child: Text('Info')),
+                const DropdownMenuItem(
+                    value: LogLevel.warning, child: Text('Warning')),
+                const DropdownMenuItem(
+                    value: LogLevel.error, child: Text('Error')),
               ],
               onChanged: (value) {
                 setState(() => _selectedLevel = value);
@@ -276,9 +292,13 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
 }
 
 class _LogEntryCard extends StatelessWidget {
-  const _LogEntryCard({required this.log});
+  const _LogEntryCard({
+    required this.log,
+    required this.onRevertChange,
+  });
 
   final LogEntry log;
+  final void Function(String changeId, String details) onRevertChange;
 
   Color _getLevelColor(LogLevel level) {
     switch (level) {
@@ -420,7 +440,7 @@ class _LogEntryCard extends StatelessWidget {
             ),
           ],
           // Show revert button for automation changes
-          if (log.category == 'automation' && 
+          if (log.category == 'automation' &&
               log.metadata['revertable'] == true) ...[
             const SizedBox(height: 12),
             ElevatedButton.icon(
@@ -428,6 +448,7 @@ class _LogEntryCard extends StatelessWidget {
                 context,
                 log.metadata['changeId'] as String? ?? '',
                 log.details,
+                onRevertChange,
               ),
               icon: const Icon(Icons.undo, size: 16),
               label: const Text('Revert Change'),
@@ -446,8 +467,13 @@ class _LogEntryCard extends StatelessWidget {
       ),
     );
   }
-  
-  void _handleRevertChange(BuildContext context, String changeId, String details) {
+
+  void _handleRevertChange(
+    BuildContext context,
+    String changeId,
+    String details,
+    void Function(String, String) onRevertChange,
+  ) {
     if (changeId.isEmpty) {
       AppNotifications.showSnackBar(
         context,
@@ -456,7 +482,7 @@ class _LogEntryCard extends StatelessWidget {
       );
       return;
     }
-    
+
     AppNotifications.showDialog(
       context,
       title: 'Revert Automation Change',
@@ -466,7 +492,7 @@ class _LogEntryCard extends StatelessWidget {
       onPrimaryPressed: () async {
         final autoService = AdaptiveAutoService();
         final success = await autoService.revertChange(changeId);
-        
+
         if (success) {
           AppNotifications.showSnackBar(
             context,
@@ -474,7 +500,7 @@ class _LogEntryCard extends StatelessWidget {
             type: AppNotificationType.success,
           );
           // Refresh logs
-          ref.invalidate(userLogsProvider);
+          onRevertChange(changeId, details);
         } else {
           AppNotifications.showSnackBar(
             context,
@@ -484,7 +510,7 @@ class _LogEntryCard extends StatelessWidget {
         }
       },
       secondaryLabel: 'Cancel',
-      onSecondaryPressed: () {},
+      onSecondaryPressed: () async {},
     );
   }
 
@@ -503,4 +529,3 @@ class _LogEntryCard extends StatelessWidget {
     }
   }
 }
-

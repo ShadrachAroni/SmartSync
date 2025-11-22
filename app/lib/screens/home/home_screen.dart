@@ -4,25 +4,29 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:lottie/lottie.dart';
 
 import '../../providers/auth_provider.dart';
-import '../../services/firebase_service.dart';
 import '../../models/sensor_data.dart';
 import '../widgets/energy_card.dart';
 import '../devices/device_scan_screen.dart';
-import '../auth/login_screen.dart';
 import '../onboarding/onboarding_screen.dart';
 import '../rooms/rooms_screen.dart';
 import '../../core/constants/routes.dart';
 import '../../providers/device_provider.dart';
 import '../../providers/sensor_provider.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/widgets/lottie_loading.dart';
 import '../../core/utils/logger.dart';
-import '../../core/widgets/live_time_widget.dart';
 import '../../core/widgets/weather_time_widget.dart';
+import '../../core/widgets/error_boundary.dart';
 import '../../services/appliance_state_service.dart';
+import '../../services/ml_service.dart';
+import '../../models/ml_prediction.dart';
 
 // ==================== PROVIDERS ====================
+
+final mlServiceProvider = Provider((ref) => MLService());
 
 final bleConnectionProvider = StreamProvider<bool>((ref) {
   final bluetoothService = ref.watch(bluetoothServiceProvider);
@@ -31,12 +35,25 @@ final bleConnectionProvider = StreamProvider<bool>((ref) {
 
 final energyConsumptionProvider =
     FutureProvider.family<double, String>((ref, userId) async {
-  final firebaseService = ref.watch(firebaseServiceProvider);
+  final mlService = ref.watch(mlServiceProvider);
   try {
-    return await firebaseService
-        .getTodayEnergyConsumption(userId)
-        .timeout(const Duration(seconds: 10), onTimeout: () => 0.0);
+    // Use ML service insights to get energy consumption (includes ML calculations)
+    final insights = await mlService.getInsights(userId, 1).timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => AnalyticsInsights(
+        totalLogs: 0,
+        avgTemperature: 0.0,
+        avgHumidity: 0.0,
+        motionEvents: 0,
+        avgFanUsage: 0.0,
+        avgLightUsage: 0.0,
+        peakUsageHour: 0,
+        energyConsumption: 0.0,
+      ),
+    );
+    return insights.energyConsumption;
   } catch (e) {
+    Logger.error('Energy consumption error: $e');
     return 0.0;
   }
 });
@@ -65,19 +82,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget _getCurrentScreen(BuildContext context) {
     switch (_currentIndex) {
       case 0:
-        return const HomeTab();
+        return ErrorBoundary(
+          context: 'HomeTab',
+          child: const HomeTab(),
+        );
       case 1:
-        return RoomsScreen();
+        return ErrorBoundary(
+          context: 'RoomsScreen',
+          child: RoomsScreen(),
+        );
       case 2:
-        return const DeviceScanScreen();
+        return ErrorBoundary(
+          context: 'DeviceScanScreen',
+          child: const DeviceScanScreen(),
+        );
       case 3:
+        // Navigate to analytics without blocking
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          Navigator.of(context).pushNamed(Routes.analytics);
-          setState(() => _currentIndex = 0);
+          if (mounted) {
+            Navigator.of(context).pushNamed(Routes.analytics).catchError((e) {
+              Logger.error('HomeScreen: Navigation error', e);
+            });
+            if (mounted) {
+              setState(() => _currentIndex = 0);
+            }
+          }
         });
-        return const HomeTab();
+        return ErrorBoundary(
+          context: 'HomeTab',
+          child: const HomeTab(),
+        );
       default:
-        return const HomeTab();
+        return ErrorBoundary(
+          context: 'HomeTab',
+          child: const HomeTab(),
+        );
     }
   }
 
@@ -99,11 +138,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildNavItem(Icons.home_rounded, 'Home', 0, context),
-              _buildNavItem(Icons.meeting_room_rounded, 'Rooms', 1, context),
-              _buildNavItem(Icons.add_circle_rounded, 'Add', 2, context,
+              _buildNavItem(Icons.home, 'Home', 0, context),
+              _buildNavItem('assets/icons/room.png', 'Rooms', 1, context),
+              _buildNavItem('assets/icons/plus.png', 'Add', 2, context,
                   isCenter: true),
-              _buildNavItem(Icons.bar_chart_rounded, 'Stats', 3, context),
+              _buildNavItem(Icons.bar_chart, 'Stats', 3, context),
             ],
           ),
         ),
@@ -112,7 +151,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildNavItem(
-    IconData icon,
+    dynamic icon, // Can be String (iconPath) or IconData
     String label,
     int index,
     BuildContext context, {
@@ -137,11 +176,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.blue : Colors.white60,
-              size: isCenter ? 32 : 24,
-            ),
+            icon is IconData
+                ? Icon(
+                    icon,
+                    size: isCenter ? 32 : 24,
+                    color: isSelected ? Colors.blue : Colors.white60,
+                  )
+                : Image.asset(
+                    icon as String,
+                    width: isCenter ? 32 : 24,
+                    height: isCenter ? 32 : 24,
+                    color: isSelected ? Colors.blue : Colors.white60,
+                  ),
             if (!isCenter) ...[
               const SizedBox(height: 4),
               Text(
@@ -170,7 +216,6 @@ class HomeTab extends ConsumerStatefulWidget {
 }
 
 class _HomeTabState extends ConsumerState<HomeTab> {
-  bool _securityToggleInProgress = false;
   bool _allAppliancesOn = false;
 
   @override
@@ -194,40 +239,38 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     final user = FirebaseAuth.instance.currentUser;
 
     if (user == null) {
-      Logger.warning('HomeTab: User is null');
       return const Center(child: Text('Please login'));
     }
 
-    Logger.debug('HomeTab: Building with user ${user.uid}');
+    // Use read for providers that don't need to trigger rebuilds
     final currentUserAsync = ref.watch(currentUserProvider);
-    final bleConnection = ref.watch(bleConnectionProvider);
+    final bleConnection = ref.read(bleConnectionProvider);
     final sensorData = ref.watch(sensorStreamProvider);
-    
-    Logger.debug('HomeTab: currentUserAsync state: ${currentUserAsync.runtimeType}');
-    Logger.debug('HomeTab: bleConnection state: ${bleConnection.runtimeType}');
-    Logger.debug('HomeTab: sensorData state: ${sensorData.runtimeType}');
-    
-    sensorData.when(
-      data: (data) => Logger.debug('HomeTab: sensorData has data: ${data != null}'),
-      loading: () => Logger.debug('HomeTab: sensorData is loading'),
-      error: (error, stack) => Logger.error('HomeTab: sensorData error: $error'),
-    );
 
-    // Sync appliance state from sensor data
-    sensorData.whenData((data) {
-      if (data != null && mounted) {
-        final allOn = (data.fanSpeed > 0 || data.ledBrightness > 0);
-        if (allOn != _allAppliancesOn) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              setState(() {
-                _allAppliancesOn = allOn;
+    // Use listen for side effects instead of whenData in build
+    ref.listen<AsyncValue<SensorData?>>(
+      sensorStreamProvider,
+      (previous, next) {
+        next.whenData((data) {
+          if (data != null && mounted) {
+            final allOn = (data.fanSpeed > 0 || data.ledBrightness > 0);
+            if (allOn != _allAppliancesOn) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  setState(() {
+                    _allAppliancesOn = allOn;
+                  });
+                }
               });
             }
-          });
-        }
-      }
-    });
+          }
+        });
+        next.whenOrNull(
+          error: (error, stack) =>
+              Logger.error('HomeTab: sensorData error: $error'),
+        );
+      },
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0E27),
@@ -307,7 +350,6 @@ class _HomeTabState extends ConsumerState<HomeTab> {
               ],
             ),
             loading: () {
-              Logger.debug('HomeScreen: Loading user data...');
               // Show a fallback with user info from Firebase Auth while loading
               final user = FirebaseAuth.instance.currentUser;
               if (user != null) {
@@ -315,10 +357,16 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    _buildAvatar(null, user.displayName ?? user.email?.substring(0, 1).toUpperCase() ?? 'U'),
+                    _buildAvatar(
+                        null,
+                        user.displayName ??
+                            user.email?.substring(0, 1).toUpperCase() ??
+                            'U'),
                     const SizedBox(width: 16),
                     Expanded(
-                      child: _buildWelcomeText(user.displayName ?? user.email?.split('@')[0] ?? 'User'),
+                      child: _buildWelcomeText(user.displayName ??
+                          user.email?.split('@')[0] ??
+                          'User'),
                     ),
                     _buildBLEIndicator(bleConnection),
                     const SizedBox(width: 8),
@@ -329,26 +377,12 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                 );
               }
               // If no user, show loading
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    'Loading...',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
+              return const Center(
+                child: LottieLoading(
+                  size: 50,
+                  message: 'Loading...',
+                  showMessage: true,
+                ),
               );
             },
             error: (error, stackTrace) {
@@ -357,7 +391,8 @@ class _HomeTabState extends ConsumerState<HomeTab> {
               // Show error state with retry option
               return Row(
                 children: [
-                  Icon(Icons.error_outline, color: Colors.red.shade300, size: 20),
+                  Icon(Icons.error_outline,
+                      color: Colors.red.shade300, size: 20),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -475,12 +510,30 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           size: 20,
         ),
       ),
-      loading: () => const SizedBox(
-        width: 20,
-        height: 20,
-        child: CircularProgressIndicator(strokeWidth: 2),
+      loading: () => Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.grey.withOpacity(0.2),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(
+          Icons.bluetooth_disabled_rounded,
+          color: Colors.grey,
+          size: 20,
+        ),
       ),
-      error: (_, __) => const SizedBox(),
+      error: (_, __) => Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.red.withOpacity(0.2),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(
+          Icons.bluetooth_disabled_rounded,
+          color: Colors.red,
+          size: 20,
+        ),
+      ),
     );
   }
 
@@ -493,10 +546,11 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         shape: BoxShape.circle,
       ),
       child: IconButton(
-        icon: const Icon(
-          Icons.notifications_outlined,
+        icon: Image.asset(
+          'assets/icons/notification.png',
+          width: 22,
+          height: 22,
           color: Colors.white,
-          size: 22,
         ),
         onPressed: () {
           Navigator.of(context).pushNamed(Routes.alerts);
@@ -611,7 +665,8 @@ class _HomeTabState extends ConsumerState<HomeTab> {
 
                 if (mounted) {
                   Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (context) => const OnboardingScreen()),
+                    MaterialPageRoute(
+                        builder: (context) => const OnboardingScreen()),
                     (route) => false,
                   );
                 }
@@ -619,7 +674,8 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                 // Even if logout fails, try to navigate away
                 if (mounted) {
                   Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (context) => const OnboardingScreen()),
+                    MaterialPageRoute(
+                        builder: (context) => const OnboardingScreen()),
                     (route) => false,
                   );
                 }
@@ -708,179 +764,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   }
 
   // ==================== SECURITY CARD ====================
-
-  Widget _buildSecurityCard(
-    AsyncValue<SensorData?> sensorData,
-    AsyncValue<bool> bleConnection,
-  ) {
-    final bool? connectionValue = bleConnection.asData?.value;
-    final bool isConnected = connectionValue ?? false;
-
-    return sensorData.when(
-      data: (reading) {
-        // Only show as armed if connected AND reading indicates it's armed
-        // If not connected, default to false (disarmed)
-        final bool isArmed = isConnected && (reading?.securityEnabled ?? false);
-
-        return GestureDetector(
-          onTap: () => Navigator.of(context).pushNamed(Routes.security),
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: isArmed
-                    ? [Colors.green.shade700, Colors.green.shade900]
-                    : [Colors.orange.shade700, Colors.orange.shade900],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color:
-                      (isArmed ? Colors.green : Colors.orange).withOpacity(0.4),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        isArmed ? Icons.shield_rounded : Icons.shield_outlined,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Security System',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            isArmed
-                                ? 'Your safety protocols are active.'
-                                : 'Security automations paused.',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.9),
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch.adaptive(
-                      value: isArmed,
-                      onChanged: (!isConnected || _securityToggleInProgress)
-                          ? null
-                          : (value) {
-                            Logger.info('Security toggle: ${value ? "arming" : "disarming"}');
-                            _handleSecurityToggle(value);
-                          },
-                      activeColor: Colors.white,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Icon(Icons.bluetooth, size: 16, color: Colors.white70),
-                    const SizedBox(width: 6),
-                    Text(
-                      isConnected ? 'Device Connected' : 'Disconnected',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.white70,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (_securityToggleInProgress)
-                      const SizedBox(
-                        height: 16,
-                        width: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-      loading: () => Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1A1F3A),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: const Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-          ),
-        ),
-      ),
-      error: (_, __) => Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.red.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.red.withOpacity(0.3)),
-        ),
-        child: const Text(
-          'Unable to load security status',
-          style: TextStyle(color: Colors.red),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _handleSecurityToggle(bool enabled) async {
-    final bleService = ref.read(bluetoothServiceProvider);
-
-    if (!bleService.isConnected) {
-      AppNotifications.showSnackBar(
-        context,
-        message: 'Connect to your SmartSync hub before changing security.',
-        type: AppNotificationType.warning,
-      );
-      return;
-    }
-
-    setState(() => _securityToggleInProgress = true);
-    final success = await bleService.setSecurityEnabled(enabled);
-    if (!mounted) return;
-    setState(() => _securityToggleInProgress = false);
-
-    AppNotifications.showSnackBar(
-      context,
-      message: success
-          ? 'Security ${enabled ? 'armed' : 'disarmed'} successfully.'
-          : 'Unable to update security status.',
-      type: success ? AppNotificationType.success : AppNotificationType.error,
-    );
-  }
+  // Note: _buildSecurityCard and _handleSecurityToggle methods removed as they were unused
 
   // ==================== GLOBAL CONTROL CARD ====================
 
@@ -960,18 +844,24 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                   ? null
                   : () => _handleGlobalToggle(!_allAppliancesOn),
               icon: Icon(
-                _allAppliancesOn ? Icons.power_off_rounded : Icons.power_settings_new_rounded,
+                _allAppliancesOn
+                    ? Icons.power_off_rounded
+                    : Icons.power_settings_new_rounded,
                 size: 20,
               ),
               label: Text(
-                _allAppliancesOn ? 'Turn Off All Appliances' : 'Turn On All Appliances',
+                _allAppliancesOn
+                    ? 'Turn Off All Appliances'
+                    : 'Turn On All Appliances',
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: _allAppliancesOn ? Colors.red.shade600 : Colors.green.shade600,
+                backgroundColor: _allAppliancesOn
+                    ? Colors.red.shade600
+                    : Colors.green.shade600,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
@@ -1018,7 +908,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         ledBrightness: turnOn ? 128 : 0,
         securityEnabled: turnOn,
       );
-      
+
       AppNotifications.showSnackBar(
         context,
         message: 'Connect to your SmartSync hub first.',
@@ -1031,8 +921,12 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       if (turnOn) {
         // Turn on all devices to 50%
         await bleService.setFanSpeed(128).timeout(const Duration(seconds: 5));
-        await bleService.setLEDBrightness(128).timeout(const Duration(seconds: 5));
-        await bleService.setSecurityEnabled(true).timeout(const Duration(seconds: 5));
+        await bleService
+            .setLEDBrightness(128)
+            .timeout(const Duration(seconds: 5));
+        await bleService
+            .setSecurityEnabled(true)
+            .timeout(const Duration(seconds: 5));
 
         if (mounted) {
           AppNotifications.showSnackBar(
@@ -1044,8 +938,12 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       } else {
         // Turn off all devices
         await bleService.setFanSpeed(0).timeout(const Duration(seconds: 5));
-        await bleService.setLEDBrightness(0).timeout(const Duration(seconds: 5));
-        await bleService.setSecurityEnabled(false).timeout(const Duration(seconds: 5));
+        await bleService
+            .setLEDBrightness(0)
+            .timeout(const Duration(seconds: 5));
+        await bleService
+            .setSecurityEnabled(false)
+            .timeout(const Duration(seconds: 5));
 
         if (mounted) {
           AppNotifications.showSnackBar(
@@ -1059,7 +957,8 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       if (mounted) {
         AppNotifications.showSnackBar(
           context,
-          message: 'Failed to ${turnOn ? 'turn on' : 'turn off'} appliances: ${e.toString()}',
+          message:
+              'Failed to ${turnOn ? 'turn on' : 'turn off'} appliances: ${e.toString()}',
           type: AppNotificationType.error,
         );
       }
@@ -1082,11 +981,9 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   // ==================== ENERGY CARD ====================
 
   Widget _buildEnergyCard(String userId) {
-    Logger.debug('HomeTab: Building energy card for user $userId');
     final energyAsync = ref.watch(energyConsumptionProvider(userId));
     return energyAsync.when(
       data: (consumption) {
-        Logger.debug('HomeTab: Energy consumption loaded: $consumption');
         return EnergyCard(
           consumption: consumption,
           status:
@@ -1094,7 +991,6 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         );
       },
       loading: () {
-        Logger.debug('HomeTab: Energy consumption loading...');
         return const EnergyCard(consumption: 0, status: 'Loading...');
       },
       error: (error, _) {
@@ -1110,12 +1006,9 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   // ==================== SENSOR GRID ====================
 
   Widget _buildSensorGrid(AsyncValue<SensorData?> sensorDataAsync) {
-    Logger.debug('HomeTab: Building sensor grid');
     return sensorDataAsync.when(
       data: (sensorData) {
-        Logger.debug('HomeTab: Sensor data received: ${sensorData != null}');
         if (sensorData == null) {
-          Logger.warning('HomeTab: Sensor data is null, showing default grid');
           return _buildDefaultSensorGrid();
         }
 
@@ -1128,28 +1021,28 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           childAspectRatio: 1.1,
           children: [
             _buildAnimatedSensorCard(
-              icon: Icons.thermostat_rounded,
+              animationPath: 'assets/animations/temperature.json',
               title: 'Temperature',
               value: sensorData.temperatureDisplay,
               subtitle: _getTemperatureStatus(sensorData.temperature),
               color: const Color(0xFFFF6B6B),
             ),
             _buildAnimatedSensorCard(
-              icon: Icons.water_drop_rounded,
+              animationPath: 'assets/animations/humidity.json',
               title: 'Humidity',
               value: sensorData.humidityDisplay,
               subtitle: _getHumidityStatus(sensorData.humidity),
               color: const Color(0xFF4ECDC4),
             ),
-            _buildAnimatedSensorCard(
-              icon: Icons.directions_walk_rounded,
+            _buildMotionSensorCard(
+              motionDetected: sensorData.motionDetected,
               title: 'Motion',
               value: sensorData.motionDetected ? 'Detected' : 'No Motion',
               subtitle: _getMotionTime(sensorData.timestamp),
               color: const Color(0xFFFFE66D),
             ),
             _buildAnimatedSensorCard(
-              icon: Icons.social_distance_rounded,
+              animationPath: 'assets/animations/distance.json',
               title: 'Proximity',
               value: sensorData.distanceDisplay,
               subtitle: _getProximityStatus(sensorData.distance),
@@ -1159,7 +1052,6 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         );
       },
       loading: () {
-        Logger.debug('HomeTab: Sensor grid loading...');
         return _buildDefaultSensorGrid();
       },
       error: (error, stack) {
@@ -1170,7 +1062,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   }
 
   Widget _buildAnimatedSensorCard({
-    required IconData icon,
+    required String animationPath,
     required String title,
     required String value,
     required String subtitle,
@@ -1205,12 +1097,124 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                 ],
               ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(icon, size: 32, color: color),
+                    SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: Lottie.asset(
+                        animationPath,
+                        fit: BoxFit.contain,
+                        repeat: true,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Flexible(
+                      child: Text(
+                        value,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Flexible(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.white70,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Flexible(
+                      child: Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: color,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMotionSensorCard({
+    required bool motionDetected,
+    required String title,
+    required String value,
+    required String subtitle,
+    required Color color,
+  }) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 500),
+      builder: (context, animValue, child) {
+        return Transform.scale(
+          scale: animValue,
+          child: Opacity(
+            opacity: animValue,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF1A1F3A),
+                    const Color(0xFF0F1419),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: color.withOpacity(0.3)),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withOpacity(0.2),
+                    blurRadius: 15,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: Lottie.asset(
+                        'assets/animations/motion.json',
+                        fit: BoxFit.contain,
+                        repeat: true,
+                      ),
+                    ),
                     const SizedBox(height: 10),
                     Flexible(
                       child: Text(
@@ -1273,28 +1277,28 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       childAspectRatio: 1.1,
       children: [
         _buildAnimatedSensorCard(
-          icon: Icons.thermostat_rounded,
+          animationPath: 'assets/animations/temperature.json',
           title: 'Temperature',
           value: '--°C',
           subtitle: 'No data',
           color: const Color(0xFFFF6B6B),
         ),
         _buildAnimatedSensorCard(
-          icon: Icons.water_drop_rounded,
+          animationPath: 'assets/animations/humidity.json',
           title: 'Humidity',
           value: '--%',
           subtitle: 'No data',
           color: const Color(0xFF4ECDC4),
         ),
-        _buildAnimatedSensorCard(
-          icon: Icons.directions_walk_rounded,
+        _buildMotionSensorCard(
+          motionDetected: false,
           title: 'Motion',
           value: 'No data',
           subtitle: 'Connect device',
           color: const Color(0xFFFFE66D),
         ),
         _buildAnimatedSensorCard(
-          icon: Icons.social_distance_rounded,
+          animationPath: 'assets/animations/distance.json',
           title: 'Proximity',
           value: '-- cm',
           subtitle: 'No data',
@@ -1331,7 +1335,6 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     return 'Humid';
   }
 
-
   // ==================== SOS BUTTON ====================
 
   Widget _buildSOSButton() {
@@ -1365,10 +1368,14 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                   color: Colors.white.withOpacity(0.2),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.emergency,
-                  color: Colors.white,
-                  size: 28,
+                child: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: Lottie.asset(
+                    'assets/animations/emergency.json',
+                    fit: BoxFit.contain,
+                    repeat: true,
+                  ),
                 ),
               ),
               const SizedBox(width: 16),

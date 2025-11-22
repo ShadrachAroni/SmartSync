@@ -50,7 +50,12 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
 from tensorflow import keras
 
+# Suppress TensorFlow/absl warnings about optimizer state mismatches (expected when resuming)
+import absl.logging
+absl.logging.set_verbosity(absl.logging.ERROR)  # Suppress INFO/WARNING from absl
+
 warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message=".*Skipping variable loading for optimizer.*")
 tf.get_logger().setLevel("ERROR")
 
 # ==============================================================================
@@ -979,11 +984,31 @@ def train_model(
 ) -> Tuple[keras.Model, keras.callbacks.History, List[float]]:
     model = build_temporal_cnn(X_train.shape[1:], config)
     if resume_checkpoint and resume_checkpoint.exists():
-        try:
-            model.load_weights(resume_checkpoint)
-            print(f"🔁 Loaded checkpoint: {resume_checkpoint.name}")
-        except Exception as exc:
-            print(f"⚠️  Could not load checkpoint ({exc}). Continuing from scratch.")
+        # Suppress optimizer-related warnings when loading checkpoints
+        # These warnings are expected when optimizer state doesn't match (e.g., mixed precision, version differences)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*Could not load weights.*LossScaleOptimizer.*")
+            warnings.filterwarnings("ignore", message=".*Skipping variable loading for optimizer.*")
+            warnings.filterwarnings("ignore", category=UserWarning, module="keras.*saving.*")
+            try:
+                # Load weights only (checkpoint is saved with save_weights_only=True)
+                # This avoids LossScaleOptimizer compatibility issues with mixed precision training
+                model.load_weights(str(resume_checkpoint))
+                print(f"🔁 Loaded checkpoint: {resume_checkpoint.name}")
+            except (AttributeError, ValueError, TypeError, OSError) as exc:
+                # Handle optimizer-related errors (common with mixed precision + version differences)
+                error_str = str(exc).lower()
+                if "lossscaleoptimizer" in error_str or ("name" in error_str and "attribute" in error_str):
+                    try:
+                        # Fallback: Load with by_name to match layer names only, skip mismatches
+                        model.load_weights(str(resume_checkpoint), by_name=True, skip_mismatch=True)
+                        print(f"🔁 Loaded checkpoint weights (optimizer metadata skipped): {resume_checkpoint.name}")
+                    except Exception as exc2:
+                        print(f"⚠️  Could not load checkpoint ({exc2}). Continuing from scratch.")
+                else:
+                    print(f"⚠️  Could not load checkpoint ({exc}). Continuing from scratch.")
+            except Exception as exc:
+                print(f"⚠️  Could not load checkpoint ({exc}). Continuing from scratch.")
 
     train_ds = create_tf_dataset(X_train, y_train, config.batch_size, shuffle=True)
     val_ds = create_tf_dataset(X_val, y_val, config.batch_size, shuffle=False)

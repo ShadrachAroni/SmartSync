@@ -7,15 +7,36 @@ Flutter-based mobile application for SmartSync IoT Home Automation System, desig
 ### Core Functionality
 - **Real-time Device Control**: Control smart home devices via Bluetooth Low Energy (BLE)
 - **Environmental Monitoring**: Track temperature, humidity, motion, and proximity sensors
-- **Room Management**: Organize devices into rooms with custom themes
-- **Analytics Dashboard**: AI-powered insights and usage patterns
-- **Emergency SOS**: Quick access emergency alert system
-- **Energy Tracking**: Monitor and optimize energy consumption
+- **Room Management**: Organize devices into rooms with custom themes and icons
+- **Analytics Dashboard**: AI-powered insights with overview, insights, and predictions tabs
+- **Emergency SOS**: Quick access emergency alert system with caregiver notifications
+- **Energy Tracking**: Monitor and optimize energy consumption with daily summaries
+- **Activity Logs**: Comprehensive logging system with revert functionality for automation changes
+- **Alerts System**: Configurable alerts with severity levels and notification settings
+- **Weather Integration**: Real-time weather data and time display on home screen
+- **Onboarding**: User-friendly onboarding flow for new users
 
 ### AI/ML Features
-- **Smart Scheduling**: ML-predicted device schedules based on usage patterns
+- **Adaptive Auto Mode**: AI-powered automatic device control that adjusts fan speed and LED brightness based on real-time sensor data and ML predictions
+- **Local ML Inference**: On-device TFLite models for schedule prediction (privacy-preserving, fast)
+- **Cloud ML Integration**: Server-side ML inference via Firebase Cloud Functions
+- **Smart Scheduling**: ML-predicted device schedules based on usage patterns with confidence scores
 - **Anomaly Detection**: Automatic detection of unusual activity patterns
-- **Usage Analytics**: Comprehensive insights and recommendations
+- **Usage Analytics**: Comprehensive insights, activity timeline, and usage statistics
+- **ML Predictions**: Schedule predictions with device-specific recommendations
+
+### Caregiver Features
+- **Caregiver Dashboard**: Dedicated interface for caregivers to monitor patients
+- **Remote Control**: Control devices remotely for elderly users
+- **Patient Management**: Add and manage multiple patients from caregiver account
+- **Activity Monitoring**: Real-time access to patient's sensor data and activity logs
+- **Alert Notifications**: Receive push notifications for patient alerts and anomalies
+
+### Automation Features
+- **Scheduled Automations**: Create time-based device schedules
+- **AI-Suggested Schedules**: ML-powered schedule recommendations
+- **Change History**: Track all automation changes with revert capability
+- **Context-Aware Automation**: Automations consider temperature, humidity, motion, and time of day
 
 ## 🏗️ Architecture
 
@@ -26,21 +47,34 @@ Flutter-based mobile application for SmartSync IoT Home Automation System, desig
 ### Key Services
 ```
 services/
-├── auth_service.dart          # Firebase Authentication
-├── bluetooth_service.dart     # BLE device communication
-├── firebase_service.dart      # Firestore operations
-└── ml_service.dart           # ML inference via Cloud Functions
+├── auth_service.dart              # Firebase Authentication
+├── bluetooth_service.dart         # BLE device communication
+├── firebase_service.dart          # Firestore operations
+├── ml_service.dart                # ML inference via Cloud Functions
+├── tflite_service.dart            # Local TFLite model inference
+├── adaptive_auto_service.dart     # AI-powered adaptive automation
+├── weather_service.dart           # Weather data integration
+├── notification_service.dart      # Push notifications
+├── logging_service.dart           # Activity logging
+├── appliance_state_service.dart   # Appliance state management
+└── voice_service.dart             # Voice command support (future)
 ```
 
 ### Screens
 ```
 screens/
-├── auth/                     # Login, signup, password reset
-├── home/                     # Main dashboard
-├── devices/                  # Device scanning and control
-├── rooms/                    # Room management
-├── analytics/                # AI-powered analytics
-└── settings/                 # App settings
+├── auth/                     # Login, signup, password reset, email verification
+├── home/                     # Main dashboard with sensor grid
+├── devices/                  # Device scanning, control, and settings
+├── rooms/                    # Room management (add, edit, detail views)
+├── analytics/                # AI-powered analytics (overview, insights, predictions)
+├── alerts/                   # Alert management and settings
+├── schedules/                # Schedule management and AI suggestions
+├── automations/              # Automation creation and management
+├── caregiver/                # Caregiver dashboard and patient management
+├── logs/                     # Activity logs with revert functionality
+├── settings/                 # App settings (profile, security, notifications, privacy)
+└── onboarding/               # User onboarding flow
 ```
 
 ## 🚀 Getting Started
@@ -94,8 +128,10 @@ flutter run --release
 - `firebase_core`: Firebase initialization
 - `firebase_auth`: User authentication
 - `cloud_firestore`: Database operations
+- `cloud_functions`: Cloud Functions integration
 - `flutter_riverpod`: State management
 - `flutter_blue_plus`: Bluetooth communication
+- `tflite_flutter`: Local ML model inference
 
 ### UI/UX
 - `syncfusion_flutter_charts`: Analytics charts
@@ -108,6 +144,9 @@ flutter run --release
 - `shared_preferences`: Local storage
 - `flutter_secure_storage`: Secure credential storage
 - `intl`: Date/time formatting
+- `geolocator`: Location services for weather
+- `geocoding`: Address geocoding
+- `connectivity_plus`: Network connectivity monitoring
 
 ## 🔧 Configuration
 

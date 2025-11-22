@@ -1,4 +1,4 @@
-import 'package:cloud_functions/cloud_functions.dart';
+// import 'package:cloud_functions/cloud_functions.dart'; // Unused - Cloud Functions disabled for Spark plan
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../core/utils/logger.dart';
 import '../models/sensor_data.dart';
@@ -14,7 +14,7 @@ class MLService {
   factory MLService() => _instance;
   MLService._internal();
 
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  // final FirebaseFunctions _functions = FirebaseFunctions.instance; // Unused - Cloud Functions disabled for Spark plan
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final TFLiteService _tfliteService = TFLiteService();
 
@@ -22,7 +22,10 @@ class MLService {
 
   /// Initialize ML Service
   Future<void> initialize() async {
-    if (_isInitialized) return;
+    if (_isInitialized) {
+      Logger.debug('ML Service already initialized');
+      return;
+    }
 
     try {
       Logger.info('Initializing ML Service...');
@@ -36,26 +39,36 @@ class MLService {
       }
 
       // Check if server-side models are deployed (fallback)
-      final config =
-          await _firestore.collection('system_config').doc('ml_models').get();
+      // Use timeout to prevent hanging if Firestore is slow
+      try {
+        final config = await _firestore
+            .collection('system_config')
+            .doc('ml_models')
+            .get()
+            .timeout(const Duration(seconds: 5));
 
-      if (config.exists) {
-        final models = config.data()?['models'] as Map<String, dynamic>?;
+        if (config.exists) {
+          final models = config.data()?['models'] as Map<String, dynamic>?;
 
-        if (models != null) {
-          Logger.info('Server-side ML models available (fallback):');
-          models.forEach((name, info) {
-            Logger.info('  - $name: ${info['currentVersion']}');
-          });
+          if (models != null) {
+            Logger.info('Server-side ML models available (fallback):');
+            models.forEach((name, info) {
+              Logger.info('  - $name: ${info['currentVersion']}');
+            });
+          }
+        } else {
+          Logger.info('No server-side ML models found (local models will be used)');
         }
-      } else {
-        Logger.info('No server-side ML models found (local models will be used)');
+      } catch (e) {
+        Logger.warning('Could not check server-side models: $e (continuing with local models)');
       }
 
       _isInitialized = true;
       Logger.success('ML Service initialized');
     } catch (e) {
       Logger.error('ML initialization failed: $e');
+      // Still mark as initialized to prevent infinite retries
+      _isInitialized = true;
     }
   }
 
@@ -69,6 +82,12 @@ class MLService {
   ) async {
     try {
       Logger.info('Requesting schedule prediction...');
+
+      // Ensure ML Service is initialized before making predictions
+      if (!_isInitialized) {
+        Logger.info('ML Service not initialized, initializing now...');
+        await initialize();
+      }
 
       // ========== PRIMARY: Try local TFLite inference first ==========
       if (_tfliteService.isReady) {
@@ -103,7 +122,9 @@ class MLService {
       }
 
       // ========== FALLBACK: Server-side inference only if local fails ==========
-      Logger.info('🔄 FALLBACK: Using server-side inference (local model unavailable or failed)...');
+      // Note: Cloud Functions require Blaze plan, so this fallback is disabled on Spark plan
+      Logger.warning('⚠️  Local TFLite inference unavailable. Server-side inference requires Blaze plan.');
+      Logger.info('💡 Please ensure local TFLite models are available in assets/models/');
       return await _predictSchedulesServer(userId, deviceId);
     } catch (e) {
       Logger.error('Schedule prediction failed: $e');
@@ -131,10 +152,10 @@ class MLService {
         query = query.where('deviceId', isEqualTo: deviceId);
       }
 
-      final snapshot = await query.orderBy('timestamp', ascending: true).get();
+      final snapshot = await query.orderBy('timestamp').get();
 
       final logs = snapshot.docs
-          .map((doc) => SensorData.fromJson(doc.data()))
+          .map((doc) => SensorData.fromJson(doc.data() as Map<String, dynamic>))
           .toList();
 
       Logger.info('Fetched ${logs.length} sensor logs');
@@ -146,10 +167,21 @@ class MLService {
   }
 
   /// Server-side schedule prediction (fallback)
+  /// 
+  /// NOTE: Cloud Functions require Blaze plan. This fallback is disabled
+  /// when running on Spark plan. The app uses local TFLite models instead.
   Future<List<SchedulePrediction>> _predictSchedulesServer(
     String userId,
     String deviceId,
   ) async {
+    // Cloud Functions are not available on Spark plan
+    // Return empty list - local TFLite inference should have been used instead
+    Logger.info('ℹ️  Server-side inference skipped (Cloud Functions require Blaze plan). Using local TFLite models only.');
+    Logger.info('💡 Tip: Ensure local TFLite models are loaded for ML predictions.');
+    return [];
+    
+    // Original Cloud Function code (disabled for Spark plan compatibility):
+    /*
     try {
       // Call Cloud Function
       final callable = _functions.httpsCallable('predictSchedule');
@@ -184,49 +216,57 @@ class MLService {
 
       return [];
     } on FirebaseFunctionsException catch (e) {
-      Logger.error('Server-side schedule prediction failed: ${e.message}');
-      rethrow;
+      // Handle NOT_FOUND gracefully - function may not be deployed
+      if (e.code == 'not-found') {
+        Logger.warning('⚠️  Cloud Function "predictSchedule" not found. It may not be deployed yet. Returning empty predictions.');
+        return [];
+      }
+      // Handle other Firebase function errors gracefully
+      Logger.error('Server-side schedule prediction failed: ${e.code} - ${e.message}');
+      return [];
     } catch (e) {
       Logger.error('Server-side schedule prediction failed with unexpected error: $e');
       return [];
     }
+    */
   }
 
-  SchedulePrediction? _parseSchedulePrediction(
-      Map<String, dynamic> payload) {
-    try {
-      final hour = payload['hour'];
-      final minute = payload['minute'];
-      final deviceType = payload['deviceType'];
-      final value = payload['value'];
-      final confidence = payload['confidence'];
-
-      if (hour is! int ||
-          minute is! int ||
-          deviceType is! String ||
-          value is! int ||
-          confidence is! num) {
-        throw FormatException('Missing schedule fields: $payload');
-      }
-
-      return SchedulePrediction(
-        dayOfWeek: payload['dayOfWeek'] as int? ?? (hour ~/ 24 % 7) + 1,
-        hour: hour,
-        minute: minute,
-        deviceType: deviceType,
-        value: value,
-        confidence: confidence.toDouble(),
-        reason: payload['reason'] as String? ??
-            'AI predicted based on your usage patterns',
-        deviceId: payload['deviceId'] as String?,
-        deviceName: payload['deviceName'] as String?,
-        roomId: payload['roomId'] as String?,
-      );
-    } catch (e) {
-      Logger.error('Failed to parse schedule prediction: $e');
-      return null;
-    }
-  }
+  // Unused - Only needed when Cloud Functions are enabled (Blaze plan)
+  // SchedulePrediction? _parseSchedulePrediction(
+  //     Map<String, dynamic> payload) {
+  //   try {
+  //     final hour = payload['hour'];
+  //     final minute = payload['minute'];
+  //     final deviceType = payload['deviceType'];
+  //     final value = payload['value'];
+  //     final confidence = payload['confidence'];
+  //
+  //     if (hour is! int ||
+  //         minute is! int ||
+  //         deviceType is! String ||
+  //         value is! int ||
+  //         confidence is! num) {
+  //       throw FormatException('Missing schedule fields: $payload');
+  //     }
+  //
+  //     return SchedulePrediction(
+  //       dayOfWeek: payload['dayOfWeek'] as int? ?? (hour ~/ 24 % 7) + 1,
+  //       hour: hour,
+  //       minute: minute,
+  //       deviceType: deviceType,
+  //       value: value,
+  //       confidence: confidence.toDouble(),
+  //       reason: payload['reason'] as String? ??
+  //           'AI predicted based on your usage patterns',
+  //       deviceId: payload['deviceId'] as String?,
+  //       deviceName: payload['deviceName'] as String?,
+  //       roomId: payload['roomId'] as String?,
+  //     );
+  //   } catch (e) {
+  //     Logger.error('Failed to parse schedule prediction: $e');
+  //     return null;
+  //   }
+  // }
 
   /// Detect anomalies in user activity
   ///
@@ -306,7 +346,6 @@ class MLService {
           .get();
 
       if (snapshot.docs.isEmpty) {
-        Logger.info('No sensor logs found, returning default insights');
         return _getDefaultInsights();
       }
 

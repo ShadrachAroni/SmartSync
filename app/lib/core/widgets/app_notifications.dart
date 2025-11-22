@@ -17,7 +17,7 @@ class AppNotifications {
       gradient: const [Color(0xFFF87171), Color(0xFFB91C1C)],
       icon: Icons.error_rounded,
       accent: const Color(0xFFEF4444),
-      animationAsset: 'assets/animations/error.json',
+      animationAsset: 'assets/animations/error-exclamation.json',
     ),
     AppNotificationType.warning: _NotificationStyle(
       gradient: const [Color(0xFFFBBF24), Color(0xFFD97706)],

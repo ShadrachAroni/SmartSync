@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/device_model.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/widgets/lottie_loading.dart';
 import '../../core/utils/logger.dart';
 import '../../core/widgets/live_time_widget.dart';
 
@@ -26,7 +27,7 @@ class _AddScheduledAutomationScreenState
     extends ConsumerState<AddScheduledAutomationScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
-  
+
   TimeOfDay _selectedTime = TimeOfDay.now();
   bool _repeatDaily = true;
   List<int> _selectedDays = [1, 2, 3, 4, 5, 6, 7]; // All days by default
@@ -42,7 +43,8 @@ class _AddScheduledAutomationScreenState
       _selectedDevices[device.id] = false;
       _deviceValues[device.id] = 50; // Default to 50%
     }
-    Logger.debug('AddScheduledAutomationScreen: Initialized for room ${widget.roomId}');
+    Logger.debug(
+        'AddScheduledAutomationScreen: Initialized for room ${widget.roomId}');
   }
 
   @override
@@ -124,7 +126,7 @@ class _AddScheduledAutomationScreenState
       for (var deviceId in selectedDeviceIds) {
         final device = widget.devices.firstWhere((d) => d.id == deviceId);
         final value = _deviceValues[deviceId] ?? 50;
-        
+
         final automationRef = firestore.collection('automations').doc();
         final automationData = {
           'userId': user.uid,
@@ -138,7 +140,8 @@ class _AddScheduledAutomationScreenState
           'repeatDaily': _repeatDaily,
           'daysOfWeek': _selectedDays,
           'action': {
-            'type': device.type == DeviceType.fan ? 'setFanSpeed' : 'setBrightness',
+            'type':
+                device.type == DeviceType.fan ? 'setFanSpeed' : 'setBrightness',
             'value': value,
             'deviceType': device.type.toString().split('.').last,
           },
@@ -147,11 +150,13 @@ class _AddScheduledAutomationScreenState
         };
 
         batch.set(automationRef, automationData);
-        Logger.info('AddScheduledAutomationScreen: Creating automation for device $deviceId');
+        Logger.info(
+            'AddScheduledAutomationScreen: Creating automation for device $deviceId');
       }
 
       await batch.commit();
-      Logger.success('AddScheduledAutomationScreen: Automation created successfully');
+      Logger.success(
+          'AddScheduledAutomationScreen: Automation created successfully');
 
       if (!mounted) return;
       AppNotifications.showSnackBar(
@@ -161,7 +166,8 @@ class _AddScheduledAutomationScreenState
       );
       Navigator.pop(context, true);
     } catch (e) {
-      Logger.error('AddScheduledAutomationScreen: Error creating automation: $e');
+      Logger.error(
+          'AddScheduledAutomationScreen: Error creating automation: $e');
       if (!mounted) return;
       AppNotifications.showSnackBar(
         context,
@@ -277,7 +283,8 @@ class _AddScheduledAutomationScreenState
                       decoration: BoxDecoration(
                         color: const Color(0xFF0F1419),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                        border:
+                            Border.all(color: Colors.white.withOpacity(0.1)),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -319,7 +326,7 @@ class _AddScheduledAutomationScreenState
                   }
                 });
               },
-              activeColor: const Color(0xFF00BFA5),
+              activeThumbColor: const Color(0xFF00BFA5),
             ),
             const SizedBox(height: 12),
 
@@ -374,14 +381,7 @@ class _AddScheduledAutomationScreenState
                 ),
               ),
               child: _isLoading
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
+                  ? const LottieLoading.small()
                   : const Text(
                       'Create Automation',
                       style: TextStyle(
@@ -418,9 +418,7 @@ class _AddScheduledAutomationScreenState
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isSelected
-            ? const Color(0xFF1A1F3A)
-            : const Color(0xFF0F1419),
+        color: isSelected ? const Color(0xFF1A1F3A) : const Color(0xFF0F1419),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: isSelected
@@ -488,4 +486,3 @@ class _AddScheduledAutomationScreenState
     );
   }
 }
-

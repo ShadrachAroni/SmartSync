@@ -1,23 +1,50 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:lottie/lottie.dart';
 import '../../services/weather_service.dart';
-import '../../models/sensor_data.dart';
 import '../../providers/sensor_provider.dart';
 import 'live_time_widget.dart';
-import '../../core/utils/logger.dart';
+import 'lottie_weather_icon.dart';
 
 final weatherDataProvider = FutureProvider.autoDispose<WeatherData?>((ref) async {
-  final weatherService = WeatherService();
-  // Get sensor data for fallback
-  final sensorData = ref.watch(sensorStreamProvider);
-  final temp = sensorData.asData?.value?.temperature;
-  final hum = sensorData.asData?.value?.humidity;
-  
-  // Weather service will automatically request location permission and get coordinates
-  return await weatherService.getCurrentWeather(
-    fallbackTemperature: temp,
-    fallbackHumidity: hum,
-  );
+  try {
+    final weatherService = WeatherService();
+    // Get sensor data for fallback
+    final sensorData = ref.watch(sensorStreamProvider);
+    final temp = sensorData.asData?.value?.temperature;
+    final hum = sensorData.asData?.value?.humidity;
+    
+    // Weather service will automatically request location permission and get coordinates
+    // Add timeout to prevent hanging
+    return await weatherService.getCurrentWeather(
+      fallbackTemperature: temp,
+      fallbackHumidity: hum,
+    ).timeout(
+      const Duration(seconds: 8),
+      onTimeout: () {
+        // Return fallback weather data on timeout
+        return WeatherData(
+          temperature: temp ?? 22.0,
+          humidity: hum ?? 50.0,
+          description: 'Partly Cloudy',
+          condition: WeatherCondition.partlyCloudy,
+          location: 'Local',
+        );
+      },
+    );
+  } catch (e) {
+    // Return fallback on any error
+    final sensorData = ref.watch(sensorStreamProvider);
+    final temp = sensorData.asData?.value?.temperature;
+    final hum = sensorData.asData?.value?.humidity;
+    return WeatherData(
+      temperature: temp ?? 22.0,
+      humidity: hum ?? 50.0,
+      description: 'Partly Cloudy',
+      condition: WeatherCondition.partlyCloudy,
+      location: 'Local',
+    );
+  }
 });
 
 class WeatherTimeWidget extends ConsumerWidget {
@@ -53,10 +80,10 @@ class WeatherTimeWidget extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                Icons.access_time_rounded,
-                color: Colors.white.withOpacity(0.9),
-                size: 24,
+              const Icon(
+                Icons.access_time,
+                color: Colors.white,
+                size: 28,
               ),
               const SizedBox(width: 12),
               const LiveTimeWidget(
@@ -147,71 +174,11 @@ class WeatherTimeWidget extends ConsumerWidget {
   }
 
   Widget _buildAnimatedWeatherIcon(WeatherCondition condition) {
-    IconData iconData;
-    Color iconColor;
-    bool shouldAnimate = false;
-
-    switch (condition) {
-      case WeatherCondition.sunny:
-        iconData = Icons.wb_sunny_rounded;
-        iconColor = Colors.amber;
-        shouldAnimate = true;
-        break;
-      case WeatherCondition.cloudy:
-        iconData = Icons.cloud_rounded;
-        iconColor = Colors.grey.shade300;
-        break;
-      case WeatherCondition.rainy:
-        iconData = Icons.grain_rounded;
-        iconColor = Colors.blue.shade300;
-        shouldAnimate = true;
-        break;
-      case WeatherCondition.stormy:
-        iconData = Icons.flash_on_rounded;
-        iconColor = Colors.purple.shade300;
-        shouldAnimate = true;
-        break;
-      case WeatherCondition.snowy:
-        iconData = Icons.ac_unit_rounded;
-        iconColor = Colors.cyan.shade200;
-        break;
-      case WeatherCondition.foggy:
-        iconData = Icons.blur_on_rounded;
-        iconColor = Colors.grey.shade400;
-        break;
-      case WeatherCondition.partlyCloudy:
-        iconData = Icons.wb_cloudy_rounded;
-        iconColor = Colors.grey.shade200;
-        break;
-    }
-
-    Widget icon = Icon(
-      iconData,
-      size: 48,
-      color: iconColor,
+    // Use Lottie animation for weather icons
+    return LottieWeatherIcon(
+      condition: condition,
+      size: 64,
     );
-
-    if (shouldAnimate) {
-      return TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0.0, end: 1.0),
-        duration: const Duration(seconds: 2),
-        curve: Curves.easeInOut,
-        builder: (context, value, child) {
-          return Transform.scale(
-            scale: 1.0 + (value * 0.1 * (value < 0.5 ? value : 1 - value)),
-            child: Opacity(
-              opacity: 0.8 + (value * 0.2),
-              child: icon,
-            ),
-          );
-        },
-        onEnd: () {
-          // Restart animation
-        },
-      );
-    }
-
-    return icon;
   }
 
   Widget _buildWeatherPlaceholder() {

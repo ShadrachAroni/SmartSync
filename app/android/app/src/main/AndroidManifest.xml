@@ -27,9 +27,15 @@
     
     <!-- Foreground Service for persistent BLE connection -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Android 14+ (API 34+) requires specific foreground service types -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     
     <!-- Vibration for notifications -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    
+    <!-- Post notifications (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- ==================== BLUETOOTH FEATURES ==================== -->
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />

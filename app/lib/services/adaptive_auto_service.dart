@@ -2,17 +2,35 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/sensor_data.dart';
 import '../models/device_model.dart';
+import '../models/log_entry.dart';
 import '../core/utils/logger.dart';
-import '../core/widgets/app_notifications.dart';
 import 'bluetooth_service.dart';
 import 'ml_service.dart';
 import 'firebase_service.dart';
-import 'weather_service.dart';
 import 'logging_service.dart';
 import 'notification_service.dart';
 
+/// Represents an automation change that can be reverted
+class _AutomationChange {
+  final String deviceType; // 'fan' or 'light'
+  final int previousValue;
+  final int newValue;
+  final DateTime timestamp;
+  final String reason;
+  final Map<String, dynamic> context;
+
+  _AutomationChange({
+    required this.deviceType,
+    required this.previousValue,
+    required this.newValue,
+    required this.timestamp,
+    required this.reason,
+    required this.context,
+  });
+}
+
 /// AI-Powered Adaptive Auto Mode Service
-/// 
+///
 /// Uses ML predictions and sensor data to intelligently adjust
 /// fan speed and light brightness in real-time
 class AdaptiveAutoService {
@@ -23,7 +41,6 @@ class AdaptiveAutoService {
   final BluetoothService _bluetooth = BluetoothService();
   final MLService _mlService = MLService();
   final FirebaseService _firebase = FirebaseService();
-  final WeatherService _weather = WeatherService();
   final LoggingService _logging = LoggingService();
   final NotificationService _notificationService = NotificationService();
 
@@ -32,10 +49,10 @@ class AdaptiveAutoService {
   String? _userId;
   bool _isEnabled = false;
   bool _isRunning = false;
-  
+
   // Latest sensor data cache
   SensorData? _latestSensorData;
-  
+
   // Cache for ML predictions (update every 30 minutes)
   Map<String, int>? _cachedPredictions;
   DateTime? _lastPredictionUpdate;
@@ -44,29 +61,10 @@ class AdaptiveAutoService {
   // Last applied values to avoid unnecessary updates
   int _lastFanSpeed = -1;
   int _lastLedBrightness = -1;
-  
+
   // Track previous values for revert functionality
   final List<_AutomationChange> _changeHistory = [];
   static const _maxHistorySize = 50;
-  
-  /// Represents an automation change that can be reverted
-  class _AutomationChange {
-    final String deviceType; // 'fan' or 'light'
-    final int previousValue;
-    final int newValue;
-    final DateTime timestamp;
-    final String reason;
-    final Map<String, dynamic> context;
-    
-    _AutomationChange({
-      required this.deviceType,
-      required this.previousValue,
-      required this.newValue,
-      required this.timestamp,
-      required this.reason,
-      required this.context,
-    });
-  }
 
   bool get isEnabled => _isEnabled;
   bool get isRunning => _isRunning;
@@ -100,7 +98,7 @@ class AdaptiveAutoService {
 
     // Initialize ML service
     await _mlService.initialize();
-    
+
     // Initialize notification service for automation notifications
     await _notificationService.initialize(user.uid);
 
@@ -185,7 +183,6 @@ class AdaptiveAutoService {
 
       // Apply settings if different from current
       await _applySettings(optimalSettings);
-
     } catch (e) {
       Logger.error('Adaptive Auto Mode: Error updating settings: $e');
     }
@@ -199,9 +196,10 @@ class AdaptiveAutoService {
   /// Get ML predictions (with caching)
   Future<Map<String, int>?> _getMLPredictions() async {
     // Check cache
-    if (_cachedPredictions != null && 
+    if (_cachedPredictions != null &&
         _lastPredictionUpdate != null &&
-        DateTime.now().difference(_lastPredictionUpdate!) < _predictionCacheDuration) {
+        DateTime.now().difference(_lastPredictionUpdate!) <
+            _predictionCacheDuration) {
       return _cachedPredictions;
     }
 
@@ -239,7 +237,6 @@ class AdaptiveAutoService {
 
       Logger.info('Adaptive Auto Mode: Updated ML predictions');
       return _cachedPredictions;
-
     } catch (e) {
       Logger.error('Adaptive Auto Mode: Failed to get ML predictions: $e');
       return null;
@@ -365,14 +362,14 @@ class AdaptiveAutoService {
       final ledValue = ((ledBrightness / 100.0) * 255).round().clamp(0, 255);
 
       await _bluetooth.setFanSpeed(fanValue).timeout(
-        const Duration(seconds: 3),
-        onTimeout: () => false,
-      );
+            const Duration(seconds: 3),
+            onTimeout: () => false,
+          );
 
       await _bluetooth.setLEDBrightness(ledValue).timeout(
-        const Duration(seconds: 3),
-        onTimeout: () => false,
-      );
+            const Duration(seconds: 3),
+            onTimeout: () => false,
+          );
 
       // Track changes for revert functionality
       if (_lastFanSpeed >= 0 && _lastFanSpeed != fanSpeed) {
@@ -383,7 +380,7 @@ class AdaptiveAutoService {
           reason: 'AI adjusted based on temperature and usage patterns',
         );
       }
-      
+
       if (_lastLedBrightness >= 0 && _lastLedBrightness != ledBrightness) {
         _trackChange(
           deviceType: 'light',
@@ -399,12 +396,11 @@ class AdaptiveAutoService {
       Logger.info(
         'Adaptive Auto Mode: Applied settings (Fan: $fanSpeed%, LED: $ledBrightness%)',
       );
-
     } catch (e) {
       Logger.error('Adaptive Auto Mode: Failed to apply settings: $e');
     }
   }
-  
+
   /// Track an automation change for logging and revert functionality
   Future<void> _trackChange({
     required String deviceType,
@@ -425,18 +421,18 @@ class AdaptiveAutoService {
         'hour': DateTime.now().hour,
       },
     );
-    
+
     // Add to history
     _changeHistory.insert(0, change);
     if (_changeHistory.length > _maxHistorySize) {
       _changeHistory.removeLast();
     }
-    
+
     // Log to activity logs
     _logging.logAction(
       action: 'Automation Change',
       category: 'automation',
-      details: '${deviceType.toUpperCase()}: ${previousValue}% → ${newValue}%',
+      details: '${deviceType.toUpperCase()}: $previousValue% → $newValue%',
       metadata: {
         'deviceType': deviceType,
         'previousValue': previousValue,
@@ -448,16 +444,16 @@ class AdaptiveAutoService {
       },
       level: LogLevel.info,
     );
-    
+
     // Send notification
     await _sendAutomationNotification(change);
   }
-  
+
   /// Send notification for automation change
   Future<void> _sendAutomationNotification(_AutomationChange change) async {
     try {
       final changeId = change.timestamp.millisecondsSinceEpoch.toString();
-      
+
       // Show local notification
       await _notificationService.showAutomationNotification(
         deviceType: change.deviceType,
@@ -466,7 +462,7 @@ class AdaptiveAutoService {
         reason: change.reason,
         changeId: changeId,
       );
-      
+
       Logger.info(
         '🔔 Automation Notification sent: ${change.deviceType} ${change.previousValue}% → ${change.newValue}%',
       );
@@ -474,24 +470,30 @@ class AdaptiveAutoService {
       Logger.error('Failed to send automation notification: $e');
     }
   }
-  
+
   /// Revert a specific automation change
   Future<bool> revertChange(String changeId) async {
     try {
-      final change = _changeHistory.firstWhere(
+      final changeIndex = _changeHistory.indexWhere(
         (c) => c.timestamp.millisecondsSinceEpoch.toString() == changeId,
-        orElse: () => throw StateError('Change not found'),
       );
-      
+
+      if (changeIndex == -1) {
+        throw StateError('Change not found');
+      }
+
+      final change = _changeHistory[changeIndex];
+
       if (!_bluetooth.isConnected) {
         Logger.warning('Cannot revert: Bluetooth not connected');
         return false;
       }
-      
+
       // Revert the change
       final revertValue = change.previousValue;
-      final revertValue255 = ((revertValue / 100.0) * 255).round().clamp(0, 255);
-      
+      final revertValue255 =
+          ((revertValue / 100.0) * 255).round().clamp(0, 255);
+
       if (change.deviceType == 'fan') {
         await _bluetooth.setFanSpeed(revertValue255);
         _lastFanSpeed = revertValue;
@@ -499,12 +501,13 @@ class AdaptiveAutoService {
         await _bluetooth.setLEDBrightness(revertValue255);
         _lastLedBrightness = revertValue;
       }
-      
+
       // Log the revert
       _logging.logAction(
         action: 'Reverted Automation Change',
         category: 'automation',
-        details: '${change.deviceType.toUpperCase()}: ${change.newValue}% → ${change.previousValue}% (reverted)',
+        details:
+            '${change.deviceType.toUpperCase()}: ${change.newValue}% → ${change.previousValue}% (reverted)',
         metadata: {
           'originalChangeId': changeId,
           'deviceType': change.deviceType,
@@ -513,26 +516,30 @@ class AdaptiveAutoService {
         },
         level: LogLevel.info,
       );
-      
-      Logger.success('✅ Reverted automation change: ${change.deviceType} to ${revertValue}%');
+
+      Logger.success(
+          '✅ Reverted automation change: ${change.deviceType} to $revertValue%');
       return true;
     } catch (e) {
       Logger.error('Failed to revert change: $e');
       return false;
     }
   }
-  
+
   /// Get recent automation changes (for UI display)
   List<Map<String, dynamic>> getRecentChanges({int limit = 10}) {
-    return _changeHistory.take(limit).map((change) => {
-      'changeId': change.timestamp.millisecondsSinceEpoch.toString(),
-      'deviceType': change.deviceType,
-      'previousValue': change.previousValue,
-      'newValue': change.newValue,
-      'timestamp': change.timestamp,
-      'reason': change.reason,
-      'context': change.context,
-    }).toList();
+    return _changeHistory
+        .take(limit)
+        .map((change) => {
+              'changeId': change.timestamp.millisecondsSinceEpoch.toString(),
+              'deviceType': change.deviceType,
+              'previousValue': change.previousValue,
+              'newValue': change.newValue,
+              'timestamp': change.timestamp,
+              'reason': change.reason,
+              'context': change.context,
+            })
+        .toList();
   }
 
   /// Dispose resources
@@ -540,4 +547,3 @@ class AdaptiveAutoService {
     _stop();
   }
 }
-

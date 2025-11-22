@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
+import 'package:intl/intl.dart';
 import '../utils/time_utils.dart';
 import '../utils/logger.dart';
 
@@ -29,7 +31,6 @@ class _LiveTimeWidgetState extends State<LiveTimeWidget> {
   void initState() {
     super.initState();
     _startTimer();
-    Logger.debug('LiveTimeWidget: Initialized');
   }
 
   void _startTimer() {
@@ -52,7 +53,6 @@ class _LiveTimeWidgetState extends State<LiveTimeWidget> {
   @override
   void dispose() {
     _timer?.cancel();
-    Logger.debug('LiveTimeWidget: Disposed');
     super.dispose();
   }
 
@@ -62,49 +62,66 @@ class _LiveTimeWidgetState extends State<LiveTimeWidget> {
         ? TimeUtils.formatTime24Hour(_currentTime)
         : TimeUtils.formatTime24Hour(_currentTime).substring(0, 5);
     
-    return Row(
+    return Column(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (widget.showDayNight) ...[
-          Text(
-            TimeUtils.getTimeIcon(),
-            style: widget.textStyle ?? const TextStyle(fontSize: 16),
-          ),
-          const SizedBox(width: 8),
-        ],
+        // Date display
         Text(
-          timeFormat,
-          style: widget.textStyle ??
-              const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-        ),
-        if (widget.showDayNight) ...[
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: _isNight
-                  ? Colors.blue.withOpacity(0.2)
-                  : Colors.amber.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: _isNight ? Colors.blue : Colors.amber,
-                width: 1,
-              ),
-            ),
-            child: Text(
-              _isNight ? 'Night' : 'Day',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: _isNight ? Colors.blue.shade300 : Colors.amber.shade300,
-              ),
-            ),
+          DateFormat('EEEE, MMMM d, yyyy').format(_currentTime),
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.white.withOpacity(0.8),
+            fontWeight: FontWeight.w500,
           ),
-        ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (widget.showDayNight) ...[
+              Icon(
+                _isNight ? Icons.nightlight_round : Icons.wb_sunny,
+                color: _isNight ? Colors.blue.shade300 : Colors.amber.shade300,
+                size: 24,
+              ),
+              const SizedBox(width: 8),
+            ],
+            Text(
+              timeFormat,
+              style: widget.textStyle ??
+                  const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+            ),
+            if (widget.showDayNight) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _isNight
+                      ? Colors.blue.withOpacity(0.2)
+                      : Colors.amber.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _isNight ? Colors.blue : Colors.amber,
+                    width: 1,
+                  ),
+                ),
+                child: Text(
+                  _isNight ? 'Night' : 'Day',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: _isNight ? Colors.blue.shade300 : Colors.amber.shade300,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ],
     );
   }

@@ -15,7 +15,7 @@
     "@tensorflow/tfjs": "^4.22.0",
     "@tensorflow/tfjs-backend-cpu": "^4.22.0",
     "@tensorflow/tfjs-tflite": "^0.0.1-alpha.10",
-    "firebase-admin": "^11.11.1",
+    "firebase-admin": "^13.6.0",
     "firebase-functions": "^4.9.0"
   },
   "devDependencies": {

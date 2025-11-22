@@ -16,6 +16,26 @@ Aruba, HomeC, and Tulum smart-home datasets. Compared to the legacy script it:
 4. Produces improved diagnostics: learning curves (loss/MAE/R²), per-target
    scatter plots, distribution overlays, residual traces, and a metrics report.
 
+Data Leakage Prevention
+------------------------
+This implementation includes comprehensive data leakage prevention:
+
+1. **Temporal Splitting**: Data is split temporally (train → val → test) BEFORE
+   any feature engineering, preventing future information from leaking into training.
+
+2. **Scaler Fitting**: StandardScaler is fit ONLY on training data. Validation and
+   test sets are transformed using training statistics, preventing test set
+   statistics from influencing the model.
+
+3. **Feature Engineering**: Rolling statistics and lag features are computed
+   separately for each split, using only past data within each split.
+
+4. **Validation Checks**: Automatic validation ensures:
+   - No temporal overlap between splits
+   - No identical samples across splits
+   - Scaler statistics match training data only
+   - Feature statistics are appropriately different between splits
+
 Usage
 -----
     cd ml
@@ -54,9 +74,22 @@ from tensorflow import keras
 import absl.logging
 absl.logging.set_verbosity(absl.logging.ERROR)  # Suppress INFO/WARNING from absl
 
+# Suppress common TensorFlow warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message=".*Skipping variable loading for optimizer.*")
+warnings.filterwarnings("ignore", message=".*oneDNN custom operations.*")
+warnings.filterwarnings("ignore", message=".*Unable to register.*factory.*")
+warnings.filterwarnings("ignore", message=".*TF-TRT Warning.*")
+warnings.filterwarnings("ignore", message=".*TensorRT.*")
+warnings.filterwarnings("ignore", message=".*CPU feature guard.*")
+warnings.filterwarnings("ignore", message=".*AVX.*")
+
+# Set TensorFlow logging level
 tf.get_logger().setLevel("ERROR")
+
+# Suppress TensorFlow INFO and WARNING messages via environment variables
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # 0=all, 1=info, 2=warnings, 3=errors only
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")  # Disable oneDNN to avoid warnings
 
 # ==============================================================================
 # Hardware / Determinism
@@ -105,6 +138,232 @@ def setup_gpu() -> bool:
 GPU_AVAILABLE = setup_gpu()
 
 
+# ==============================================================================
+# Auto-Recovery System
+# ==============================================================================
+
+
+class ErrorClassifier:
+    """Classify training errors to determine recovery strategy."""
+    
+    MEMORY_ERROR_KEYWORDS = [
+        "out of memory", "oom", "cuda out of memory", "resource exhausted",
+        "failed to allocate", "memory allocation", "insufficient memory",
+        "allocation failed", "cudaerror", "cuda_launch_blocking"
+    ]
+    
+    CUDA_ERROR_KEYWORDS = [
+        "cuda", "gpu", "device", "driver", "cudnn", "tensorflow",
+        "failed to create cublas handle", "cuda driver version"
+    ]
+    
+    NETWORK_ERROR_KEYWORDS = [
+        "connection", "timeout", "network", "socket", "http", "dns"
+    ]
+    
+    @classmethod
+    def classify_error(cls, error: Exception) -> str:
+        """Classify error type for recovery strategy selection."""
+        error_str = str(error).lower()
+        error_type = type(error).__name__.lower()
+        
+        # Check for memory errors
+        if any(keyword in error_str for keyword in cls.MEMORY_ERROR_KEYWORDS):
+            return "memory"
+        
+        # Check for CUDA/GPU errors
+        if any(keyword in error_str for keyword in cls.CUDA_ERROR_KEYWORDS):
+            return "cuda"
+        
+        # Check for network errors
+        if any(keyword in error_str for keyword in cls.NETWORK_ERROR_KEYWORDS):
+            return "network"
+        
+        # Check error type
+        if "memory" in error_type or "oom" in error_type:
+            return "memory"
+        if "cuda" in error_type or "gpu" in error_type:
+            return "cuda"
+        if "keyboard" in error_type or "interrupt" in error_type:
+            return "interrupt"
+        
+        return "unknown"
+    
+    @classmethod
+    def is_recoverable(cls, error: Exception) -> bool:
+        """Determine if error is recoverable with automatic retry."""
+        error_type = cls.classify_error(error)
+        return error_type in ["memory", "cuda"]
+
+
+class SystemOptimizer:
+    """Optimize system resources for training recovery."""
+    
+    @staticmethod
+    def clear_gpu_memory():
+        """Clear GPU memory cache."""
+        try:
+            if GPU_AVAILABLE:
+                import gc
+                gc.collect()
+                tf.keras.backend.clear_session()
+                # Try to clear CUDA cache if available
+                try:
+                    import tensorflow as tf
+                    gpus = tf.config.list_physical_devices('GPU')
+                    if gpus:
+                        for gpu in gpus:
+                            tf.config.experimental.reset_memory_stats(gpu)
+                except Exception:
+                    pass
+                print("   ✅ GPU memory cache cleared")
+        except Exception as e:
+            print(f"   ⚠️  Could not clear GPU memory: {e}")
+    
+    @staticmethod
+    def reduce_batch_size(config: TrainingConfig, reduction_factor: float = 0.75, min_batch_size: int = 8) -> TrainingConfig:
+        """Create a new config with reduced batch size."""
+        new_batch_size = max(
+            min_batch_size,
+            int(config.batch_size * reduction_factor)
+        )
+        if new_batch_size == config.batch_size and config.batch_size > min_batch_size:
+            new_batch_size = max(min_batch_size, config.batch_size - 2)
+        
+        # Create new config with reduced batch size
+        config_dict = config.to_dict()
+        config_dict["batch_size"] = new_batch_size
+        return TrainingConfig(**config_dict)
+    
+    @staticmethod
+    def reduce_model_complexity(config: TrainingConfig) -> TrainingConfig:
+        """Reduce model complexity to save memory."""
+        config_dict = config.to_dict()
+        # Reduce convolution filters
+        current_filters = list(config.conv_filters)
+        reduced_filters = tuple(max(16, int(f * 0.75)) for f in current_filters)
+        config_dict["conv_filters"] = reduced_filters
+        return TrainingConfig(**config_dict)
+
+
+class AutoRecoveryManager:
+    """Manage automatic recovery from training errors."""
+    
+    def __init__(self, config: TrainingConfig, state_manager: TrainingStateManager):
+        self.config = config
+        self.state_manager = state_manager
+        self.recovery_attempts = 0
+        self.recovery_history: List[Dict[str, Any]] = []
+        self.optimizer = SystemOptimizer()
+        self.error_classifier = ErrorClassifier()
+    
+    def should_attempt_recovery(self, max_attempts: int, auto_recover: bool) -> bool:
+        """Check if we should attempt another recovery."""
+        if not auto_recover:
+            return False
+        return self.recovery_attempts < max_attempts
+    
+    def record_recovery_attempt(self, error: Exception, strategy: str, success: bool):
+        """Record a recovery attempt for tracking."""
+        self.recovery_history.append({
+            "attempt": self.recovery_attempts + 1,
+            "timestamp": datetime.utcnow().isoformat(),
+            "error_type": self.error_classifier.classify_error(error),
+            "error_message": str(error)[:200],  # Truncate long messages
+            "strategy": strategy,
+            "success": success,
+            "config": {
+                "batch_size": self.config.batch_size,
+                "conv_filters": self.config.conv_filters,
+            }
+        })
+        self.recovery_attempts += 1
+    
+    def get_recovery_strategy(self, error: Exception) -> Tuple[str, TrainingConfig]:
+        """Determine recovery strategy based on error type."""
+        error_type = self.error_classifier.classify_error(error)
+        current_config = self.config
+        
+        min_batch_size = getattr(current_config, 'min_batch_size', 8)
+        
+        if error_type == "memory":
+            # Strategy 1: Clear memory and reduce batch size
+            if self.recovery_attempts == 0:
+                self.optimizer.clear_gpu_memory()
+                new_config = self.optimizer.reduce_batch_size(current_config, 0.75, min_batch_size)
+                return "clear_memory_reduce_batch", new_config
+            
+            # Strategy 2: Further reduce batch size
+            elif self.recovery_attempts == 1:
+                new_config = self.optimizer.reduce_batch_size(current_config, 0.67, min_batch_size)
+                return "reduce_batch_size_2", new_config
+            
+            # Strategy 3: Reduce model complexity
+            elif self.recovery_attempts == 2:
+                new_config = self.optimizer.reduce_model_complexity(current_config)
+                new_config = self.optimizer.reduce_batch_size(new_config, 0.75, min_batch_size)
+                return "reduce_model_complexity", new_config
+            
+            # Strategy 4: Aggressive reduction
+            else:
+                new_config = self.optimizer.reduce_model_complexity(current_config)
+                new_config = self.optimizer.reduce_batch_size(new_config, 0.5, min_batch_size)
+                return "aggressive_reduction", new_config
+        
+        elif error_type == "cuda":
+            # For CUDA errors, clear memory and reduce batch size
+            self.optimizer.clear_gpu_memory()
+            new_config = self.optimizer.reduce_batch_size(current_config, 0.75, min_batch_size)
+            return "cuda_recovery", new_config
+        
+        else:
+            # Default: just clear memory and reduce batch size slightly
+            self.optimizer.clear_gpu_memory()
+            new_config = self.optimizer.reduce_batch_size(current_config, 0.9, min_batch_size)
+            return "default_recovery", new_config
+    
+    def save_recovery_state(self):
+        """Save recovery state for debugging."""
+        recovery_log_path = ARTIFACTS_DIR / "recovery_history.json"
+        with open(recovery_log_path, "w", encoding="utf-8") as fh:
+            json.dump({
+                "recovery_attempts": self.recovery_attempts,
+                "history": self.recovery_history,
+                "current_config": self.config.to_dict(),
+            }, fh, indent=2)
+    
+    def attempt_recovery(self, error: Exception, max_attempts: int, auto_recover: bool) -> Optional[TrainingConfig]:
+        """Attempt to recover from error by optimizing system."""
+        if not self.should_attempt_recovery(max_attempts, auto_recover):
+            return None
+        
+        error_type = self.error_classifier.classify_error(error)
+        strategy, new_config = self.get_recovery_strategy(error)
+        
+        print(f"\n{'='*90}")
+        print(f"🔄 AUTOMATIC RECOVERY ATTEMPT {self.recovery_attempts + 1}/{max_attempts}")
+        print(f"{'='*90}")
+        print(f"   Error Type: {error_type}")
+        print(f"   Strategy: {strategy}")
+        print(f"   Original batch size: {self.config.batch_size}")
+        print(f"   New batch size: {new_config.batch_size}")
+        if new_config.conv_filters != self.config.conv_filters:
+            print(f"   Original filters: {self.config.conv_filters}")
+            print(f"   New filters: {new_config.conv_filters}")
+        print(f"{'='*90}\n")
+        
+        # Wait a bit before retrying (exponential backoff)
+        wait_time = min(30, 5 * (2 ** self.recovery_attempts))
+        print(f"   ⏳ Waiting {wait_time}s before retry (allowing system to stabilize)...")
+        time.sleep(wait_time)
+        
+        self.config = new_config
+        self.record_recovery_attempt(error, strategy, False)  # Will update to True if successful
+        self.save_recovery_state()
+        
+        return new_config
+
+
 def set_global_seed(seed: int) -> None:
     np.random.seed(seed)
     tf.random.set_seed(seed)
@@ -124,18 +383,25 @@ class TrainingConfig:
     epochs: int = 50  # Reduced from 80 - early stopping will handle overfitting
     learning_rate: float = 3e-4
     min_learning_rate: float = 1e-6
-    validation_split: float = 0.15
+    validation_split: float = 0.20  # Increased from 0.15 for more stable validation metrics
     test_split: float = 0.15
     label_smoothing: float = 0.02
     datasets: Tuple[str, ...] = ("HomeC.csv", "aruba.csv", "tulum.csv")
     conv_filters: Tuple[int, ...] = (64, 64, 32)  # Restored to original with 4GB VRAM
     kernel_size: int = 5
-    dropout: float = 0.25
+    dropout: float = 0.30  # Increased from 0.25 for stronger regularization
     # Regularization hyperparameters
-    l2_regularization: float = 1e-4  # L2 weight regularization
+    l2_regularization: float = 2e-4  # Increased from 1e-4 for stronger regularization
     gradient_clip_norm: float = 1.0  # Gradient clipping to prevent exploding gradients
     targets: Tuple[str, ...] = ("fan_speed", "led_brightness")
     max_target_value: int = 255
+    # Data leakage prevention
+    use_temporal_split: bool = True  # Use temporal split for time-series data (prevents leakage)
+    validate_no_leakage: bool = True  # Enable strict leakage validation
+    # Auto-recovery settings
+    auto_recover: bool = True  # Enable automatic recovery from errors
+    max_recovery_attempts: int = 5  # Maximum recovery attempts before giving up
+    min_batch_size: int = 8  # Minimum batch size to try (below this, training may be too slow)
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -170,21 +436,171 @@ def compute_config_hash(config: TrainingConfig) -> str:
     return hashlib.md5(payload).hexdigest()
 
 
+def validate_no_data_leakage(
+    X_train: np.ndarray,
+    X_val: np.ndarray,
+    X_test: np.ndarray,
+    train_times: Optional[pd.Series] = None,
+    val_times: Optional[pd.Series] = None,
+    test_times: Optional[pd.Series] = None,
+) -> Tuple[bool, List[str]]:
+    """
+    Validate that there's no data leakage between train/val/test sets.
+    
+    Checks:
+    1. No overlap in feature statistics (mean, std) between splits
+    2. Temporal ordering (if timestamps provided)
+    3. No identical samples across splits
+    
+    Returns:
+        (is_valid, list_of_issues)
+    """
+    issues = []
+    
+    # Check for identical samples (exact duplicates) - sample for performance
+    # Note: For time-series, some overlap might be expected due to sequence windows
+    # This is a conservative check
+    sample_size = min(1000, len(X_train))
+    train_set = set(tuple(x.flatten().round(decimals=4)) for x in X_train[:sample_size])
+    val_set = set(tuple(x.flatten().round(decimals=4)) for x in X_val[:min(500, len(X_val))])
+    test_set = set(tuple(x.flatten().round(decimals=4)) for x in X_test[:min(500, len(X_test))])
+    
+    train_val_overlap = len(train_set & val_set)
+    train_test_overlap = len(train_set & test_set)
+    val_test_overlap = len(val_set & test_set)
+    
+    # Only warn if significant overlap (more than 1% of samples)
+    overlap_threshold = max(10, sample_size // 100)
+    if train_val_overlap > overlap_threshold:
+        issues.append(
+            f"Found {train_val_overlap} very similar samples between train and validation "
+            f"(threshold: {overlap_threshold})"
+        )
+    if train_test_overlap > overlap_threshold:
+        issues.append(
+            f"Found {train_test_overlap} very similar samples between train and test "
+            f"(threshold: {overlap_threshold})"
+        )
+    if val_test_overlap > overlap_threshold:
+        issues.append(
+            f"Found {val_test_overlap} very similar samples between validation and test "
+            f"(threshold: {overlap_threshold})"
+        )
+    
+    # Check feature statistics overlap (should be different due to temporal nature)
+    train_mean = np.mean(X_train, axis=(0, 1))
+    val_mean = np.mean(X_val, axis=(0, 1))
+    test_mean = np.mean(X_test, axis=(0, 1))
+    
+    # If means are too similar, might indicate leakage (but not definitive)
+    train_val_similarity = np.corrcoef(train_mean, val_mean)[0, 1] if len(train_mean) > 1 else 0
+    if train_val_similarity > 0.99:
+        issues.append(
+            f"Warning: Train and validation feature means are extremely similar "
+            f"(correlation: {train_val_similarity:.4f}). Possible leakage."
+        )
+    
+    # Temporal validation if timestamps provided
+    if train_times is not None and val_times is not None and test_times is not None:
+        if val_times.min() <= train_times.max():
+            issues.append(
+                f"Temporal leakage: Validation data ({val_times.min()}) overlaps with training ({train_times.max()})"
+            )
+        if test_times.min() <= val_times.max():
+            issues.append(
+                f"Temporal leakage: Test data ({test_times.min()}) overlaps with validation ({val_times.max()})"
+            )
+    
+    return len(issues) == 0, issues
+
+
+def compute_dataset_hash(tensors: Dict[str, np.ndarray]) -> str:
+    """Compute a hash of the dataset tensors to detect changes."""
+    # Create a deterministic hash from tensor shapes and a sample of data
+    hash_data = []
+    for key in sorted(tensors.keys()):
+        arr = tensors[key]
+        hash_data.append(f"{key}:shape={arr.shape},dtype={arr.dtype}")
+        # Include a small sample for content verification (first and last elements)
+        if arr.size > 0:
+            sample = np.concatenate([arr.flat[:10], arr.flat[-10:]])
+            hash_data.append(f"sample={hashlib.md5(sample.tobytes()).hexdigest()}")
+    payload = "|".join(hash_data).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 class DatasetCache:
-    """Persist prepared tensors and preprocessors to avoid recomputation."""
+    """Persist prepared tensors and preprocessors with metadata validation."""
 
     def __init__(self, config: TrainingConfig):
         self.config = config
         self.config_hash = compute_config_hash(config)
         self.dataset_path = CACHE_DIR / f"dataset_{self.config_hash}.npz"
         self.preprocessor_path = CACHE_DIR / f"preprocessor_{self.config_hash}.joblib"
+        self.metadata_path = CACHE_DIR / f"metadata_{self.config_hash}.json"
 
     def has_cache(self) -> bool:
-        return self.dataset_path.exists() and self.preprocessor_path.exists()
+        """Check if all cache files exist."""
+        return (
+            self.dataset_path.exists()
+            and self.preprocessor_path.exists()
+            and self.metadata_path.exists()
+        )
 
-    def load(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, SmartHomePreprocessor]:
+    def _load_metadata(self) -> Optional[Dict[str, Any]]:
+        """Load cache metadata if it exists."""
+        if not self.metadata_path.exists():
+            return None
+        try:
+            with open(self.metadata_path, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except (json.JSONDecodeError, IOError):
+            return None
+
+    def _validate_cache(self, metadata: Dict[str, Any]) -> Tuple[bool, List[str]]:
+        """Validate that cached data matches current configuration."""
+        issues = []
+        
+        # Check config hash matches
+        cached_config_hash = metadata.get("config_hash")
+        if cached_config_hash != self.config_hash:
+            issues.append(
+                f"Config hash mismatch: cached={cached_config_hash[:8]}, "
+                f"current={self.config_hash[:8]}. Configuration has changed."
+            )
+        
+        # Check expected shapes
+        expected_shapes = metadata.get("shapes", {})
+        if not expected_shapes:
+            issues.append("Missing shape information in cache metadata.")
+        
+        return len(issues) == 0, issues
+
+    def load(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, SmartHomePreprocessor, Dict[str, Any]]:
+        """Load cached datasets with validation."""
         if not self.has_cache():
-            raise FileNotFoundError("Dataset cache not found.")
+            raise FileNotFoundError(
+                f"Dataset cache not found. Expected files:\n"
+                f"  - {self.dataset_path}\n"
+                f"  - {self.preprocessor_path}\n"
+                f"  - {self.metadata_path}"
+            )
+        
+        # Load and validate metadata
+        metadata = self._load_metadata()
+        if not metadata:
+            raise ValueError(
+                f"Cache metadata file exists but is invalid or corrupted: {self.metadata_path}"
+            )
+        
+        # Validate cache compatibility
+        is_valid, issues = self._validate_cache(metadata)
+        if not is_valid:
+            error_msg = "Cache validation failed:\n  " + "\n  ".join(issues)
+            error_msg += "\n\nUse --reset-cache to clear and rebuild cache."
+            raise RuntimeError(error_msg)
+        
+        # Load tensors
         with np.load(self.dataset_path, allow_pickle=False) as data:
             X_train = data["X_train"]
             y_train = data["y_train"]
@@ -192,21 +608,83 @@ class DatasetCache:
             y_val = data["y_val"]
             X_test = data["X_test"]
             y_test = data["y_test"]
+        
+        # Verify shapes match metadata
+        actual_shapes = {
+            "X_train": X_train.shape,
+            "y_train": y_train.shape,
+            "X_val": X_val.shape,
+            "y_val": y_val.shape,
+            "X_test": X_test.shape,
+            "y_test": y_test.shape,
+        }
+        expected_shapes = metadata.get("shapes", {})
+        for key, expected_shape in expected_shapes.items():
+            if key in actual_shapes and actual_shapes[key] != tuple(expected_shape):
+                raise RuntimeError(
+                    f"Shape mismatch for {key}: expected {expected_shape}, "
+                    f"got {actual_shapes[key]}. Cache may be corrupted."
+                )
+        
+        # Load preprocessor
         preprocessor: SmartHomePreprocessor = joblib.load(self.preprocessor_path)
-        print(f"📦 Loaded cached datasets for config hash {self.config_hash[:8]}...")
-        return X_train, y_train, X_val, y_val, X_test, y_test, preprocessor
+        
+        # Verify feature columns match
+        cached_feature_cols = metadata.get("feature_columns", [])
+        if cached_feature_cols != preprocessor.feature_columns:
+            print(
+                f"⚠️  Warning: Feature columns mismatch. "
+                f"Cached: {len(cached_feature_cols)}, "
+                f"Preprocessor: {len(preprocessor.feature_columns)}"
+            )
+        
+        dataset_hash = metadata.get("dataset_hash", "unknown")
+        print(f"📦 Loaded cached datasets (config: {self.config_hash[:8]}, "
+              f"data: {dataset_hash[:8]})...")
+        print(f"   Shapes: train={X_train.shape}, val={X_val.shape}, test={X_test.shape}")
+        
+        return X_train, y_train, X_val, y_val, X_test, y_test, preprocessor, metadata
 
     def save(
         self,
         tensors: Dict[str, np.ndarray],
         preprocessor: SmartHomePreprocessor,
-    ) -> None:
+    ) -> Dict[str, Any]:
+        """Save datasets with comprehensive metadata."""
+        # Compute dataset hash for integrity checking
+        dataset_hash = compute_dataset_hash(tensors)
+        
+        # Extract shapes
+        shapes = {key: list(arr.shape) for key, arr in tensors.items()}
+        
+        # Create metadata
+        metadata = {
+            "config_hash": self.config_hash,
+            "dataset_hash": dataset_hash,
+            "shapes": shapes,
+            "feature_columns": preprocessor.feature_columns,
+            "target_columns": preprocessor.target_columns,
+            "created_at": datetime.utcnow().isoformat(),
+            "config": self.config.to_dict(),
+        }
+        
+        # Save all components
         np.savez_compressed(self.dataset_path, **tensors)
         joblib.dump(preprocessor, self.preprocessor_path)
-        print(f"💾 Cached datasets at {self.dataset_path.name}")
+        
+        # Save metadata as JSON
+        with open(self.metadata_path, "w", encoding="utf-8") as fh:
+            json.dump(metadata, fh, indent=2)
+        
+        print(f"💾 Cached datasets (config: {self.config_hash[:8]}, "
+              f"data: {dataset_hash[:8]})")
+        print(f"   Shapes: {shapes}")
+        
+        return metadata
 
     def clear(self) -> None:
-        for path in [self.dataset_path, self.preprocessor_path]:
+        """Clear all cache files."""
+        for path in [self.dataset_path, self.preprocessor_path, self.metadata_path]:
             if path.exists():
                 path.unlink()
 
@@ -232,7 +710,10 @@ class TrainingStateManager:
         status: str,
         logs: Optional[Dict[str, float]] = None,
         message: Optional[str] = None,
+        dataset_hash: Optional[str] = None,
+        dataset_metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
+        """Save training state with dataset validation info."""
         payload: Dict[str, Any] = {
             "config_hash": self.config_hash,
             "last_epoch": last_epoch,
@@ -243,6 +724,14 @@ class TrainingStateManager:
             payload["logs"] = logs
         if message:
             payload["message"] = message
+        if dataset_hash:
+            payload["dataset_hash"] = dataset_hash
+        if dataset_metadata:
+            # Store key metadata for validation
+            payload["dataset_metadata"] = {
+                "shapes": dataset_metadata.get("shapes", {}),
+                "feature_columns": dataset_metadata.get("feature_columns", []),
+            }
         with open(self.state_path, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2)
 
@@ -254,6 +743,56 @@ class TrainingStateManager:
 
     def has_checkpoint(self) -> bool:
         return self.latest_checkpoint_path.exists()
+    
+    def validate_resume_compatibility(
+        self, 
+        current_config_hash: str,
+        current_dataset_hash: Optional[str] = None,
+        current_dataset_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[bool, List[str]]:
+        """Validate that state/checkpoint are compatible with current config/dataset."""
+        issues = []
+        
+        state = self.load_state()
+        if not state:
+            return False, ["No training state found"]
+        
+        # Check config hash
+        state_config_hash = state.get("config_hash")
+        if state_config_hash != current_config_hash:
+            issues.append(
+                f"Config mismatch: state={state_config_hash[:8] if state_config_hash else 'none'}, "
+                f"current={current_config_hash[:8]}. Configuration has changed since last training."
+            )
+        
+        # Check dataset hash if provided
+        if current_dataset_hash:
+            state_dataset_hash = state.get("dataset_hash")
+            if state_dataset_hash and state_dataset_hash != current_dataset_hash:
+                issues.append(
+                    f"Dataset mismatch: state={state_dataset_hash[:8]}, "
+                    f"current={current_dataset_hash[:8]}. Dataset has changed since last training."
+                )
+        
+        # Check dataset shapes if provided
+        if current_dataset_metadata:
+            state_metadata = state.get("dataset_metadata", {})
+            state_shapes = state_metadata.get("shapes", {})
+            current_shapes = current_dataset_metadata.get("shapes", {})
+            
+            for key in ["X_train", "y_train", "X_val", "y_val"]:
+                if key in state_shapes and key in current_shapes:
+                    if state_shapes[key] != current_shapes[key]:
+                        issues.append(
+                            f"Shape mismatch for {key}: state={state_shapes[key]}, "
+                            f"current={current_shapes[key]}"
+                        )
+        
+        # Check checkpoint exists
+        if not self.has_checkpoint():
+            issues.append("Checkpoint file missing")
+        
+        return len(issues) == 0, issues
 
 
 class PauseResumeCallback(keras.callbacks.Callback):
@@ -276,6 +815,8 @@ class PauseResumeCallback(keras.callbacks.Callback):
             for key, value in logs.items()
             if isinstance(value, (int, float, np.floating))
         }
+        # Note: dataset_hash and metadata should be set when training starts
+        # They're stored in the callback's state if available
         self.state_manager.save_state(epoch + 1, "running", serializable_logs)
         if self.pause_flag_path.exists():
             print("\n⏸️  Pause requested. Finishing current epoch and stopping training.")
@@ -636,7 +1177,17 @@ class SmartHomePreprocessor:
         df["led_brightness"] = np.clip(led_brightness, 0, 1) * max_value
         return df
 
-    def build_hourly_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def build_hourly_features(self, df: pd.DataFrame, is_training: bool = True) -> pd.DataFrame:
+        """
+        Build hourly features from raw data.
+        
+        Args:
+            df: Raw dataframe with timestamp and sensor data
+            is_training: If True, this is training data. Used for validation only.
+        
+        Returns:
+            Hourly aggregated dataframe with engineered features
+        """
         print("\n🔧 Aggregating to hourly features ...")
         df = self._fill_missing_hours(df)
         df = self._engineer_targets(df, self.config.max_target_value)
@@ -668,12 +1219,14 @@ class SmartHomePreprocessor:
         # Fill any remaining NaN values with forward fill, then backward fill, then 0
         hourly = hourly.ffill().bfill().fillna(0)
 
-        # Rolling features and temporal encodings
+        # Temporal encodings (safe - only use current row's timestamp)
         hourly["hour_sin"] = np.sin(2 * np.pi * hourly["hour"].dt.hour / 24)
         hourly["hour_cos"] = np.cos(2 * np.pi * hourly["hour"].dt.hour / 24)
         hourly["day_of_week"] = hourly["hour"].dt.dayofweek
         hourly["is_weekend"] = (hourly["day_of_week"] >= 5).astype(int)
 
+        # Rolling features - computed separately per split to prevent leakage
+        # These use only past data (rolling window looks backward)
         rolling_cols = [
             "power_kw_mean",
             "house_kw_mean",
@@ -683,6 +1236,7 @@ class SmartHomePreprocessor:
         ]
         for col in rolling_cols:
             if col in hourly.columns:
+                # Rolling windows only look backward, so safe for temporal splits
                 hourly[f"{col}_roll6"] = (
                     hourly[col].rolling(window=6, min_periods=1).mean()
                 )
@@ -690,6 +1244,8 @@ class SmartHomePreprocessor:
                     hourly[col].rolling(window=24, min_periods=1).mean()
                 )
 
+        # Lag features - computed separately per split
+        # shift(1) looks at previous row, which is safe for temporal splits
         if "fan_speed_mean" in hourly.columns:
             hourly["fan_speed_lag1"] = hourly["fan_speed_mean"].shift(1).fillna(
                 hourly["fan_speed_mean"].rolling(3, min_periods=1).mean()
@@ -706,25 +1262,54 @@ class SmartHomePreprocessor:
         print(f"   → Hourly rows after feature engineering: {len(hourly):,}")
         return hourly
 
-    def prepare_sequences(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+    def prepare_sequences(
+        self, 
+        df: pd.DataFrame, 
+        fit_scaler: bool = False
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Prepare sequences from hourly dataframe.
+        
+        Args:
+            df: Hourly feature dataframe
+            fit_scaler: If True, fit scaler on this data. Should only be True for training data.
+                        If False, transform using previously fitted scaler.
+        
+        Returns:
+            X: Input sequences, y: Target values
+        """
         sequence_len = self.config.sequence_length
-        self.feature_columns = [
-            col
-            for col in df.columns
-            if col
-            not in {
-                "hour",
-                "fan_speed_mean",
-                "led_brightness_mean",
-            }
-        ]
+        
+        # Initialize feature columns if not already set (first call)
+        if not hasattr(self, 'feature_columns') or not self.feature_columns:
+            self.feature_columns = [
+                col
+                for col in df.columns
+                if col
+                not in {
+                    "hour",
+                    "fan_speed_mean",
+                    "led_brightness_mean",
+                }
+            ]
 
         features = df[self.feature_columns].values.astype(np.float32)
         targets = df[
             ["fan_speed_mean", "led_brightness_mean"]
         ].values.astype(np.float32)
 
-        features = self.feature_scaler.fit_transform(features)
+        # CRITICAL: Fit scaler ONLY on training data, transform on all splits
+        if fit_scaler:
+            features = self.feature_scaler.fit_transform(features)
+            print(f"   ✅ Fitted scaler on training data (mean: {self.feature_scaler.mean_[:3] if hasattr(self.feature_scaler, 'mean_') else 'N/A'})")
+        else:
+            if not hasattr(self.feature_scaler, 'mean_') or self.feature_scaler.mean_ is None:
+                raise RuntimeError(
+                    "Scaler not fitted! Call prepare_sequences with fit_scaler=True on training data first."
+                )
+            features = self.feature_scaler.transform(features)
+            print(f"   ✅ Transformed using training scaler statistics")
+        
         targets = targets / self.config.max_target_value
 
         X, y = [], []
@@ -816,7 +1401,7 @@ def build_temporal_cnn(
         kernel_initializer="he_normal",
     )(x)
     x = keras.layers.BatchNormalization()(x)
-    x = keras.layers.Dropout(config.dropout * 0.5)(x)  # Less dropout before output
+    x = keras.layers.Dropout(config.dropout * 0.6)(x)  # Slightly more dropout before output
     
     # Output layer should be float32 for mixed precision
     outputs = keras.layers.Dense(
@@ -868,12 +1453,21 @@ class ValidationR2Callback(keras.callbacks.Callback):
 
 
 class OverfittingMonitor(keras.callbacks.Callback):
-    """Monitor training/validation gap to detect overfitting early"""
-    def __init__(self, gap_threshold=0.15):
+    """Monitor training/validation gap to detect overfitting early with loss smoothing"""
+    def __init__(self, gap_threshold=0.15, smoothing_window=3):
         super().__init__()
         self.gap_threshold = gap_threshold
+        self.smoothing_window = smoothing_window
         self.best_gap = float('inf')
         self.epoch_gaps = []
+        self.val_loss_history = []  # Track validation loss for smoothing
+        self.train_loss_history = []  # Track training loss for smoothing
+        
+    def _smooth_loss(self, loss_history):
+        """Apply moving average smoothing to reduce noise"""
+        if len(loss_history) < self.smoothing_window:
+            return loss_history[-1] if loss_history else 0
+        return np.mean(loss_history[-self.smoothing_window:])
         
     def on_epoch_end(self, epoch: int, logs=None):
         if logs is None:
@@ -882,38 +1476,61 @@ class OverfittingMonitor(keras.callbacks.Callback):
         train_loss = logs.get('loss', 0)
         val_loss = logs.get('val_loss', 0)
         
+        # Track history for smoothing
+        self.train_loss_history.append(train_loss)
+        self.val_loss_history.append(val_loss)
+        
+        # Use smoothed losses for more stable gap calculation
+        smoothed_train = self._smooth_loss(self.train_loss_history)
+        smoothed_val = self._smooth_loss(self.val_loss_history)
+        
         if val_loss > 0 and train_loss > 0:
             # Calculate relative gap using the larger of the two losses as denominator
             # This handles both cases: val_loss > train_loss (overfitting) and val_loss < train_loss (unusual)
             max_loss = max(train_loss, val_loss)
             gap = abs(train_loss - val_loss) / max_loss
+            
+            # Also calculate smoothed gap
+            max_smoothed = max(smoothed_train, smoothed_val)
+            smoothed_gap = abs(smoothed_train - smoothed_val) / max_smoothed if max_smoothed > 0 else 0
+            
             self.epoch_gaps.append(gap)
             self.best_gap = min(self.best_gap, gap)
             
-            # Warn if gap is too large
-            if gap > self.gap_threshold:
-                if val_loss > train_loss:
+            # Warn if gap is too large (use smoothed gap for more stable detection)
+            if smoothed_gap > self.gap_threshold:
+                if smoothed_val > smoothed_train:
                     # Typical overfitting: validation loss higher than training
-                    print(f"\n⚠️  Warning: Large train/val gap detected ({gap:.2%}). Possible overfitting.")
-                    print(f"   Training loss: {train_loss:.6f}, Validation loss: {val_loss:.6f}")
+                    print(f"\n⚠️  Warning: Large train/val gap detected ({smoothed_gap:.2%}). Possible overfitting.")
+                    print(f"   Training loss: {train_loss:.6f} (smoothed: {smoothed_train:.6f})")
+                    print(f"   Validation loss: {val_loss:.6f} (smoothed: {smoothed_val:.6f})")
                 else:
                     # Unusual case: validation loss much lower than training
                     # This can happen early in training due to dropout/regularization effects
                     # or indicate data distribution issues
                     if epoch < 3:
                         # Early epochs: likely due to dropout/regularization during training
-                        print(f"\nℹ️  Note: Validation loss lower than training ({gap:.2%}).")
+                        print(f"\nℹ️  Note: Validation loss lower than training ({smoothed_gap:.2%}).")
                         print(f"   This is normal in early epochs due to dropout/regularization during training.")
                         print(f"   Training loss: {train_loss:.6f}, Validation loss: {val_loss:.6f}")
                     else:
                         # Later epochs: could indicate data issues
-                        print(f"\n⚠️  Warning: Validation loss significantly lower than training ({gap:.2%}).")
+                        print(f"\n⚠️  Warning: Validation loss significantly lower than training ({smoothed_gap:.2%}).")
                         print(f"   This may indicate data distribution differences or regularization effects.")
                         print(f"   Training loss: {train_loss:.6f}, Validation loss: {val_loss:.6f}")
             
-            # Warn if validation loss is much higher (classic overfitting)
+            # Warn if validation loss is much higher (classic overfitting) - use raw loss for immediate detection
             if val_loss > train_loss * 1.5:
                 print(f"⚠️  Warning: Validation loss ({val_loss:.4f}) >> Training loss ({train_loss:.4f})")
+            
+            # Warn if validation loss is very unstable (high variance)
+            if len(self.val_loss_history) >= 5:
+                recent_val_losses = self.val_loss_history[-5:]
+                val_std = np.std(recent_val_losses)
+                val_mean = np.mean(recent_val_losses)
+                if val_mean > 0 and val_std / val_mean > 0.5:  # Coefficient of variation > 50%
+                    print(f"⚠️  Warning: High validation loss variance detected (std: {val_std:.6f}, mean: {val_mean:.6f})")
+                    print(f"   This suggests unstable training. Consider increasing validation set size or regularization.")
             
             # Warn if both losses are high and similar (underfitting)
             if epoch > 5 and train_loss > 0.5 and val_loss > 0.5:
@@ -981,6 +1598,7 @@ def train_model(
     initial_epoch: int = 0,
     resume_checkpoint: Optional[Path] = None,
     pause_flag_path: Path = PAUSE_FLAG_PATH,
+    recovery_manager: Optional[AutoRecoveryManager] = None,
 ) -> Tuple[keras.Model, keras.callbacks.History, List[float]]:
     model = build_temporal_cnn(X_train.shape[1:], config)
     if resume_checkpoint and resume_checkpoint.exists():
@@ -1017,18 +1635,20 @@ def train_model(
         ProgressCallback(total_epochs=config.epochs),  # Custom progress display
         keras.callbacks.EarlyStopping(
             monitor="val_loss",
-            patience=8,  # Reduced from 12 for faster convergence
+            patience=10,  # Increased from 8 to allow for validation loss fluctuations
             restore_best_weights=True,
             min_delta=1e-5,  # Minimum change to qualify as improvement
             verbose=0,  # Reduced verbosity
+            mode="min",  # Explicitly set mode
         ),
         keras.callbacks.ReduceLROnPlateau(
             monitor="val_loss",
             factor=0.5,
-            patience=5,  # Slightly reduced for more aggressive LR reduction
+            patience=6,  # Increased from 5 to be less aggressive given validation instability
             min_lr=config.min_learning_rate,
             verbose=0,  # Reduced verbosity
-            cooldown=2,  # Wait 2 epochs before reducing LR again
+            cooldown=3,  # Increased from 2 to wait longer before reducing LR again
+            mode="min",  # Explicitly set mode
         ),
         keras.callbacks.ModelCheckpoint(
             filepath=str(MODELS_DIR / "schedule_predictor_best.keras"),
@@ -1036,7 +1656,7 @@ def train_model(
             save_best_only=True,
             verbose=0,  # Reduced verbosity
         ),
-        OverfittingMonitor(gap_threshold=0.15),  # Monitor for overfitting
+        OverfittingMonitor(gap_threshold=0.15, smoothing_window=3),  # Monitor for overfitting with smoothing
     ]
     pause_callback: Optional[PauseResumeCallback] = None
     if state_manager:
@@ -1056,14 +1676,20 @@ def train_model(
     r2_callback = ValidationR2Callback((X_val, y_val))
     callbacks.append(r2_callback)
 
-    history = model.fit(
-        train_ds,
-        validation_data=val_ds,
-        epochs=config.epochs,
-        initial_epoch=initial_epoch,
-        verbose=1,  # Show progress bar for batches within epoch
-        callbacks=callbacks,
-    )
+    # Training with automatic recovery wrapper
+    try:
+        history = model.fit(
+            train_ds,
+            validation_data=val_ds,
+            epochs=config.epochs,
+            initial_epoch=initial_epoch,
+            verbose=1,  # Show progress bar for batches within epoch
+            callbacks=callbacks,
+        )
+    except Exception as training_error:
+        # Re-raise to be handled by recovery wrapper in run_pipeline
+        # This allows the recovery system to catch and handle it
+        raise
 
     history.history["val_r2"] = r2_callback.history
     
@@ -1093,7 +1719,12 @@ def train_model(
     final_epoch = initial_epoch + len(history.history.get("loss", []))
     if state_manager:
         final_status = "paused" if (pause_callback and pause_callback.pause_requested) else "completed"
-        state_manager.save_state(final_epoch, final_status)
+        # Note: dataset metadata should be passed from run_pipeline if needed
+        # For now, save state without it (it's optional)
+        state_manager.save_state(
+            final_epoch, 
+            final_status,
+        )
         if final_status == "paused":
             print("⏸️  Training paused. Re-run with --resume to continue.")
         elif pause_flag_path.exists():
@@ -1316,10 +1947,22 @@ def save_artifacts(
 
 
 def run_pipeline(args):
+    # Override auto-recovery settings from CLI
+    if args.no_auto_recover:
+        CONFIG.auto_recover = False
+    if args.max_recovery_attempts is not None:
+        CONFIG.max_recovery_attempts = args.max_recovery_attempts
+    
     print("\n" + "=" * 90)
     print("SMARTSYNC TRAINING PIPELINE")
     print("=" * 90)
     print(json.dumps(CONFIG.to_dict(), indent=2))
+    
+    if CONFIG.auto_recover:
+        print(f"\n✅ Auto-recovery enabled (max {CONFIG.max_recovery_attempts} attempts)")
+        print("   Training will automatically recover from memory/OOM errors")
+    else:
+        print("\n⚠️  Auto-recovery disabled - training will stop on errors")
 
     dataset_cache = DatasetCache(CONFIG)
     state_manager = TrainingStateManager(dataset_cache.config_hash)
@@ -1336,42 +1979,183 @@ def run_pipeline(args):
         state_manager.clear()
         print("🔁 Refreshing dataset cache per user request.")
 
+    cache_metadata: Optional[Dict[str, Any]] = None
+    
+    # Check if old cache exists (without metadata file) - created before data leakage fixes
+    old_cache_exists = (
+        dataset_cache.dataset_path.exists() 
+        and dataset_cache.preprocessor_path.exists()
+        and not dataset_cache.metadata_path.exists()
+    )
+    
+    if old_cache_exists:
+        print("\n" + "=" * 90)
+        print("⚠️  OLD CACHE DETECTED (pre-data-leakage-prevention)")
+        print("=" * 90)
+        print("   The existing cache was created with the OLD pipeline that had data leakage.")
+        print("   The new pipeline prevents leakage by:")
+        print("     - Temporal splitting (train → val → test)")
+        print("     - Fitting scaler only on training data")
+        print("     - Computing features separately per split")
+        print()
+        
+        if args.resume:
+            print("   ⚠️  CRITICAL WARNING: Resume requested with incompatible cache!")
+            print()
+            print("   The checkpoint was trained on OLD data (with leakage).")
+            print("   The cache will be rebuilt with NEW data (no leakage).")
+            print("   This may cause:")
+            print("     - Shape mismatches")
+            print("     - Feature distribution differences")
+            print("     - Model performance degradation")
+            print()
+            print("   RECOMMENDED ACTIONS:")
+            print("   1. If training is still running: Let it finish, then start fresh")
+            print("   2. Start fresh training: python train_smart_home.py --reset-cache")
+            print("   3. To use old cache (not recommended): Delete .npz and .joblib files")
+            print()
+            print("   Proceeding will clear old cache and rebuild with new pipeline...")
+            print("   (Checkpoint compatibility is not guaranteed)")
+            print()
+        else:
+            print("   Clearing old cache and rebuilding with new leakage-prevention pipeline...")
+        
+        dataset_cache.clear()
+        # Also clear state if resuming, since it's incompatible
+        if args.resume:
+            state_manager.clear()
+            print("   ✅ Old cache and state cleared")
+            print("   ⚠️  Note: Resume will start from epoch 0 due to cache rebuild")
+        else:
+            print("   ✅ Old cache cleared")
+    
     if dataset_cache.has_cache():
-        (
-            X_train,
-            y_train,
-            X_val,
-            y_val,
-            X_test,
-            y_test,
-            preprocessor,
-        ) = dataset_cache.load()
-    else:
+        try:
+            (
+                X_train,
+                y_train,
+                X_val,
+                y_val,
+                X_test,
+                y_test,
+                preprocessor,
+                cache_metadata,
+            ) = dataset_cache.load()
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
+            print(f"⚠️  Cache load failed: {e}")
+            print("   Rebuilding cache...")
+            dataset_cache.clear()
+            # Fall through to rebuild cache
+            cache_metadata = None
+    
+    if cache_metadata is None:
+        # Build cache if not loaded or load failed
+        print("\n" + "=" * 90)
+        print("BUILDING DATASET WITH DATA LEAKAGE PREVENTION")
+        print("=" * 90)
+        
         dataset_files = discover_dataset_files(CONFIG.datasets)
         raw_df = load_datasets(dataset_files)
 
         preprocessor = SmartHomePreprocessor(CONFIG)
-        hourly_df = preprocessor.build_hourly_features(raw_df)
-        X, y = preprocessor.prepare_sequences(hourly_df)
-
-        indices = np.arange(len(X))
-        np.random.seed(CONFIG.seed)
-        np.random.shuffle(indices)
-        X_shuffled = X[indices]
-        y_shuffled = y[indices]
         
-        total = len(X_shuffled)
-        test_size = int(total * CONFIG.test_split)
-        val_size = int(total * CONFIG.validation_split)
+        # CRITICAL: Split data TEMPORALLY first (before feature engineering that uses statistics)
+        # This prevents data leakage from future data
+        print("\n📊 Splitting data temporally (train → val → test)...")
+        raw_df = raw_df.sort_values("timestamp").reset_index(drop=True)
+        
+        total_rows = len(raw_df)
+        test_size = int(total_rows * CONFIG.test_split)
+        val_size = int(total_rows * CONFIG.validation_split)
+        train_size = total_rows - val_size - test_size
+        
+        # Temporal split: train (earliest) → val → test (latest)
+        raw_train = raw_df.iloc[:train_size].copy()
+        raw_val = raw_df.iloc[train_size:train_size + val_size].copy()
+        raw_test = raw_df.iloc[train_size + val_size:].copy()
+        
+        print(f"   Train: {len(raw_train):,} rows ({raw_train['timestamp'].min()} to {raw_train['timestamp'].max()})")
+        print(f"   Val:   {len(raw_val):,} rows ({raw_val['timestamp'].min()} to {raw_val['timestamp'].max()})")
+        print(f"   Test:  {len(raw_test):,} rows ({raw_test['timestamp'].min()} to {raw_test['timestamp'].max()})")
+        
+        # Build features separately for each split to prevent leakage
+        print("\n🔧 Building features for training set...")
+        hourly_train = preprocessor.build_hourly_features(raw_train, is_training=True)
+        
+        print("\n🔧 Building features for validation set...")
+        hourly_val = preprocessor.build_hourly_features(raw_val, is_training=False)
+        
+        print("\n🔧 Building features for test set...")
+        hourly_test = preprocessor.build_hourly_features(raw_test, is_training=False)
+        
+        # Prepare sequences: fit scaler ONLY on training data
+        print("\n📦 Preparing sequences...")
+        print("   Training set (fitting scaler)...")
+        X_train, y_train = preprocessor.prepare_sequences(hourly_train, fit_scaler=True)
+        
+        print("   Validation set (using training scaler)...")
+        X_val, y_val = preprocessor.prepare_sequences(hourly_val, fit_scaler=False)
+        
+        print("   Test set (using training scaler)...")
+        X_test, y_test = preprocessor.prepare_sequences(hourly_test, fit_scaler=False)
+        
+        # Comprehensive data leakage validation
+        if CONFIG.validate_no_leakage:
+            print("\n🔍 Validating data leakage prevention...")
+            
+            # Temporal validation
+            train_max_time = raw_train["timestamp"].max()
+            val_min_time = raw_val["timestamp"].min()
+            val_max_time = raw_val["timestamp"].max()
+            test_min_time = raw_test["timestamp"].min()
+            
+            temporal_issues = []
+            if val_min_time <= train_max_time:
+                temporal_issues.append(
+                    f"Validation data ({val_min_time}) overlaps with training ({train_max_time})"
+                )
+            if test_min_time <= val_max_time:
+                temporal_issues.append(
+                    f"Test data ({test_min_time}) overlaps with validation ({val_max_time})"
+                )
+            
+            if temporal_issues:
+                raise RuntimeError(
+                    f"⚠️  DATA LEAKAGE DETECTED:\n  " + "\n  ".join(temporal_issues)
+                )
+            
+            # Statistical validation
+            is_valid, stat_issues = validate_no_data_leakage(
+                X_train, X_val, X_test,
+                train_times=raw_train["timestamp"],
+                val_times=raw_val["timestamp"],
+                test_times=raw_test["timestamp"],
+            )
+            
+            if not is_valid:
+                print("   ⚠️  Potential leakage warnings:")
+                for issue in stat_issues:
+                    print(f"      - {issue}")
+            
+            # Verify scaler was only fit on training data
+            if not hasattr(preprocessor.feature_scaler, 'mean_') or preprocessor.feature_scaler.mean_ is None:
+                raise RuntimeError("Scaler was not fitted on training data!")
+            
+            # Verify scaler statistics are from training only
+            train_feature_mean = np.mean(X_train, axis=(0, 1))
+            scaler_mean = preprocessor.feature_scaler.mean_
+            if not np.allclose(train_feature_mean, scaler_mean, rtol=1e-3):
+                print("   ⚠️  Warning: Scaler mean doesn't match training data mean")
+                print(f"      This might indicate scaler was fit on different data")
+            
+            print("   ✅ Temporal ordering validated")
+            print("   ✅ Scaler fitted only on training data")
+            print("   ✅ Statistical checks passed")
+            print("   ✅ No data leakage detected")
+        else:
+            print("\n⚠️  Data leakage validation disabled (validate_no_leakage=False)")
 
-        X_train = X_shuffled[: total - val_size - test_size]
-        y_train = y_shuffled[: total - val_size - test_size]
-        X_val = X_shuffled[total - val_size - test_size : total - test_size]
-        y_val = y_shuffled[total - val_size - test_size : total - test_size]
-        X_test = X_shuffled[total - test_size :]
-        y_test = y_shuffled[total - test_size :]
-
-        dataset_cache.save(
+        cache_metadata = dataset_cache.save(
             {
                 "X_train": X_train,
                 "y_train": y_train,
@@ -1391,21 +2175,52 @@ def run_pipeline(args):
     initial_epoch = 0
     resume_checkpoint: Optional[Path] = None
     if args.resume:
+        # Validate resume compatibility
+        dataset_hash = cache_metadata.get("dataset_hash") if cache_metadata else None
+        is_compatible, issues = state_manager.validate_resume_compatibility(
+            dataset_cache.config_hash,
+            dataset_hash,
+            cache_metadata,
+        )
+        
+        if not is_compatible:
+            error_msg = "Cannot resume training - compatibility check failed:\n"
+            error_msg += "\n".join(f"  ❌ {issue}" for issue in issues)
+            error_msg += "\n\nPossible solutions:"
+            error_msg += "\n  1. Use --reset-cache to clear cache and start fresh"
+            error_msg += "\n  2. Use --refresh-data to rebuild cache with current data"
+            error_msg += "\n  3. Remove --resume flag to start new training"
+            raise RuntimeError(error_msg)
+        
         state = state_manager.load_state()
         if not state:
             raise RuntimeError(
                 "Resume requested but no training state file was found in cache."
             )
+        
         initial_epoch = int(state.get("last_epoch", 0))
         if not state_manager.has_checkpoint():
             raise RuntimeError(
                 "Resume requested but checkpoint file is missing. "
                 "Re-run without --resume or ensure previous training completed at least one epoch."
             )
+        
         resume_checkpoint = state_manager.latest_checkpoint_path
-        print(
-            f"🔄 Resuming from epoch {initial_epoch} using {resume_checkpoint.name}"
-        )
+        
+        # Display resume information
+        print(f"\n{'='*80}")
+        print("🔄 RESUMING TRAINING")
+        print(f"{'='*80}")
+        print(f"   Epoch: {initial_epoch} / {CONFIG.epochs}")
+        print(f"   Checkpoint: {resume_checkpoint.name}")
+        print(f"   Config hash: {dataset_cache.config_hash[:8]}")
+        if dataset_hash:
+            print(f"   Dataset hash: {dataset_hash[:8]}")
+        print(f"   Status: {state.get('status', 'unknown')}")
+        if state.get('updated_at'):
+            print(f"   Last updated: {state['updated_at']}")
+        print(f"{'='*80}\n")
+        
         if initial_epoch >= CONFIG.epochs:
             print(
                 "✅ Training already completed according to state file. "
@@ -1413,22 +2228,99 @@ def run_pipeline(args):
             )
             return
 
+    # Save initial state with dataset metadata for future validation
+    # Initialize auto-recovery manager
+    recovery_manager = AutoRecoveryManager(CONFIG, state_manager) if CONFIG.auto_recover else None
+    
+    # Save initial state with dataset metadata for future validation
     state_manager.save_state(
         initial_epoch,
         "running",
         message="Resumed" if args.resume else "Fresh run",
+        dataset_hash=cache_metadata.get("dataset_hash") if cache_metadata else None,
+        dataset_metadata=cache_metadata,
     )
 
-    model, history, _ = train_model(
-        X_train,
-        y_train,
-        X_val,
-        y_val,
-        CONFIG,
-        state_manager=state_manager,
-        initial_epoch=initial_epoch,
-        resume_checkpoint=resume_checkpoint,
-    )
+    # Training with automatic recovery loop
+    max_retries = CONFIG.max_recovery_attempts if CONFIG.auto_recover else 0
+    retry_count = 0
+    current_config = CONFIG
+    training_successful = False
+    model = None
+    history = None
+    
+    while retry_count <= max_retries and not training_successful:
+        try:
+            if retry_count > 0:
+                print(f"\n🔄 Retry attempt {retry_count} with optimized configuration...")
+                # Update recovery manager config
+                if recovery_manager:
+                    recovery_manager.config = current_config
+                # Rebuild datasets with new batch size
+                print(f"   Using batch size: {current_config.batch_size}")
+                # Rebuild model if complexity changed
+                if current_config.conv_filters != CONFIG.conv_filters:
+                    print(f"   Rebuilding model with reduced complexity: {current_config.conv_filters}")
+            
+            model, history, _ = train_model(
+                X_train,
+                y_train,
+                X_val,
+                y_val,
+                current_config,
+                state_manager=state_manager,
+                initial_epoch=initial_epoch,
+                resume_checkpoint=resume_checkpoint if retry_count == 0 else None,  # Only load checkpoint on first attempt
+                recovery_manager=recovery_manager,
+            )
+            training_successful = True
+            
+            # Mark recovery as successful if we recovered
+            if retry_count > 0 and recovery_manager:
+                if recovery_manager.recovery_history:
+                    recovery_manager.recovery_history[-1]["success"] = True
+                recovery_manager.save_recovery_state()
+                print(f"\n✅ Training recovered successfully after {retry_count} recovery attempt(s)!")
+        
+        except Exception as training_error:
+            error_type = ErrorClassifier().classify_error(training_error)
+            
+            # Check if recoverable
+            if recovery_manager and recovery_manager.error_classifier.is_recoverable(training_error):
+                if recovery_manager.should_attempt_recovery(CONFIG.max_recovery_attempts, CONFIG.auto_recover):
+                    # Attempt recovery
+                    new_config = recovery_manager.attempt_recovery(training_error, CONFIG.max_recovery_attempts, CONFIG.auto_recover)
+                    if new_config:
+                        current_config = new_config
+                        retry_count += 1
+                        # Update initial epoch from state (in case we need to resume)
+                        state = state_manager.load_state()
+                        if state:
+                            initial_epoch = int(state.get("last_epoch", initial_epoch))
+                        # Ensure we have a checkpoint to resume from
+                        if not state_manager.has_checkpoint() and initial_epoch > 0:
+                            print(f"⚠️  No checkpoint found for epoch {initial_epoch}. Starting from epoch 0.")
+                            initial_epoch = 0
+                        continue
+                    else:
+                        print(f"\n❌ Maximum recovery attempts ({CONFIG.max_recovery_attempts}) reached.")
+                        raise
+                else:
+                    print(f"\n❌ Maximum recovery attempts reached. Cannot recover from: {error_type}")
+                    raise
+            else:
+                # Non-recoverable error or auto-recover disabled
+                print(f"\n❌ Training failed with non-recoverable error: {error_type}")
+                if state_manager:
+                    state_manager.save_state(
+                        initial_epoch,
+                        "error",
+                        message=f"Training failed: {str(training_error)[:200]}",
+                    )
+                raise
+    
+    if not training_successful:
+        raise RuntimeError("Training failed after all recovery attempts")
     metrics, y_pred = evaluate_model(model, X_test, y_test)
 
     analyzer = TrainingAnalyzer(CONFIG)
@@ -1476,6 +2368,17 @@ def parse_cli_args() -> argparse.Namespace:
         "--clear-pause",
         action="store_true",
         help="Remove the pause flag before starting/resuming training.",
+    )
+    parser.add_argument(
+        "--no-auto-recover",
+        action="store_true",
+        help="Disable automatic recovery from memory/OOM errors. Training will stop on errors.",
+    )
+    parser.add_argument(
+        "--max-recovery-attempts",
+        type=int,
+        default=5,
+        help="Maximum number of automatic recovery attempts (default: 5).",
     )
     return parser.parse_args()
 

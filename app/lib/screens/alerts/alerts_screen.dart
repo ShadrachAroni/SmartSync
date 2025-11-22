@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/alert_model.dart';
 import '../../services/firebase_service.dart';
 import '../../providers/auth_provider.dart';
+import '../../core/widgets/lottie_loading.dart';
+import '../../core/widgets/lottie_error_indicator.dart';
 import 'alert_details_screen.dart';
 import 'alert_settings_screen.dart';
 
@@ -90,8 +92,10 @@ class AlertsScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+          child: LottieLoading(
+            size: 80,
+            message: 'Loading alerts...',
+            showMessage: true,
           ),
         ),
         error: (error, stackTrace) => Center(
@@ -100,11 +104,7 @@ class AlertsScreen extends ConsumerWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  Icons.error_outline_rounded,
-                  size: 64,
-                  color: Colors.red.shade300,
-                ),
+                const LottieErrorIndicator(size: 80),
                 const SizedBox(height: 16),
                 Text(
                   'Error Loading Alerts',

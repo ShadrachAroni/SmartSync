@@ -38,11 +38,14 @@ SmartSync Backend
 
 ### Key Features
 
-- 🤖 **Server-side ML**: Run predictions on Firebase using TensorFlow.js
+- 🤖 **Server-side ML**: Run predictions on Firebase using TensorFlow.js and TFLite models
 - 📊 **Analytics**: Daily data aggregation and on-demand reports
-- 🔔 **Real-time Alerts**: Push notifications for anomalies and schedules
+- 🔔 **Real-time Alerts**: Push notifications for anomalies, schedules, and device status
 - 🔒 **Secure**: Firestore rules enforce user data privacy
 - 🧹 **Auto-cleanup**: Remove old data to control storage costs
+- 👥 **Caregiver Support**: Multi-user access and notification routing
+- 📈 **Activity Tracking**: Comprehensive logging and analytics
+- ⚡ **Energy Monitoring**: Daily energy consumption tracking and reporting
 
 ---
 
@@ -77,9 +80,10 @@ firebase --version
    - ✅ Cloud Functions
    - ✅ Cloud Messaging (for push notifications)
 
-3. **Upgrade to Blaze Plan** (required for Cloud Functions):
-   - Firebase Console → Project Settings → Usage and Billing
-   - Note: Pay-as-you-go, but includes generous free tier
+3. **Firebase Plan**:
+   - **Spark Plan (Free)**: App works with local TFLite models only. Cloud Functions are disabled.
+   - **Blaze Plan (Pay-as-you-go)**: Required for Cloud Functions. Includes generous free tier (2M invocations/month).
+   - **Note**: The Flutter app uses local TFLite models as PRIMARY, so Cloud Functions are optional (fallback only).
 
 ### 3. ML Models Ready
 
@@ -253,7 +257,16 @@ The functions automatically load the latest models on cold start.
 
 ## 🚢 Deployment
 
-### Deploy All Functions
+### ⚠️ Important: Firebase Plan Requirements
+
+**Cloud Functions require Blaze Plan (pay-as-you-go).**
+
+- **Spark Plan**: Cannot deploy Cloud Functions. The app will work using local TFLite models only.
+- **Blaze Plan**: Can deploy all Cloud Functions. Includes free tier (2M invocations/month).
+
+**The Flutter app is designed to work on Spark Plan** - it uses local TFLite models as the primary ML inference method. Cloud Functions are only used as a fallback.
+
+### Deploy All Functions (Blaze Plan Only)
 
 ```bash
 cd backend
@@ -262,9 +275,17 @@ cd backend
 firebase deploy
 
 # Or deploy selectively:
-firebase deploy --only functions        # Just Cloud Functions
-firebase deploy --only firestore:rules  # Just Firestore security
-firebase deploy --only storage:rules    # Just Storage security
+firebase deploy --only functions        # Just Cloud Functions (requires Blaze)
+firebase deploy --only firestore:rules  # Just Firestore security (works on Spark)
+firebase deploy --only storage:rules    # Just Storage security (works on Spark)
+```
+
+### Deploy Firestore/Storage Rules (Works on Spark Plan)
+
+```bash
+# These work on Spark plan
+firebase deploy --only firestore:rules
+firebase deploy --only storage:rules
 ```
 
 ### Deploy Individual Functions
@@ -798,13 +819,22 @@ firebase emulators:start
 
 ## ✅ Checklist: Backend Deployment
 
-Before going live, ensure:
+### For Spark Plan (Free - Local ML Only):
+- [ ] Firebase project created (Spark plan is fine)
+- [ ] ML models trained (`train_smart_home.py`)
+- [ ] Models converted to TFLite (`convert_tflite.py`)
+- [ ] TFLite models copied to `app/assets/models/` (for local inference)
+- [ ] Firestore rules deployed (`firebase deploy --only firestore:rules`)
+- [ ] Storage rules deployed (`firebase deploy --only storage:rules`)
+- [ ] Flutter app tested with local TFLite models
+- [ ] **Note**: Cloud Functions are NOT available on Spark plan
 
-- [ ] Firebase project created and Blaze plan enabled
+### For Blaze Plan (Full Features):
+- [ ] Firebase project upgraded to Blaze plan
 - [ ] ML models trained (`train_smart_home.py`)
 - [ ] Models converted to TFLite (`convert_tflite.py`)
 - [ ] Models deployed to Storage (`deploy_model.py`)
-- [ ] Functions deployed (`firebase deploy`)
+- [ ] Functions deployed (`firebase deploy --only functions`)
 - [ ] Firestore rules deployed
 - [ ] Storage rules deployed
 - [ ] Test `predictSchedule` function works

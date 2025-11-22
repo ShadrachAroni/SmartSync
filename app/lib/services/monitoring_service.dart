@@ -16,41 +16,103 @@ class MonitoringService {
   final FirebaseService _firebaseService = FirebaseService();
   final MLService _mlService = MLService();
 
-  final StreamController<SensorData?> _sensorController =
-      StreamController<SensorData?>.broadcast();
-  final StreamController<AnomalyReport?> _anomalyController =
-      StreamController<AnomalyReport?>.broadcast();
+  StreamController<SensorData?>? _sensorController;
+  StreamController<AnomalyReport?>? _anomalyController;
 
   StreamSubscription<SensorData>? _bleSubscription;
   Timer? _anomalyTimer;
   SensorData? _latestReading;
   String? _userId;
   bool _initialized = false;
+  Completer<void>? _initializationCompleter;
+  bool _isInitializing = false;
 
-  Stream<SensorData?> get sensorStream => _sensorController.stream;
-  Stream<AnomalyReport?> get anomalyStream => _anomalyController.stream;
+  Stream<SensorData?> get sensorStream {
+    _sensorController ??= StreamController<SensorData?>.broadcast();
+    return _sensorController!.stream;
+  }
+  
+  Stream<AnomalyReport?> get anomalyStream {
+    _anomalyController ??= StreamController<AnomalyReport?>.broadcast();
+    return _anomalyController!.stream;
+  }
+  
   SensorData? get latestReading => _latestReading;
 
   Future<void> initialize(String userId) async {
-    if (_initialized && _userId == userId) return;
+    // If already initialized for this user, return immediately
+    if (_initialized && _userId == userId) {
+      return;
+    }
 
-    _userId = userId;
-    await _mlService.initialize();
+    // If currently initializing, wait for that to complete
+    if (_isInitializing && _initializationCompleter != null) {
+      Logger.info('MonitoringService: Already initializing, waiting...');
+      return _initializationCompleter!.future;
+    }
 
-    await _bleSubscription?.cancel();
-    _bleSubscription =
-        _bluetoothService.sensorDataStream.listen(_handleSensorPayload);
+    // Start new initialization
+    _isInitializing = true;
+    _initializationCompleter = Completer<void>();
 
-    _anomalyTimer?.cancel();
-    _anomalyTimer = Timer.periodic(
-      const Duration(minutes: 5),
-      (_) => refreshAnomalies(),
-    );
+    try {
+      Logger.info('MonitoringService: Starting initialization for $userId');
+      
+      // Recreate controllers if they were closed
+      if (_sensorController?.isClosed ?? true) {
+        _sensorController = StreamController<SensorData?>.broadcast();
+      }
+      if (_anomalyController?.isClosed ?? true) {
+        _anomalyController = StreamController<AnomalyReport?>.broadcast();
+      }
 
-    await refreshAnomalies();
+      _userId = userId;
+      
+      // Initialize ML service with timeout to prevent hanging
+      Logger.info('MonitoringService: Initializing ML service...');
+      try {
+        await _mlService.initialize().timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            Logger.warning('MonitoringService: ML service init timeout, continuing anyway');
+          },
+        );
+        Logger.info('MonitoringService: ML service initialized');
+      } catch (e) {
+        Logger.warning('MonitoringService: ML service init failed, continuing: $e');
+        // Continue even if ML service fails
+      }
 
-    _initialized = true;
-    Logger.success('Monitoring service initialized for $userId');
+      // Set up BLE subscription (non-blocking)
+      await _bleSubscription?.cancel();
+      _bleSubscription =
+          _bluetoothService.sensorDataStream.listen(_handleSensorPayload);
+
+      // Set up anomaly timer
+      _anomalyTimer?.cancel();
+      _anomalyTimer = Timer.periodic(
+        const Duration(minutes: 5),
+        (_) => refreshAnomalies(),
+      );
+
+      // Refresh anomalies in background (don't await to avoid blocking)
+      refreshAnomalies().catchError((e) {
+        Logger.error('MonitoringService: Failed to refresh anomalies: $e');
+      });
+
+      _initialized = true;
+      Logger.success('Monitoring service initialized for $userId');
+      
+      _initializationCompleter!.complete();
+    } catch (e, stackTrace) {
+      Logger.error('MonitoringService: Initialization failed', e, stackTrace);
+      _initialized = false;
+      _initializationCompleter!.completeError(e, stackTrace);
+      rethrow;
+    } finally {
+      _isInitializing = false;
+      _initializationCompleter = null;
+    }
   }
 
   Future<List<SensorData>> getHistory(String deviceId, int hours) {
@@ -61,7 +123,9 @@ class MonitoringService {
       {Duration window = const Duration(hours: 6)}) async {
     if (_userId == null) return;
     final report = await _mlService.detectAnomalies(_userId!, window);
-    _anomalyController.add(report);
+    if (_anomalyController != null && !_anomalyController!.isClosed) {
+      _anomalyController!.add(report);
+    }
   }
 
   Future<void> _handleSensorPayload(SensorData raw) async {
@@ -81,7 +145,11 @@ class MonitoringService {
     );
 
     _latestReading = enriched;
-    _sensorController.add(enriched);
+    
+    // Only add to stream if controller exists and is not closed
+    if (_sensorController != null && !_sensorController!.isClosed) {
+      _sensorController!.add(enriched);
+    }
 
     try {
       await _firebaseService.logSensorData(enriched);
@@ -98,8 +166,9 @@ class MonitoringService {
   void dispose() {
     _bleSubscription?.cancel();
     _anomalyTimer?.cancel();
-    _sensorController.close();
-    _anomalyController.close();
+    // Don't close controllers since this is a singleton that might be reused
+    // Just reset the initialization state
     _initialized = false;
+    _userId = null;
   }
 }

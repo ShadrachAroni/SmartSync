@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../providers/auth_provider.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/widgets/lottie_loading.dart';
 import '../home/home_screen.dart';
 
 class SignupScreen extends ConsumerStatefulWidget {
@@ -601,14 +602,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
           ),
           child: Center(
             child: _isLoading
-                ? const SizedBox(
-                    height: 24,
-                    width: 24,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
+                ? const LottieLoading.small()
                 : const Text(
                     'Sign Up',
                     style: TextStyle(
@@ -834,15 +828,7 @@ class _AuthSocialIcon extends StatelessWidget {
                     ),
                     child: Center(
                       child: isLoading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor:
-                                    AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            )
+                          ? const LottieLoading.small()
                           : Icon(icon, color: Colors.white, size: 28),
                     ),
                   ),

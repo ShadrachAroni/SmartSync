@@ -83,7 +83,7 @@ class NotificationService {
         onDidReceiveNotificationResponse: _onNotificationTapped,
       );
 
-      if (initialized) {
+      if (initialized == true) {
         _localNotificationsInitialized = true;
         Logger.success('Local notifications initialized');
       } else {

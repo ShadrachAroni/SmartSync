@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:math' as math;
 import '../auth/login_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {

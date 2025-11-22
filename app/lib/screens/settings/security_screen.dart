@@ -5,6 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../providers/sensor_provider.dart';
 import '../../providers/device_provider.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/widgets/lottie_loading.dart';
+import '../../core/widgets/lottie_motion_indicator.dart';
 
 class SecurityScreen extends ConsumerStatefulWidget {
   const SecurityScreen({super.key});
@@ -196,14 +198,7 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
             child: ElevatedButton.icon(
               onPressed: _alarmTriggerInProgress ? null : _handleTriggerAlarm,
               icon: _alarmTriggerInProgress
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
+                  ? const LottieLoading.small()
                   : const Icon(Icons.warning_rounded),
               label: Text(
                 _alarmTriggerInProgress ? 'Triggering...' : 'Trigger Alarm',
@@ -397,9 +392,8 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
                           : Colors.grey.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: Icon(
-                      Icons.directions_walk_rounded,
-                      color: motionDetected ? Colors.orange : Colors.grey,
+                    child: LottieMotionIndicator(
+                      motionDetected: motionDetected,
                       size: 32,
                     ),
                   ),
@@ -523,9 +517,7 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
               borderRadius: BorderRadius.circular(20),
             ),
             child: const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-              ),
+              child: LottieLoading.medium(),
             ),
           ),
           const SizedBox(height: 16),
@@ -536,9 +528,7 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
               borderRadius: BorderRadius.circular(20),
             ),
             child: const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-              ),
+              child: LottieLoading.medium(),
             ),
           ),
         ],
@@ -575,9 +565,7 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
         borderRadius: BorderRadius.circular(20),
       ),
       child: const Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-        ),
+        child: LottieLoading.medium(),
       ),
     );
   }

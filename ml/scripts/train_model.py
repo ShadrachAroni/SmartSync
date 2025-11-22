@@ -525,12 +525,32 @@ class ResourceMonitorCallback(keras.callbacks.Callback):
 def load_training_checkpoint(model, checkpoint_path=CHECKPOINT_WEIGHTS_PATH, state_path=TRAINING_STATE_PATH):
     """
     Load the latest checkpoint if it exists and return the epoch to resume from.
+    Handles LossScaleOptimizer compatibility issues with mixed precision training.
     """
     resume_epoch = 0
 
     if Path(checkpoint_path).exists():
-        model.load_weights(checkpoint_path)
-        print(f"\n🔁 Loaded weights from {checkpoint_path}")
+        try:
+            # Load weights only (checkpoint should be saved with save_weights_only=True)
+            model.load_weights(str(checkpoint_path))
+            print(f"\n🔁 Loaded weights from {checkpoint_path}")
+        except (AttributeError, ValueError, TypeError, OSError) as exc:
+            # Handle optimizer-related errors (common with mixed precision + version differences)
+            error_str = str(exc).lower()
+            if "lossscaleoptimizer" in error_str or ("name" in error_str and "attribute" in error_str):
+                try:
+                    # Fallback: Load with by_name to match layer names only, skip mismatches
+                    model.load_weights(str(checkpoint_path), by_name=True, skip_mismatch=True)
+                    print(f"\n🔁 Loaded weights from {checkpoint_path} (optimizer metadata skipped)")
+                except Exception as exc2:
+                    print(f"\n⚠️  Could not load checkpoint ({exc2}). Starting from scratch.")
+                    return resume_epoch
+            else:
+                print(f"\n⚠️  Could not load checkpoint ({exc}). Starting from scratch.")
+                return resume_epoch
+        except Exception as exc:
+            print(f"\n⚠️  Could not load checkpoint ({exc}). Starting from scratch.")
+            return resume_epoch
 
         if Path(state_path).exists():
             with open(state_path, "r", encoding="utf-8") as fp:

@@ -3,18 +3,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/device_model.dart';
 import '../../models/room_model.dart';
+import '../../models/sensor_data.dart';
 import '../../services/firebase_service.dart';
+import '../../services/bluetooth_service.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/widgets/lottie_loading.dart';
 import '../../core/utils/logger.dart';
+import '../../core/utils/device_type_detector.dart';
 
 class DeviceRegistrationDialog extends ConsumerStatefulWidget {
   final String deviceId; // BLE remoteId
   final String deviceName; // BLE advertisement name
+  final SensorData? initialSensorData; // Optional initial sensor data for detection
 
   const DeviceRegistrationDialog({
     super.key,
     required this.deviceId,
     required this.deviceName,
+    this.initialSensorData,
   });
 
   @override
@@ -29,14 +35,90 @@ class _DeviceRegistrationDialogState
   DeviceType _selectedType = DeviceType.sensor;
   String? _selectedRoomId;
   bool _isSaving = false;
+  bool _isDetecting = true;
+  double _detectionConfidence = 0.0;
+  String? _detectionMethod;
 
   @override
   void initState() {
     super.initState();
     // Pre-fill device name from BLE advertisement
-    _nameController.text = widget.deviceName.isNotEmpty
-        ? widget.deviceName
-        : 'SmartSync Device';
+    _nameController.text =
+        widget.deviceName.isNotEmpty ? widget.deviceName : 'SmartSync Device';
+    
+    // Attempt automatic detection
+    _detectDeviceType();
+  }
+
+  Future<void> _detectDeviceType() async {
+    setState(() => _isDetecting = true);
+    
+    try {
+      // Try to get device status from Bluetooth if connected
+      Map<String, dynamic>? deviceStatus;
+      final bluetoothService = BluetoothService();
+      if (bluetoothService.isConnected && 
+          bluetoothService.connectedDeviceId == widget.deviceId) {
+        try {
+          // Request device status
+          await bluetoothService.requestStatus();
+          // Note: Status response would need to be handled via a callback
+          // For now, we'll use available data
+        } catch (e) {
+          Logger.warning('DeviceRegistrationDialog: Could not request device status: $e');
+        }
+      }
+      
+      // Perform automatic detection
+      final detectedType = DeviceTypeDetector.detectDeviceType(
+        deviceName: widget.deviceName,
+        initialSensorData: widget.initialSensorData,
+        deviceStatus: deviceStatus,
+      );
+      
+      final confidence = DeviceTypeDetector.getDetectionConfidence(
+        deviceName: widget.deviceName,
+        initialSensorData: widget.initialSensorData,
+        deviceStatus: deviceStatus,
+      );
+      
+      // Determine detection method for display
+      String? method;
+      if (DeviceTypeDetector.detectFromName(widget.deviceName) == detectedType) {
+        method = 'Device name';
+      } else if (widget.initialSensorData != null && 
+                 DeviceTypeDetector.detectFromSensorData(widget.initialSensorData!) == detectedType) {
+        method = 'Sensor data';
+      } else if (deviceStatus != null && 
+                 DeviceTypeDetector.detectFromCapabilities(deviceStatus) == detectedType) {
+        method = 'Device capabilities';
+      } else {
+        method = 'Default';
+      }
+      
+      if (mounted) {
+        setState(() {
+          _selectedType = detectedType;
+          _detectionConfidence = confidence;
+          _detectionMethod = method;
+          _isDetecting = false;
+        });
+        
+        if (confidence > 0.5) {
+          Logger.info('DeviceRegistrationDialog: Auto-detected ${detectedType.name} with ${(confidence * 100).toStringAsFixed(0)}% confidence via $method');
+        } else {
+          Logger.info('DeviceRegistrationDialog: Low confidence detection (${(confidence * 100).toStringAsFixed(0)}%), user should verify');
+        }
+      }
+    } catch (e) {
+      Logger.error('DeviceRegistrationDialog: Error during auto-detection: $e');
+      if (mounted) {
+        setState(() {
+          _isDetecting = false;
+          _detectionConfidence = 0.0;
+        });
+      }
+    }
   }
 
   @override
@@ -62,7 +144,7 @@ class _DeviceRegistrationDialogState
 
     try {
       final firebaseService = FirebaseService();
-      
+
       // Create device model
       final device = DeviceModel(
         id: widget.deviceId, // Use BLE remoteId as device ID
@@ -210,9 +292,11 @@ class _DeviceRegistrationDialogState
                     style: const TextStyle(color: Colors.white, fontSize: 16),
                     decoration: InputDecoration(
                       labelText: 'Device Name',
-                      labelStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
+                      labelStyle:
+                          TextStyle(color: Colors.white.withOpacity(0.7)),
                       hintText: 'e.g., Living Room Hub',
-                      hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+                      hintStyle:
+                          TextStyle(color: Colors.white.withOpacity(0.5)),
                       filled: true,
                       fillColor: Colors.white.withOpacity(0.1),
                       border: OutlineInputBorder(
@@ -244,60 +328,161 @@ class _DeviceRegistrationDialogState
                   ),
                   const SizedBox(height: 20),
 
-                  // Device Type
-                  DropdownButtonFormField<DeviceType>(
-                    value: _selectedType,
-                    style: const TextStyle(color: Colors.white, fontSize: 16),
-                    decoration: InputDecoration(
-                      labelText: 'Device Type',
-                      labelStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
-                      filled: true,
-                      fillColor: Colors.white.withOpacity(0.1),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(
-                          color: Colors.white.withOpacity(0.2),
-                        ),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: Color(0xFF00BFA5),
-                          width: 2,
-                        ),
-                      ),
-                      prefixIcon: const Icon(Icons.category_outlined,
-                          color: Color(0xFF00BFA5)),
-                    ),
-                    dropdownColor: const Color(0xFF1A1F3A),
-                    items: DeviceType.values.map((type) {
-                      return DropdownMenuItem(
-                        value: type,
-                        child: Row(
-                          children: [
-                            Icon(
-                              _getDeviceIcon(type),
-                              color: Colors.white70,
-                              size: 20,
+                  // Device Type with Auto-Detection Indicator
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            'Device Type',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
                             ),
-                            const SizedBox(width: 12),
+                          ),
+                          if (_isDetecting) ...[
+                            const SizedBox(width: 8),
+                            const SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Color(0xFF00BFA5),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
                             Text(
-                              type.name.toUpperCase(),
-                              style: const TextStyle(color: Colors.white),
+                              'Detecting...',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.white.withOpacity(0.7),
+                              ),
                             ),
+                          ] else if (_detectionConfidence > 0.5) ...[
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.auto_awesome,
+                              size: 16,
+                              color: Color(0xFF00BFA5),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Auto-detected (${(_detectionConfidence * 100).toStringAsFixed(0)}%)',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF00BFA5),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            if (_detectionMethod != null) ...[
+                              const SizedBox(width: 4),
+                              Tooltip(
+                                message: 'Detected via $_detectionMethod',
+                                child: Icon(
+                                  Icons.info_outline,
+                                  size: 14,
+                                  color: Colors.white.withOpacity(0.5),
+                                ),
+                              ),
+                            ],
                           ],
+                        ],
+                      ),
+                      if (!_isDetecting && _detectionConfidence > 0.5 && _detectionMethod != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Detected as ${_selectedType.name.toUpperCase()} via $_detectionMethod',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.white.withOpacity(0.6),
+                            fontStyle: FontStyle.italic,
+                          ),
                         ),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() => _selectedType = value);
-                      }
-                    },
+                      ],
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<DeviceType>(
+                        value: _selectedType,
+                        style: const TextStyle(color: Colors.white, fontSize: 16),
+                        decoration: InputDecoration(
+                          hintText: 'Select device type',
+                          hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+                          filled: true,
+                          fillColor: Colors.white.withOpacity(0.1),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: Colors.white.withOpacity(0.2),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF00BFA5),
+                              width: 2,
+                            ),
+                          ),
+                          prefixIcon: const Icon(Icons.category_outlined,
+                              color: Color(0xFF00BFA5)),
+                          suffixIcon: _detectionConfidence > 0.5
+                              ? IconButton(
+                                  icon: Icon(
+                                    Icons.refresh,
+                                    size: 20,
+                                    color: Colors.white.withOpacity(0.7),
+                                  ),
+                                  tooltip: 'Re-detect device type',
+                                  onPressed: _detectDeviceType,
+                                )
+                              : null,
+                        ),
+                        dropdownColor: const Color(0xFF1A1F3A),
+                        items: DeviceType.values.map((type) {
+                          final isDetected = type == _selectedType && _detectionConfidence > 0.5;
+                          return DropdownMenuItem(
+                            value: type,
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _getDeviceIcon(type),
+                                  color: Colors.white70,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    type.name.toUpperCase(),
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
+                                ),
+                                if (isDetected)
+                                  Icon(
+                                    Icons.check_circle,
+                                    size: 16,
+                                    color: Color(0xFF00BFA5),
+                                  ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() {
+                              _selectedType = value;
+                              _detectionConfidence = 0.0; // User override
+                              _detectionMethod = null;
+                            });
+                          }
+                        },
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 20),
 
@@ -360,12 +545,13 @@ class _DeviceRegistrationDialogState
                           ),
                           const SizedBox(height: 8),
                           DropdownButtonFormField<String>(
-                            value: _selectedRoomId,
-                            style: const TextStyle(color: Colors.white, fontSize: 16),
+                            initialValue: _selectedRoomId,
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 16),
                             decoration: InputDecoration(
                               hintText: 'Select a room (optional)',
-                              hintStyle:
-                                  TextStyle(color: Colors.white.withOpacity(0.5)),
+                              hintStyle: TextStyle(
+                                  color: Colors.white.withOpacity(0.5)),
                               filled: true,
                               fillColor: Colors.white.withOpacity(0.1),
                               border: OutlineInputBorder(
@@ -410,7 +596,8 @@ class _DeviceRegistrationDialogState
                                       const SizedBox(width: 12),
                                       Text(
                                         room.name,
-                                        style: const TextStyle(color: Colors.white),
+                                        style: const TextStyle(
+                                            color: Colors.white),
                                       ),
                                     ],
                                   ),
@@ -425,13 +612,7 @@ class _DeviceRegistrationDialogState
                       );
                     },
                     loading: () => const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(20),
-                        child: CircularProgressIndicator(
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
-                        ),
-                      ),
+                      child: LottieLoading.medium(),
                     ),
                     error: (_, __) => Container(
                       padding: const EdgeInsets.all(16),
@@ -491,15 +672,7 @@ class _DeviceRegistrationDialogState
                           ),
                         ),
                         child: _isSaving
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor:
-                                      AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
-                              )
+                            ? const LottieLoading.small()
                             : const Text('Register Device'),
                       ),
                     ],
@@ -563,4 +736,3 @@ final userRoomsProvider = StreamProvider.autoDispose<List<RoomModel>>((ref) {
   final firebaseService = FirebaseService();
   return firebaseService.getUserRooms(user.uid);
 });
-

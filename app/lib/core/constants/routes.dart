@@ -1,5 +1,6 @@
 // app/lib/core/constants/routes.dart
 import 'package:flutter/material.dart';
+import '../widgets/lottie_loading.dart';
 import '../../screens/onboarding/onboarding_screen.dart';
 import '../../screens/auth/login_screen.dart';
 import '../../screens/auth/signup_screen.dart';
@@ -364,23 +365,11 @@ class _SplashScreenState extends State<SplashScreen> {
             const SizedBox(height: 60),
 
             // Loading Indicator
-            const SizedBox(
-              width: 40,
-              height: 40,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Loading Text
-            Text(
-              'Initializing...',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[500],
-              ),
+            const LottieLoading(
+              size: 80,
+              message: 'Initializing...',
+              messageColor: Colors.grey,
+              showMessage: true,
             ),
           ],
         ),

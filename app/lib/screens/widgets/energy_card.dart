@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
 
 class EnergyCard extends StatelessWidget {
   final double consumption;
@@ -41,10 +42,14 @@ class EnergyCard extends StatelessWidget {
                   color: Colors.white.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(
-                  Icons.flash_on_rounded,
-                  color: Colors.white,
-                  size: 24,
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: Lottie.asset(
+                    'assets/animations/energy.json',
+                    fit: BoxFit.contain,
+                    repeat: true,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),

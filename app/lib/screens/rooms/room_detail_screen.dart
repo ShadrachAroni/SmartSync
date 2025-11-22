@@ -9,6 +9,7 @@ import '../../services/firebase_service.dart';
 import '../../core/constants/routes.dart';
 import '../../providers/device_provider.dart';
 import '../../core/widgets/app_notifications.dart';
+import '../../core/widgets/lottie_loading.dart';
 import '../../core/utils/logger.dart';
 import '../../services/appliance_state_service.dart';
 import '../../providers/sensor_provider.dart';
@@ -71,11 +72,13 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
   Future<void> _loadApplianceState() async {
     final stateService = ApplianceStateService();
     final state = await stateService.loadApplianceState();
-    
+
     if (state != null && mounted) {
       setState(() {
-        _fanSpeed = ((state['fanSpeed'] as int? ?? 0) / 255 * 100).roundToDouble();
-        _masterBrightness = ((state['ledBrightness'] as int? ?? 0) / 255 * 100).roundToDouble();
+        _fanSpeed =
+            ((state['fanSpeed'] as int? ?? 0) / 255 * 100).roundToDouble();
+        _masterBrightness =
+            ((state['ledBrightness'] as int? ?? 0) / 255 * 100).roundToDouble();
         _allDevicesOn = (_fanSpeed > 0 || _masterBrightness > 0);
         _updateAnimations();
       });
@@ -87,7 +90,8 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
           if (data != null && mounted) {
             setState(() {
               _fanSpeed = (data.fanSpeed / 255 * 100).roundToDouble();
-              _masterBrightness = (data.ledBrightness / 255 * 100).roundToDouble();
+              _masterBrightness =
+                  (data.ledBrightness / 255 * 100).roundToDouble();
               _allDevicesOn = (_fanSpeed > 0 || _masterBrightness > 0);
               _updateAnimations();
             });
@@ -107,14 +111,20 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
   void _updateAnimations() {
     // Update fan animation speed based on fan speed
     if (_fanSpeed > 0) {
-      _fanAnimationController.duration = Duration(
+      // Calculate new duration: faster fan = shorter duration (faster rotation)
+      // Range: 200ms (100%) to 2000ms (0%)
+      final newDuration = Duration(
         milliseconds: (2000 - (_fanSpeed / 100 * 1800)).round(),
       );
-      if (!_fanAnimationController.isAnimating) {
-        _fanAnimationController.repeat();
-      }
+      
+      // Stop and reset to apply new duration
+      _fanAnimationController.stop();
+      _fanAnimationController.reset();
+      _fanAnimationController.duration = newDuration;
+      _fanAnimationController.repeat();
     } else {
       _fanAnimationController.stop();
+      _fanAnimationController.reset();
     }
 
     // Update bulb brightness animation
@@ -125,15 +135,18 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
   Widget build(BuildContext context) {
     final devicesAsync = ref.watch(roomDevicesProvider(widget.room.id));
     final sensorData = ref.watch(sensorStreamProvider);
-    
+
     // Sync master control with sensor data
     sensorData.whenData((data) {
       if (data != null && mounted) {
         final fanSpeedPercent = (data.fanSpeed / 255 * 100).roundToDouble();
-        final brightnessPercent = (data.ledBrightness / 255 * 100).roundToDouble();
+        final brightnessPercent =
+            (data.ledBrightness / 255 * 100).roundToDouble();
         final allOn = (fanSpeedPercent > 0 || brightnessPercent > 0);
-        
-        if ((_fanSpeed != fanSpeedPercent || _masterBrightness != brightnessPercent || _allDevicesOn != allOn)) {
+
+        if ((_fanSpeed != fanSpeedPercent ||
+            _masterBrightness != brightnessPercent ||
+            _allDevicesOn != allOn)) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
               setState(() {
@@ -206,13 +219,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                     return _buildDevicesList(devices);
                   },
                   loading: () => const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(40),
-                      child: CircularProgressIndicator(
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(Color(0xFF00BFA5)),
-                      ),
-                    ),
+                    child: LottieLoading.medium(),
                   ),
                   error: (error, _) => _buildErrorState(),
                 ),
@@ -563,17 +570,20 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                         width: 32,
                         height: 32,
                         fit: BoxFit.contain,
-                        color: _fanSpeed > 0 
-                            ? Colors.blue.withOpacity(0.8 + (_fanSpeed / 100 * 0.2))
+                        color: _fanSpeed > 0
+                            ? Colors.blue
+                                .withOpacity(0.8 + (_fanSpeed / 100 * 0.2))
                             : Colors.white70,
                         errorBuilder: (context, error, stackTrace) {
                           // Fallback to icon if image fails to load
-                          Logger.warning('RoomDetailScreen: Failed to load fan.png: $error');
+                          Logger.warning(
+                              'RoomDetailScreen: Failed to load fan.png: $error');
                           return Icon(
                             Icons.air_rounded,
                             size: 32,
-                            color: _fanSpeed > 0 
-                                ? Colors.blue.withOpacity(0.8 + (_fanSpeed / 100 * 0.2))
+                            color: _fanSpeed > 0
+                                ? Colors.blue
+                                    .withOpacity(0.8 + (_fanSpeed / 100 * 0.2))
                                 : Colors.white70,
                           );
                         },
@@ -612,13 +622,15 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                         max: 100,
                         activeColor: Colors.blue,
                         // Disable slider if master control is off
-                        onChanged: _allDevicesOn ? (value) {
-                          setState(() {
-                            _fanSpeed = value;
-                            _updateAnimations();
-                          });
-                          _handleFanSpeedChange(value.round());
-                        } : null,
+                        onChanged: _allDevicesOn
+                            ? (value) {
+                                setState(() {
+                                  _fanSpeed = value;
+                                  _updateAnimations();
+                                });
+                                _handleFanSpeedChange(value.round());
+                              }
+                            : null,
                       ),
                     ],
                   ),
@@ -692,13 +704,15 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                         max: 100,
                         activeColor: Colors.amber,
                         // Disable slider if master control is off
-                        onChanged: _allDevicesOn ? (value) {
-                          setState(() {
-                            _masterBrightness = value;
-                            _updateAnimations();
-                          });
-                          _handleLightBrightnessChange(value.round());
-                        } : null,
+                        onChanged: _allDevicesOn
+                            ? (value) {
+                                setState(() {
+                                  _masterBrightness = value;
+                                  _updateAnimations();
+                                });
+                                _handleLightBrightnessChange(value.round());
+                              }
+                            : null,
                       ),
                     ],
                   ),
@@ -937,7 +951,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
             ],
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const Center(child: LottieLoading.medium()),
         error: (error, _) => Text('Failed to load automations: $error'),
       ),
     );
@@ -1213,13 +1227,14 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                 // Show add automation screen
                 final user = FirebaseAuth.instance.currentUser;
                 if (user == null) return;
-                
-                final devicesAsync = ref.read(roomDevicesProvider(widget.room.id));
+
+                final devicesAsync =
+                    ref.read(roomDevicesProvider(widget.room.id));
                 final devices = devicesAsync.maybeWhen(
                   data: (list) => list,
                   orElse: () => <DeviceModel>[],
                 );
-                
+
                 if (devices.isEmpty) {
                   AppNotifications.showSnackBar(
                     context,
@@ -1228,7 +1243,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                   );
                   return;
                 }
-                
+
                 final result = await Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -1238,7 +1253,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                     ),
                   ),
                 );
-                
+
                 if (result == true) {
                   // Refresh automations
                   ref.invalidate(roomAutomationsProvider(widget.room.id));
@@ -1292,29 +1307,27 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
             ),
           ),
           const SizedBox(height: 12),
-          ...themes
-              .map(
-                (theme) => ListTile(
-                  leading: Icon(
-                    _getRoomIcon(theme),
-                    color: _getRoomColor(theme),
-                  ),
-                  title: Text(
-                    theme.replaceAll('_', ' ').toUpperCase(),
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                  onTap: () async {
-                    final user = FirebaseAuth.instance.currentUser;
-                    if (user != null) {
-                      await FirebaseService().updateRoom(
-                          user.uid, widget.room.id, {'icon': theme});
-                    }
-                    if (!mounted) return;
-                    Navigator.pop(context);
-                  },
-                ),
-              )
-              .toList(),
+          ...themes.map(
+            (theme) => ListTile(
+              leading: Icon(
+                _getRoomIcon(theme),
+                color: _getRoomColor(theme),
+              ),
+              title: Text(
+                theme.replaceAll('_', ' ').toUpperCase(),
+                style: const TextStyle(color: Colors.white),
+              ),
+              onTap: () async {
+                final user = FirebaseAuth.instance.currentUser;
+                if (user != null) {
+                  await FirebaseService()
+                      .updateRoom(user.uid, widget.room.id, {'icon': theme});
+                }
+                if (!mounted) return;
+                Navigator.pop(context);
+              },
+            ),
+          ),
         ],
       ),
     );
@@ -1335,19 +1348,21 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
   }
 
   Future<void> _toggleAllDevices(bool enabled) async {
-    Logger.info('RoomDetailScreen: Toggling all devices to ${enabled ? "on" : "off"}');
+    Logger.info(
+        'RoomDetailScreen: Toggling all devices to ${enabled ? "on" : "off"}');
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       Logger.warning('RoomDetailScreen: No user found');
       return;
     }
-    
+
     // Log the action
     final loggingService = LoggingService();
     await loggingService.logAction(
       action: 'Master Controller ${enabled ? "ON" : "OFF"}',
       category: 'device_control',
-      details: 'Master controller for ${widget.room.name} turned ${enabled ? "on" : "off"}',
+      details:
+          'Master controller for ${widget.room.name} turned ${enabled ? "on" : "off"}',
       level: LogLevel.info,
       metadata: {
         'roomId': widget.room.id,
@@ -1356,40 +1371,43 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
         'brightness': enabled ? _masterBrightness.round() : 0,
       },
     );
-    
+
     final bleService = ref.read(bluetoothServiceProvider);
     if (bleService.isConnected) {
       Logger.debug('RoomDetailScreen: BLE connected, sending commands');
       try {
         if (enabled) {
           // Use current values or default to 50%
-          final fanValue = _fanSpeed > 0 ? ((_fanSpeed / 100) * 255).round() : 128;
-          final ledValue = _masterBrightness > 0 ? ((_masterBrightness / 100) * 255).round() : 128;
-          
+          final fanValue =
+              _fanSpeed > 0 ? ((_fanSpeed / 100) * 255).round() : 128;
+          final ledValue = _masterBrightness > 0
+              ? ((_masterBrightness / 100) * 255).round()
+              : 128;
+
           await bleService.setFanSpeed(fanValue).timeout(
-            const Duration(seconds: 5),
-            onTimeout: () => false,
-          );
+                const Duration(seconds: 5),
+                onTimeout: () => false,
+              );
           await bleService.setLEDBrightness(ledValue).timeout(
-            const Duration(seconds: 5),
-            onTimeout: () => false,
-          );
+                const Duration(seconds: 5),
+                onTimeout: () => false,
+              );
         } else {
           // Turn off when disabling
           await bleService.setFanSpeed(0).timeout(
-            const Duration(seconds: 5),
-            onTimeout: () => false,
-          );
+                const Duration(seconds: 5),
+                onTimeout: () => false,
+              );
           await bleService.setLEDBrightness(0).timeout(
-            const Duration(seconds: 5),
-            onTimeout: () => false,
-          );
+                const Duration(seconds: 5),
+                onTimeout: () => false,
+              );
         }
       } catch (e) {
         Logger.error('RoomDetailScreen: Error toggling devices: $e');
       }
     }
-    
+
     await FirebaseService()
         .toggleAllRoomDevices(user.uid, widget.room.id, enabled);
     if (!mounted) return;
@@ -1424,7 +1442,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
       });
       return;
     }
-    
+
     final bleService = ref.read(bluetoothServiceProvider);
     if (!bleService.isConnected) {
       // Save state even if not connected (for when connection is restored)
@@ -1435,7 +1453,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
         ledBrightness: currentState?['ledBrightness'] ?? 0,
         securityEnabled: currentState?['securityEnabled'] ?? false,
       );
-      
+
       // Only show notification once, not repeatedly
       if (mounted && !_notificationShown) {
         _notificationShown = true;
@@ -1455,10 +1473,10 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
     try {
       final speed = ((percent / 100) * 255).round();
       final success = await bleService.setFanSpeed(speed).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => false,
-      );
-      
+            const Duration(seconds: 5),
+            onTimeout: () => false,
+          );
+
       if (!mounted) return;
 
       AppNotifications.showSnackBar(
@@ -1487,7 +1505,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
       });
       return;
     }
-    
+
     final bleService = ref.read(bluetoothServiceProvider);
     if (!bleService.isConnected) {
       // Save state even if not connected (for when connection is restored)
@@ -1498,7 +1516,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
         ledBrightness: ((percent / 100) * 255).round(),
         securityEnabled: currentState?['securityEnabled'] ?? false,
       );
-      
+
       // Only show notification once, not repeatedly
       if (mounted && !_notificationShown) {
         _notificationShown = true;
@@ -1518,10 +1536,10 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
     try {
       final brightness = ((percent / 100) * 255).round();
       final success = await bleService.setLEDBrightness(brightness).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => false,
-      );
-      
+            const Duration(seconds: 5),
+            onTimeout: () => false,
+          );
+
       if (!mounted) return;
 
       AppNotifications.showSnackBar(
@@ -1597,7 +1615,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
       );
 
       if (!mounted) return;
-      
+
       // Update room with new image URL
       await firebaseService.updateRoom(user.uid, widget.room.id, {
         'imageUrl': imageUrl,

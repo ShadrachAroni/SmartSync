@@ -18,13 +18,10 @@ final currentUserProvider = StreamProvider<UserModel?>((ref) {
   final authService = ref.watch(authServiceProvider);
   return authService.authStateChanges.asyncMap((user) async {
     if (user == null) {
-      Logger.debug('currentUserProvider: User is null');
       return null;
     }
     
     try {
-      Logger.debug('currentUserProvider: Loading user data for ${user.uid}');
-      
       // Add comprehensive error handling with retry logic
       UserModel? userData;
       int retries = 0;
@@ -33,13 +30,11 @@ final currentUserProvider = StreamProvider<UserModel?>((ref) {
       while (retries <= maxRetries) {
         try {
           userData = await authService.getUserData(user.uid).timeout(
-            const Duration(seconds: 8), // Reduced timeout
+            const Duration(seconds: 8),
             onTimeout: () {
-              Logger.warning('currentUserProvider: Timeout (attempt ${retries + 1}/$maxRetries)');
               throw TimeoutException('User data fetch timeout', const Duration(seconds: 8));
             },
           );
-          Logger.debug('currentUserProvider: User data loaded successfully');
           break; // Success, exit retry loop
         } catch (e) {
           retries++;
@@ -48,7 +43,6 @@ final currentUserProvider = StreamProvider<UserModel?>((ref) {
             // Fall through to fallback
             break;
           } else {
-            Logger.warning('currentUserProvider: Retry $retries/$maxRetries after error: $e');
             await Future.delayed(Duration(milliseconds: 500 * retries)); // Exponential backoff
           }
         }

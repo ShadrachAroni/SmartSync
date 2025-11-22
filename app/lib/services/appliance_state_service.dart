@@ -16,6 +16,7 @@ class ApplianceStateService {
     required int fanSpeed,
     required int ledBrightness,
     required bool securityEnabled,
+    bool? autoMode,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -24,19 +25,25 @@ class ApplianceStateService {
     }
 
     try {
+      final data = {
+        'fanSpeed': fanSpeed,
+        'ledBrightness': ledBrightness,
+        'securityEnabled': securityEnabled,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      
+      if (autoMode != null) {
+        data['autoMode'] = autoMode;
+      }
+
       await _firestore
           .collection('users')
           .doc(user.uid)
           .collection(_collection)
           .doc('current')
-          .set({
-        'fanSpeed': fanSpeed,
-        'ledBrightness': ledBrightness,
-        'securityEnabled': securityEnabled,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+          .set(data, SetOptions(merge: true));
 
-      Logger.info('ApplianceStateService: State saved - Fan: $fanSpeed, LED: $ledBrightness, Security: $securityEnabled');
+      Logger.info('ApplianceStateService: State saved - Fan: $fanSpeed, LED: $ledBrightness, Security: $securityEnabled, AutoMode: $autoMode');
     } catch (e) {
       Logger.error('ApplianceStateService: Error saving state: $e');
     }
@@ -60,11 +67,12 @@ class ApplianceStateService {
 
       if (doc.exists && doc.data() != null) {
         final data = doc.data()!;
-        Logger.info('ApplianceStateService: State loaded - Fan: ${data['fanSpeed']}, LED: ${data['ledBrightness']}, Security: ${data['securityEnabled']}');
+        Logger.info('ApplianceStateService: State loaded - Fan: ${data['fanSpeed']}, LED: ${data['ledBrightness']}, Security: ${data['securityEnabled']}, AutoMode: ${data['autoMode']}');
         return {
           'fanSpeed': data['fanSpeed'] ?? 0,
           'ledBrightness': data['ledBrightness'] ?? 0,
           'securityEnabled': data['securityEnabled'] ?? false,
+          'autoMode': data['autoMode'] ?? false,
         };
       }
       return null;
@@ -95,6 +103,7 @@ class ApplianceStateService {
             'fanSpeed': data['fanSpeed'] ?? 0,
             'ledBrightness': data['ledBrightness'] ?? 0,
             'securityEnabled': data['securityEnabled'] ?? false,
+            'autoMode': data['autoMode'] ?? false,
           };
         }
         return null;

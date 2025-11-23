@@ -1,9 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:lottie/lottie.dart';
 import 'package:intl/intl.dart';
 import '../utils/time_utils.dart';
-import '../utils/logger.dart';
 
 /// Widget that displays live time and day/night indicator
 class LiveTimeWidget extends StatefulWidget {
@@ -37,7 +35,9 @@ class _LiveTimeWidgetState extends State<LiveTimeWidget> {
     _updateTime();
     // Update every second if showing seconds, otherwise every minute
     _timer = Timer.periodic(
-      widget.showSeconds ? const Duration(seconds: 1) : const Duration(seconds: 60),
+      widget.showSeconds
+          ? const Duration(seconds: 1)
+          : const Duration(seconds: 60),
       (_) => _updateTime(),
     );
   }
@@ -61,7 +61,7 @@ class _LiveTimeWidgetState extends State<LiveTimeWidget> {
     final timeFormat = widget.showSeconds
         ? TimeUtils.formatTime24Hour(_currentTime)
         : TimeUtils.formatTime24Hour(_currentTime).substring(0, 5);
-    
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -115,7 +115,8 @@ class _LiveTimeWidgetState extends State<LiveTimeWidget> {
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
-                    color: _isNight ? Colors.blue.shade300 : Colors.amber.shade300,
+                    color:
+                        _isNight ? Colors.blue.shade300 : Colors.amber.shade300,
                   ),
                 ),
               ),
@@ -126,4 +127,3 @@ class _LiveTimeWidgetState extends State<LiveTimeWidget> {
     );
   }
 }
-

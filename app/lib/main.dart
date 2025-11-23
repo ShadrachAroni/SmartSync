@@ -11,7 +11,6 @@ import 'core/theme/app_theme.dart';
 import 'core/constants/routes.dart';
 import 'core/widgets/lottie_loading.dart';
 import 'core/widgets/app_error_handler.dart';
-import 'core/widgets/error_boundary.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'providers/auth_provider.dart';

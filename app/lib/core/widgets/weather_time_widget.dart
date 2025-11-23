@@ -1,25 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:lottie/lottie.dart';
 import '../../services/weather_service.dart';
 import '../../providers/sensor_provider.dart';
 import 'live_time_widget.dart';
 import 'lottie_weather_icon.dart';
 
-final weatherDataProvider = FutureProvider.autoDispose<WeatherData?>((ref) async {
+final weatherDataProvider =
+    FutureProvider.autoDispose<WeatherData?>((ref) async {
   try {
     final weatherService = WeatherService();
     // Get sensor data for fallback
     final sensorData = ref.watch(sensorStreamProvider);
     final temp = sensorData.asData?.value?.temperature;
     final hum = sensorData.asData?.value?.humidity;
-    
+
     // Weather service will automatically request location permission and get coordinates
     // Add timeout to prevent hanging
-    return await weatherService.getCurrentWeather(
+    return await weatherService
+        .getCurrentWeather(
       fallbackTemperature: temp,
       fallbackHumidity: hum,
-    ).timeout(
+    )
+        .timeout(
       const Duration(seconds: 8),
       onTimeout: () {
         // Return fallback weather data on timeout
@@ -202,4 +204,3 @@ class WeatherTimeWidget extends ConsumerWidget {
     );
   }
 }
-

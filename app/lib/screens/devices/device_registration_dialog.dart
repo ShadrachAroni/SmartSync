@@ -14,7 +14,8 @@ import '../../core/utils/device_type_detector.dart';
 class DeviceRegistrationDialog extends ConsumerStatefulWidget {
   final String deviceId; // BLE remoteId
   final String deviceName; // BLE advertisement name
-  final SensorData? initialSensorData; // Optional initial sensor data for detection
+  final SensorData?
+      initialSensorData; // Optional initial sensor data for detection
 
   const DeviceRegistrationDialog({
     super.key,
@@ -45,19 +46,19 @@ class _DeviceRegistrationDialogState
     // Pre-fill device name from BLE advertisement
     _nameController.text =
         widget.deviceName.isNotEmpty ? widget.deviceName : 'SmartSync Device';
-    
+
     // Attempt automatic detection
     _detectDeviceType();
   }
 
   Future<void> _detectDeviceType() async {
     setState(() => _isDetecting = true);
-    
+
     try {
       // Try to get device status from Bluetooth if connected
       Map<String, dynamic>? deviceStatus;
       final bluetoothService = BluetoothService();
-      if (bluetoothService.isConnected && 
+      if (bluetoothService.isConnected &&
           bluetoothService.connectedDeviceId == widget.deviceId) {
         try {
           // Request device status
@@ -65,37 +66,41 @@ class _DeviceRegistrationDialogState
           // Note: Status response would need to be handled via a callback
           // For now, we'll use available data
         } catch (e) {
-          Logger.warning('DeviceRegistrationDialog: Could not request device status: $e');
+          Logger.warning(
+              'DeviceRegistrationDialog: Could not request device status: $e');
         }
       }
-      
+
       // Perform automatic detection
       final detectedType = DeviceTypeDetector.detectDeviceType(
         deviceName: widget.deviceName,
         initialSensorData: widget.initialSensorData,
         deviceStatus: deviceStatus,
       );
-      
+
       final confidence = DeviceTypeDetector.getDetectionConfidence(
         deviceName: widget.deviceName,
         initialSensorData: widget.initialSensorData,
         deviceStatus: deviceStatus,
       );
-      
+
       // Determine detection method for display
       String? method;
-      if (DeviceTypeDetector.detectFromName(widget.deviceName) == detectedType) {
+      if (DeviceTypeDetector.detectFromName(widget.deviceName) ==
+          detectedType) {
         method = 'Device name';
-      } else if (widget.initialSensorData != null && 
-                 DeviceTypeDetector.detectFromSensorData(widget.initialSensorData!) == detectedType) {
+      } else if (widget.initialSensorData != null &&
+          DeviceTypeDetector.detectFromSensorData(widget.initialSensorData!) ==
+              detectedType) {
         method = 'Sensor data';
-      } else if (deviceStatus != null && 
-                 DeviceTypeDetector.detectFromCapabilities(deviceStatus) == detectedType) {
+      } else if (deviceStatus != null &&
+          DeviceTypeDetector.detectFromCapabilities(deviceStatus) ==
+              detectedType) {
         method = 'Device capabilities';
       } else {
         method = 'Default';
       }
-      
+
       if (mounted) {
         setState(() {
           _selectedType = detectedType;
@@ -103,11 +108,13 @@ class _DeviceRegistrationDialogState
           _detectionMethod = method;
           _isDetecting = false;
         });
-        
+
         if (confidence > 0.5) {
-          Logger.info('DeviceRegistrationDialog: Auto-detected ${detectedType.name} with ${(confidence * 100).toStringAsFixed(0)}% confidence via $method');
+          Logger.info(
+              'DeviceRegistrationDialog: Auto-detected ${detectedType.name} with ${(confidence * 100).toStringAsFixed(0)}% confidence via $method');
         } else {
-          Logger.info('DeviceRegistrationDialog: Low confidence detection (${(confidence * 100).toStringAsFixed(0)}%), user should verify');
+          Logger.info(
+              'DeviceRegistrationDialog: Low confidence detection (${(confidence * 100).toStringAsFixed(0)}%), user should verify');
         }
       }
     } catch (e) {
@@ -392,7 +399,9 @@ class _DeviceRegistrationDialogState
                           ],
                         ],
                       ),
-                      if (!_isDetecting && _detectionConfidence > 0.5 && _detectionMethod != null) ...[
+                      if (!_isDetecting &&
+                          _detectionConfidence > 0.5 &&
+                          _detectionMethod != null) ...[
                         const SizedBox(height: 4),
                         Text(
                           'Detected as ${_selectedType.name.toUpperCase()} via $_detectionMethod',
@@ -405,11 +414,13 @@ class _DeviceRegistrationDialogState
                       ],
                       const SizedBox(height: 8),
                       DropdownButtonFormField<DeviceType>(
-                        value: _selectedType,
-                        style: const TextStyle(color: Colors.white, fontSize: 16),
+                        initialValue: _selectedType,
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 16),
                         decoration: InputDecoration(
                           hintText: 'Select device type',
-                          hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+                          hintStyle:
+                              TextStyle(color: Colors.white.withOpacity(0.5)),
                           filled: true,
                           fillColor: Colors.white.withOpacity(0.1),
                           border: OutlineInputBorder(
@@ -445,7 +456,8 @@ class _DeviceRegistrationDialogState
                         ),
                         dropdownColor: const Color(0xFF1A1F3A),
                         items: DeviceType.values.map((type) {
-                          final isDetected = type == _selectedType && _detectionConfidence > 0.5;
+                          final isDetected = type == _selectedType &&
+                              _detectionConfidence > 0.5;
                           return DropdownMenuItem(
                             value: type,
                             child: Row(

@@ -403,34 +403,98 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
   }
 
   Widget _buildQuickStats() {
+    final devicesAsync = ref.watch(roomDevicesProvider(widget.room.id));
+    final automationsAsync = ref.watch(roomAutomationsProvider(widget.room.id));
+    final user = FirebaseAuth.instance.currentUser;
+    
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
+          // Active Devices
           Expanded(
-            child: _buildStatCard(
-              icon: Icons.power_settings_new_rounded,
-              label: 'Active',
-              value: '${widget.room.deviceIds.length}',
-              color: const Color(0xFF00BFA5),
+            child: devicesAsync.when(
+              data: (devices) {
+                final activeCount = devices.where((d) => d.isOn).length;
+                return _buildStatCard(
+                  icon: Icons.power_settings_new_rounded,
+                  label: 'Active',
+                  value: '$activeCount',
+                  color: const Color(0xFF00BFA5),
+                );
+              },
+              loading: () => _buildStatCard(
+                icon: Icons.power_settings_new_rounded,
+                label: 'Active',
+                value: '-',
+                color: const Color(0xFF00BFA5),
+              ),
+              error: (_, __) => _buildStatCard(
+                icon: Icons.power_settings_new_rounded,
+                label: 'Active',
+                value: '0',
+                color: const Color(0xFF00BFA5),
+              ),
             ),
           ),
           const SizedBox(width: 12),
+          // Energy Consumption
           Expanded(
-            child: _buildStatCard(
-              icon: Icons.flash_on_rounded,
-              label: 'Energy',
-              value: '24 kWh',
-              color: const Color(0xFFFFA726),
-            ),
+            child: user != null
+                ? FutureBuilder<double>(
+                    future: FirebaseService().getRoomEnergyConsumption(
+                      user.uid,
+                      widget.room.id,
+                    ),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return _buildStatCard(
+                          icon: Icons.flash_on_rounded,
+                          label: 'Energy',
+                          value: '-',
+                          color: const Color(0xFFFFA726),
+                        );
+                      }
+                      final energy = snapshot.data ?? 0.0;
+                      return _buildStatCard(
+                        icon: Icons.flash_on_rounded,
+                        label: 'Energy',
+                        value: '${energy.toStringAsFixed(1)} kWh',
+                        color: const Color(0xFFFFA726),
+                      );
+                    },
+                  )
+                : _buildStatCard(
+                    icon: Icons.flash_on_rounded,
+                    label: 'Energy',
+                    value: '0 kWh',
+                    color: const Color(0xFFFFA726),
+                  ),
           ),
           const SizedBox(width: 12),
+          // Schedules/Automations
           Expanded(
-            child: _buildStatCard(
-              icon: Icons.schedule_rounded,
-              label: 'Schedules',
-              value: '3',
-              color: const Color(0xFF7C4DFF),
+            child: automationsAsync.when(
+              data: (automations) {
+                return _buildStatCard(
+                  icon: Icons.schedule_rounded,
+                  label: 'Schedules',
+                  value: '${automations.length}',
+                  color: const Color(0xFF7C4DFF),
+                );
+              },
+              loading: () => _buildStatCard(
+                icon: Icons.schedule_rounded,
+                label: 'Schedules',
+                value: '-',
+                color: const Color(0xFF7C4DFF),
+              ),
+              error: (_, __) => _buildStatCard(
+                icon: Icons.schedule_rounded,
+                label: 'Schedules',
+                value: '0',
+                color: const Color(0xFF7C4DFF),
+              ),
             ),
           ),
         ],
@@ -1597,9 +1661,15 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
     if (source == null) return;
 
     try {
-      final XFile? image = await picker.pickImage(source: source);
+      final XFile? image = await picker.pickImage(
+        source: source,
+        imageQuality: 85, // Compress image to reduce upload size
+        maxWidth: 1920, // Limit image size
+        maxHeight: 1080,
+      );
       if (image == null) return;
 
+      if (!mounted) return;
       AppNotifications.showSnackBar(
         context,
         message: 'Uploading image...',
@@ -1608,10 +1678,17 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
 
       // Upload to Firebase Storage and update room
       final firebaseService = FirebaseService();
+      final imageFile = File(image.path);
+      
+      // Verify file exists before uploading
+      if (!await imageFile.exists()) {
+        throw Exception('Selected image file no longer exists');
+      }
+
       final imageUrl = await firebaseService.uploadRoomImage(
         userId: user.uid,
         roomId: widget.room.id,
-        imageFile: File(image.path),
+        imageFile: imageFile,
       );
 
       if (!mounted) return;
@@ -1627,11 +1704,20 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
         message: 'Room image updated successfully!',
         type: AppNotificationType.success,
       );
+    } on Exception catch (e) {
+      if (!mounted) return;
+      // Extract the actual error message from the exception
+      final errorMessage = e.toString().replaceFirst('Exception: ', '');
+      AppNotifications.showSnackBar(
+        context,
+        message: errorMessage,
+        type: AppNotificationType.error,
+      );
     } catch (e) {
       if (!mounted) return;
       AppNotifications.showSnackBar(
         context,
-        message: 'Failed to upload image: $e',
+        message: 'Failed to upload image: ${e.toString()}',
         type: AppNotificationType.error,
       );
     }

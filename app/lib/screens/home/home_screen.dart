@@ -34,28 +34,17 @@ final bleConnectionProvider = StreamProvider<bool>((ref) {
 });
 
 final energyConsumptionProvider =
-    FutureProvider.family<double, String>((ref, userId) async {
+    StreamProvider.family<double, String>((ref, userId) {
   final mlService = ref.watch(mlServiceProvider);
-  try {
-    // Use ML service insights to get energy consumption (includes ML calculations)
-    final insights = await mlService.getInsights(userId, 1).timeout(
-      const Duration(seconds: 10),
-      onTimeout: () => AnalyticsInsights(
-        totalLogs: 0,
-        avgTemperature: 0.0,
-        avgHumidity: 0.0,
-        motionEvents: 0,
-        avgFanUsage: 0.0,
-        avgLightUsage: 0.0,
-        peakUsageHour: 0,
-        energyConsumption: 0.0,
-      ),
-    );
-    return insights.energyConsumption;
-  } catch (e) {
-    Logger.error('Energy consumption error: $e');
+  // Use real-time stream for energy consumption updates
+  // Use 7 days for better accuracy (home screen shows overall consumption)
+  return mlService.watchInsights(userId, 7)
+      .map((insights) => insights.energyConsumption)
+      .handleError((error, stackTrace) {
+    Logger.error('Energy consumption stream error: $error', error, stackTrace);
+    // Return default value to keep stream alive
     return 0.0;
-  }
+  });
 });
 
 // ==================== HOME SCREEN ====================
@@ -83,37 +72,44 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     switch (_currentIndex) {
       case 0:
         return ErrorBoundary(
+          key: const ValueKey('HomeTab_0'),
           context: 'HomeTab',
           child: const HomeTab(),
         );
       case 1:
         return ErrorBoundary(
+          key: const ValueKey('RoomsScreen_1'),
           context: 'RoomsScreen',
           child: RoomsScreen(),
         );
       case 2:
         return ErrorBoundary(
+          key: const ValueKey('DeviceScanScreen_2'),
           context: 'DeviceScanScreen',
           child: const DeviceScanScreen(),
         );
       case 3:
         // Navigate to analytics without blocking
-        WidgetsBinding.instance.addPostFrameCallback((_) {
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
           if (mounted) {
-            Navigator.of(context).pushNamed(Routes.analytics).catchError((e) {
+            try {
+              await Navigator.of(context).pushNamed(Routes.analytics);
+            } catch (e) {
               Logger.error('HomeScreen: Navigation error', e);
-            });
+            }
             if (mounted) {
               setState(() => _currentIndex = 0);
             }
           }
         });
         return ErrorBoundary(
+          key: const ValueKey('HomeTab_3'),
           context: 'HomeTab',
           child: const HomeTab(),
         );
       default:
         return ErrorBoundary(
+          key: const ValueKey('HomeTab_default'),
           context: 'HomeTab',
           child: const HomeTab(),
         );

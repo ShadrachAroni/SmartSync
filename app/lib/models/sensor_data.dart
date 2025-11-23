@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:json_annotation/json_annotation.dart';
 
 part 'sensor_data.g.dart';
@@ -28,8 +29,20 @@ class SensorData {
     required this.timestamp,
   });
 
-  factory SensorData.fromJson(Map<String, dynamic> json) =>
-      _$SensorDataFromJson(json);
+  factory SensorData.fromJson(Map<String, dynamic> json) {
+    // Handle Firestore Timestamp conversion
+    final jsonCopy = Map<String, dynamic>.from(json);
+    if (jsonCopy['timestamp'] is Timestamp) {
+      jsonCopy['timestamp'] = (jsonCopy['timestamp'] as Timestamp)
+          .toDate()
+          .toIso8601String();
+    } else if (jsonCopy['timestamp'] is! String) {
+      // If it's already a DateTime, convert to string
+      jsonCopy['timestamp'] = (jsonCopy['timestamp'] as DateTime)
+          .toIso8601String();
+    }
+    return _$SensorDataFromJson(jsonCopy);
+  }
 
   Map<String, dynamic> toJson() => _$SensorDataToJson(this);
 

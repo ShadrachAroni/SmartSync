@@ -40,13 +40,14 @@ class RoomsScreen extends ConsumerStatefulWidget {
 
 class _RoomsScreenState extends ConsumerState<RoomsScreen> {
   String _selectedFilter = 'All';
-  final List<String> _filters = [
-    'All',
-    'Living Room',
-    'Kitchen',
-    'Bedroom',
-    'Bathroom'
-  ];
+
+  List<String> _getFilters(List<RoomModel> rooms) {
+    final filters = ['All'];
+    // Add unique room names from actual rooms
+    final roomNames = rooms.map((r) => r.name).toSet().toList()..sort();
+    filters.addAll(roomNames);
+    return filters;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -156,6 +157,12 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
   }
 
   Widget _buildFilterChips() {
+    final rooms = ref.read(roomsProvider).maybeWhen(
+      data: (rooms) => rooms,
+      orElse: () => <RoomModel>[],
+    );
+    final filters = _getFilters(rooms);
+    
     return Container(
       height: 60,
       color: const Color(0xFF1A1F3A),
@@ -163,9 +170,9 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
-        itemCount: _filters.length,
+        itemCount: filters.length,
         itemBuilder: (context, index) {
-          final filter = _filters[index];
+          final filter = filters[index];
           final isSelected = _selectedFilter == filter;
 
           return Padding(
@@ -204,7 +211,7 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
         crossAxisCount: 2,
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
-        childAspectRatio: 0.85,
+        childAspectRatio: 0.75,
       ),
       itemCount: rooms.length,
       itemBuilder: (context, index) {
@@ -238,10 +245,11 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             // Room Image/Icon
             Container(
-              height: 140,
+              height: 120,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
@@ -308,14 +316,15 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
 
             // Room info
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     room.name,
                     style: const TextStyle(
-                      fontSize: 16,
+                      fontSize: 15,
                       fontWeight: FontWeight.bold,
                       color: Colors.black87,
                     ),
@@ -324,18 +333,23 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
                   ),
                   const SizedBox(height: 4),
                   Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
                         Icons.power_settings_new_rounded,
-                        size: 14,
+                        size: 12,
                         color: Colors.grey.shade500,
                       ),
                       const SizedBox(width: 4),
-                      Text(
-                        '$activeCount active',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
+                      Flexible(
+                        child: Text(
+                          '$activeCount active',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],

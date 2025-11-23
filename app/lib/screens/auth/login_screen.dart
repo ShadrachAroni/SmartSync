@@ -599,43 +599,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Widget _buildSocialRow() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        _SocialIcon(
-          icon: Icons.facebook_rounded,
-          label: 'Facebook',
-          onTap: () => _showMessage('Facebook login coming soon'),
-          gradient: const LinearGradient(
-            colors: [Color(0xFF2E7EFF), Color(0xFF465CFF)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+    // Only show Google sign-in as it's the only implemented social auth
+    return Center(
+      child: _SocialIcon(
+        icon: Icons.g_mobiledata,
+        label: _isGoogleLoading ? 'Loading' : 'Continue with Google',
+        onTap: _isGoogleLoading ? null : _handleGoogleLogin,
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFF6A6A), Color(0xFFFAB57A)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        const SizedBox(width: 16),
-        _SocialIcon(
-          icon: Icons.g_mobiledata,
-          label: _isGoogleLoading ? 'Loading' : 'Google',
-          onTap: _isGoogleLoading ? null : _handleGoogleLogin,
-          gradient: const LinearGradient(
-            colors: [Color(0xFFFF6A6A), Color(0xFFFAB57A)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          isLoading: _isGoogleLoading,
-        ),
-        const SizedBox(width: 16),
-        _SocialIcon(
-          icon: Icons.apple,
-          label: 'Apple',
-          onTap: () => _showMessage('Apple login coming soon'),
-          gradient: const LinearGradient(
-            colors: [Color(0xFF3B3B3B), Color(0xFF000000)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-      ],
+        isLoading: _isGoogleLoading,
+      ),
     );
   }
 
@@ -716,52 +692,51 @@ class _SocialIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool isDisabled = onTap == null;
-    return Expanded(
-      child: Column(
-        children: [
-          Opacity(
-            opacity: isDisabled ? 0.55 : 1,
-            child: AbsorbPointer(
-              absorbing: isDisabled,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: onTap ?? () {},
-                  borderRadius: BorderRadius.circular(40),
-                  child: Ink(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: gradient,
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x442E3AFF),
-                          blurRadius: 16,
-                          offset: Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: isLoading
-                          ? const LottieLoading.small()
-                          : Icon(icon, color: Colors.white, size: 28),
-                    ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Opacity(
+          opacity: isDisabled ? 0.55 : 1,
+          child: AbsorbPointer(
+            absorbing: isDisabled,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onTap ?? () {},
+                borderRadius: BorderRadius.circular(40),
+                child: Ink(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: gradient,
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x442E3AFF),
+                        blurRadius: 16,
+                        offset: Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: isLoading
+                        ? const LottieLoading.small()
+                        : Icon(icon, color: Colors.white, size: 28),
                   ),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 13,
-            ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 13,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

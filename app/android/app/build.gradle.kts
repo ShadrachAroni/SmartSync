@@ -31,6 +31,19 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
+        
+        // Ensure Select TF Ops native libraries are packaged
+        ndk {
+            // No need to specify abiFilters - include all architectures
+            // The Select TF Ops library will be included automatically
+        }
+    }
+    
+    packaging {
+        // Ensure all native libraries are included, including Select TF Ops
+        jniLibs {
+            useLegacyPackaging = false
+        }
     }
 
     buildTypes {
@@ -51,4 +64,8 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    
+    // TensorFlow Lite Select TF Ops - required for models using TensorFlow ops (e.g., FlexConv2D)
+    // This must match the TensorFlow Lite version used by tflite_flutter (2.15.0)
+    implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.15.0")
 }

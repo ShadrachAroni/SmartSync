@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import '../utils/logger.dart';
 
 /// Error boundary widget that catches errors during widget building
@@ -21,31 +22,35 @@ class ErrorBoundary extends StatefulWidget {
 class _ErrorBoundaryState extends State<ErrorBoundary> {
   bool _hasError = false;
   Object? _error;
-  StackTrace? _stackTrace;
-
-  @override
-  void initState() {
-    super.initState();
-    // Catch Flutter framework errors
-    FlutterError.onError = (FlutterErrorDetails details) {
-      _handleError(details.exception, details.stack);
-    };
-  }
+  // ignore: unused_field
+  StackTrace? _stackTrace; // Used for logging in _handleError
 
   void _handleError(Object error, StackTrace? stackTrace) {
-    if (mounted) {
-      setState(() {
-        _hasError = true;
-        _error = error;
-        _stackTrace = stackTrace;
-      });
-      
-      Logger.error(
-        'ErrorBoundary${widget.context != null ? " (${widget.context})" : ""}: Widget build error',
-        error,
-        stackTrace,
-      );
-    }
+    if (!mounted) return;
+    
+    // Always defer setState to after the current build phase
+    // This prevents "setState() called during build" errors
+    // Use microtask to ensure it runs even if called during build
+    Future.microtask(() {
+      if (mounted) {
+        // Double-check we're not in a build phase
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {
+              _hasError = true;
+              _error = error;
+              _stackTrace = stackTrace;
+            });
+          }
+        });
+      }
+    });
+    
+    Logger.error(
+      'ErrorBoundary${widget.context != null ? " (${widget.context})" : ""}: Widget build error',
+      error,
+      stackTrace,
+    );
   }
 
   @override
@@ -108,7 +113,13 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
         try {
           return widget.child;
         } catch (e, stackTrace) {
-          _handleError(e, stackTrace);
+          // Defer error handling to avoid calling setState during build
+          // Use microtask + postFrameCallback for extra safety
+          Future.microtask(() {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _handleError(e, stackTrace);
+            });
+          });
           return widget.fallback ??
               const SizedBox.shrink();
         }

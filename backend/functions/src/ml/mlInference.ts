@@ -67,8 +67,8 @@ interface Schedule {
 
 const MODEL_CACHE: Record<string, ModelCache> = {};
 const CACHE_TTL_MS = 3600000; // 1 hour
-const REQUIRED_HOURS = 168; // 7 days
-const MAX_DATA_SPAN_DAYS = 10;
+const REQUIRED_HOURS = 24; // 1 day - matches converted TFLite model sequence_length from train_smart_home.py
+const MAX_DATA_SPAN_DAYS = 2; // Reduced to match 24-hour requirement
 const MAX_GAP_HOURS = 2;
 
 // ==================== MODEL MANAGEMENT ====================
@@ -110,8 +110,15 @@ async function loadModel(modelName: string): Promise<tf.LayersModel> {
     const model = await tf.loadLayersModel(modelConfig.modelUrl);
 
     // Warmup: Run dummy prediction to initialize internal state
+    // Note: Model expects [1, 24, N] where N is the number of features
+    // The actual feature count will be determined by the model's input shape
     console.log('🔥 Warming up model...');
-    const dummyInput = tf.zeros([1, 168, 13]);
+    // Get actual input shape from model
+    const inputShape = model.inputs[0].shape as number[];
+    const batchSize = inputShape[0] || 1;
+    const sequenceLength = inputShape[1] || 24;
+    const numFeatures = inputShape[2] || 8; // Default to 8 if unknown
+    const dummyInput = tf.zeros([batchSize, sequenceLength, numFeatures]);
     const warmupPred = model.predict(dummyInput) as tf.Tensor;
     warmupPred.dispose();
     dummyInput.dispose();
@@ -207,7 +214,7 @@ function validateSensorData(logs: SensorLog[]): ValidationResult {
     };
   }
 
-  // Check time span (should be around 7 days, not spread over months)
+  // Check time span (should be around 1 day, not spread over weeks)
   const timestamps = logs.map(l => l.timestamp.toDate());
   const timeSpanMs = timestamps[timestamps.length - 1].getTime() - timestamps[0].getTime();
   const days = timeSpanMs / (1000 * 60 * 60 * 24);
@@ -314,9 +321,23 @@ function preprocessScheduleInput(logs: SensorLog[], scaler: ScalerParams): tf.Te
     row.map((val, idx) => (val - scaler.mean[idx]) / scaler.scale[idx])
   );
 
-  // Convert to tensor with shape [1, 168, 13]
-  // Batch size = 1, Timesteps = 168, Features = 13
-  const tensor = tf.tensor3d([normalizedFeatures], [1, 168, 13]);
+  // Convert to tensor with shape [1, 24, N] where N is the number of features
+  // Batch size = 1, Timesteps = 24 (1 day), Features = N
+  // Ensure we have exactly 24 timesteps (pad or truncate if needed)
+  let featuresToUse = normalizedFeatures;
+  if (featuresToUse.length > 24) {
+    // Take last 24 hours
+    featuresToUse = featuresToUse.slice(-24);
+  } else if (featuresToUse.length < 24) {
+    // Pad with last hour's data
+    const lastHour = featuresToUse[featuresToUse.length - 1] || new Array(normalizedFeatures[0]?.length || 8).fill(0);
+    while (featuresToUse.length < 24) {
+      featuresToUse.unshift([...lastHour]);
+    }
+  }
+  
+  const numFeatures = featuresToUse[0]?.length || 8;
+  const tensor = tf.tensor3d([featuresToUse], [1, 24, numFeatures]);
 
   console.log(`✅ Preprocessed tensor shape: ${tensor.shape}`);
   return tensor;
@@ -373,7 +394,7 @@ async function buildScheduleSuggestions(
       enabled: false,
       mode: 'suggested',
       confidence: 0.85,
-      reason: 'Based on last 7 days of fan usage',
+      reason: 'Based on last 24 hours of fan usage patterns',
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
   }
@@ -392,7 +413,7 @@ async function buildScheduleSuggestions(
       enabled: false,
       mode: 'suggested',
       confidence: 0.82,
-      reason: 'Based on last 7 days of lighting patterns',
+      reason: 'Based on last 24 hours of lighting patterns',
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
   }
@@ -432,7 +453,7 @@ export const predictSchedule = functions
     console.log(`User: ${userId}`);
 
     try {
-      // 2. Fetch sensor logs (last 168 hours)
+      // 2. Fetch sensor logs (last 24 hours - matches converted TFLite model)
       const cutoffDate = new Date();
       cutoffDate.setHours(cutoffDate.getHours() - REQUIRED_HOURS);
 

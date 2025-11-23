@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/services.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
@@ -42,24 +43,40 @@ class TFLiteService {
     }
 
     try {
-      Logger.info('Initializing TFLite Service...');
+      Logger.info('🔧 ========== TFLite Service Initialization ==========');
+      Logger.info('   Platform: ${Platform.operatingSystem}');
+      Logger.info('   Timestamp: ${DateTime.now().toIso8601String()}');
+      
+      // Check platform support
+      if (!Platform.isAndroid) {
+        Logger.warning('⚠️  TFLite is primarily tested on Android. Current platform: ${Platform.operatingSystem}');
+      }
 
       // Load schedule predictor model
+      Logger.info('   Step 1: Loading schedule predictor model...');
       await _loadSchedulePredictor();
       
       // Load scaler parameters (non-critical, can fail gracefully)
+      Logger.info('   Step 2: Loading scaler parameters...');
       try {
         await _loadScalerParameters();
-      } catch (e) {
-        Logger.warning('Scaler parameters loading failed, using defaults: $e');
+      } catch (e, stackTrace) {
+        Logger.warning('   ⚠️  Scaler parameters loading failed, using defaults: $e');
+        Logger.debug('   Stack: $stackTrace');
         // Continue without scaler - will use default normalization
       }
 
       _isInitialized = true;
-      Logger.success('TFLite Service initialized');
+      Logger.success('✅ ========== TFLite Service Initialization Complete ==========');
+      Logger.info('   Status: Ready for local inference');
       return true;
-    } catch (e) {
-      Logger.error('TFLite initialization failed: $e');
+    } catch (e, stackTrace) {
+      Logger.error('❌ ========== TFLite Service Initialization Failed ==========');
+      Logger.error('   Error: $e');
+      Logger.error('   Error Type: ${e.runtimeType}');
+      Logger.error('   Stack Trace:');
+      Logger.error('   $stackTrace');
+      Logger.error('   ============================================================');
       // Mark as initialized to prevent infinite retries
       // Service will fall back to server-side inference
       _isInitialized = true;
@@ -73,41 +90,92 @@ class TFLiteService {
   /// Model location: app/assets/models/schedule_predictor.tflite
   Future<void> _loadSchedulePredictor() async {
     try {
-      Logger.info('📥 Loading LOCAL TFLite model from assets...');
-      Logger.info('   Source: assets/models/schedule_predictor.tflite');
-      Logger.info('   Origin: Converted from train_smart_home.py via convert_tflite.py');
+      Logger.info('📥 [DEBUG] Loading LOCAL TFLite model from assets...');
+      Logger.info('   [DEBUG] Source: assets/models/schedule_predictor.tflite');
+      Logger.info('   [DEBUG] Origin: Converted from train_smart_home.py via convert_tflite.py');
 
-      // Load model from assets (local file, not server)
-      final modelBytes = await rootBundle.load('assets/models/schedule_predictor.tflite');
-      final modelBuffer = modelBytes.buffer.asUint8List();
-      Logger.info('   Model size: ${(modelBuffer.length / 1024).toStringAsFixed(2)} KB');
-
-      // Create interpreter (runs locally on device)
+      // Step 1: Load model bytes
+      Logger.info('   [DEBUG] Step 1.1: Loading model file from assets...');
+      Uint8List modelBuffer;
       try {
+        final modelBytes = await rootBundle.load('assets/models/schedule_predictor.tflite');
+        modelBuffer = modelBytes.buffer.asUint8List();
+        Logger.info('   [DEBUG] ✅ Model file loaded: ${(modelBuffer.length / 1024).toStringAsFixed(2)} KB');
+        Logger.info('   [DEBUG]    Buffer length: ${modelBuffer.length} bytes');
+        Logger.info('   [DEBUG]    First 16 bytes (hex): ${modelBuffer.take(16).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+      } catch (e, stackTrace) {
+        Logger.error('   [DEBUG] ❌ Failed to load model file: $e');
+        Logger.error('   [DEBUG]    Stack: $stackTrace');
+        Logger.error('   [DEBUG]    Make sure schedule_predictor.tflite exists in app/assets/models/');
+        Logger.error('   [DEBUG]    Check pubspec.yaml has the asset listed');
+        rethrow;
+      }
+
+      // Step 2: Wait for Select TF Ops library
+      Logger.info('   [DEBUG] Step 1.2: Waiting for Select TF Ops library to initialize...');
+      Logger.info('   [DEBUG]    The TfliteFlutterPlugin should load the library in a static initializer');
+      Logger.info('   [DEBUG]    Check logcat for "TfliteFlutterPlugin" messages');
+      await Future.delayed(const Duration(milliseconds: 500));
+      Logger.info('   [DEBUG]    Wait complete (500ms)');
+
+      // Step 3: Create interpreter
+      Logger.info('   [DEBUG] Step 1.3: Creating TFLite interpreter...');
+      Logger.info('   [DEBUG]    This model uses FlexConv2D which requires Select TF Ops library');
+      Logger.info('   [DEBUG]    Attempting Interpreter.fromBuffer()...');
+      
+      try {
+        final stopwatch = Stopwatch()..start();
         _schedulePredictor = Interpreter.fromBuffer(modelBuffer);
-      } catch (e) {
-        Logger.error('❌ Failed to create TFLite interpreter: $e');
-        Logger.error('   This might be a compatibility issue with the TFLite library');
+        stopwatch.stop();
+        Logger.info('   [DEBUG] ✅ Interpreter created successfully in ${stopwatch.elapsedMilliseconds}ms');
+        Logger.info('   [DEBUG]    Interpreter instance: ${_schedulePredictor.hashCode}');
+      } catch (e, stackTrace) {
+        Logger.error('   [DEBUG] ❌ Failed to create TFLite interpreter');
+        Logger.error('   [DEBUG]    Error: $e');
+        Logger.error('   [DEBUG]    Error Type: ${e.runtimeType}');
+        Logger.error('   [DEBUG]    Stack Trace:');
+        Logger.error('   [DEBUG]    $stackTrace');
+        Logger.error('   [DEBUG]    ============================================');
+        Logger.error('   [DEBUG]    DIAGNOSTIC INFORMATION:');
+        Logger.error('   [DEBUG]    1. This model uses FlexConv2D which requires Select TF Ops');
+        Logger.error('   [DEBUG]    2. Ensure org.tensorflow:tensorflow-lite-select-tf-ops:2.15.0 is in build.gradle');
+        Logger.error('   [DEBUG]    3. Check logcat for "TfliteFlutterPlugin" messages');
+        Logger.error('   [DEBUG]    4. Look for "SUCCESS: Loaded Select TF Ops library" in logcat');
+        Logger.error('   [DEBUG]    5. If library failed to load, rebuild app: flutter clean && flutter build apk');
+        Logger.error('   [DEBUG]    6. Verify library in APK: .\\check_apk_libs.ps1');
+        Logger.error('   [DEBUG]    ============================================');
         throw Exception('TFLite interpreter creation failed: $e');
       }
 
-      // Get input/output details
+      // Step 4: Get tensor details
+      Logger.info('   [DEBUG] Step 1.4: Getting model tensor details...');
       try {
         final inputDetails = _schedulePredictor!.getInputTensors();
         final outputDetails = _schedulePredictor!.getOutputTensors();
 
         Logger.success('✅ LOCAL TFLite model loaded successfully');
-        Logger.info('   📊 Input shape: ${inputDetails[0].shape}, type: ${inputDetails[0].type}');
-        Logger.info('   📊 Output shape: ${outputDetails[0].shape}, type: ${outputDetails[0].type}');
+        Logger.info('   [DEBUG] Input Tensors: ${inputDetails.length}');
+        for (int i = 0; i < inputDetails.length; i++) {
+          final tensor = inputDetails[i];
+          Logger.info('   [DEBUG]    Input[$i]: shape=${tensor.shape}, type=${tensor.type}, name=${tensor.name}');
+        }
+        Logger.info('   [DEBUG] Output Tensors: ${outputDetails.length}');
+        for (int i = 0; i < outputDetails.length; i++) {
+          final tensor = outputDetails[i];
+          Logger.info('   [DEBUG]    Output[$i]: shape=${tensor.shape}, type=${tensor.type}, name=${tensor.name}');
+        }
         Logger.info('   🎯 Model ready for local inference (no server required)');
-      } catch (e) {
-        Logger.warning('⚠️ Could not get model tensor details: $e');
+      } catch (e, stackTrace) {
+        Logger.warning('   [DEBUG] ⚠️ Could not get model tensor details: $e');
+        Logger.warning('   [DEBUG]    Stack: $stackTrace');
         // Don't throw - model is loaded, just missing metadata
         Logger.success('✅ LOCAL TFLite model loaded (metadata unavailable)');
       }
     } catch (e, stackTrace) {
       Logger.error('❌ Failed to load LOCAL TFLite model: $e');
-      Logger.error('   Stack: $stackTrace');
+      Logger.error('   Error Type: ${e.runtimeType}');
+      Logger.error('   Full Stack Trace:');
+      Logger.error('   $stackTrace');
       Logger.error('   Make sure schedule_predictor.tflite exists in app/assets/models/');
       // Rethrow to let initialize() handle it gracefully
       rethrow;

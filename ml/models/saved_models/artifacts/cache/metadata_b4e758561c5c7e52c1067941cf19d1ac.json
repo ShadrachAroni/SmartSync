@@ -1,0 +1,112 @@
+{
+  "config_hash": "b4e758561c5c7e52c1067941cf19d1ac",
+  "dataset_hash": "7c32760457b2c9c85c10a0ef86c543c5e12a1bbf4dcd11890d6daf37190dec2c",
+  "shapes": {
+    "X_train": [
+      17342,
+      24,
+      30
+    ],
+    "y_train": [
+      17342,
+      2
+    ],
+    "X_val": [
+      1011,
+      24,
+      30
+    ],
+    "y_val": [
+      1011,
+      2
+    ],
+    "X_test": [
+      746,
+      24,
+      30
+    ],
+    "y_test": [
+      746,
+      2
+    ]
+  },
+  "feature_columns": [
+    "power_kw_mean",
+    "power_kw_max",
+    "power_kw_std",
+    "house_kw_mean",
+    "house_kw_max",
+    "generation_kw_mean",
+    "appliance_kw_mean",
+    "occupancy_signal_mean",
+    "occupancy_signal_sum",
+    "temperature_c_mean",
+    "temperature_c_max",
+    "temperature_c_min",
+    "humidity_pct_mean",
+    "humidity_pct_max",
+    "hour_sin",
+    "hour_cos",
+    "day_of_week",
+    "is_weekend",
+    "power_kw_mean_roll6",
+    "power_kw_mean_roll24",
+    "house_kw_mean_roll6",
+    "house_kw_mean_roll24",
+    "temperature_c_mean_roll6",
+    "temperature_c_mean_roll24",
+    "humidity_pct_mean_roll6",
+    "humidity_pct_mean_roll24",
+    "occupancy_signal_mean_roll6",
+    "occupancy_signal_mean_roll24",
+    "fan_speed_lag1",
+    "led_brightness_lag1"
+  ],
+  "target_columns": [
+    "fan_speed",
+    "led_brightness"
+  ],
+  "created_at": "2025-11-23T14:27:29.388779",
+  "config": {
+    "seed": 42,
+    "sequence_length": 24,
+    "prediction_horizon": 1,
+    "batch_size": 32,
+    "epochs": 50,
+    "learning_rate": 0.0001,
+    "min_learning_rate": 1e-06,
+    "validation_split": 0.2,
+    "test_split": 0.15,
+    "label_smoothing": 0.02,
+    "datasets": [
+      "HomeC.csv",
+      "aruba.csv",
+      "tulum.csv"
+    ],
+    "conv_filters": [
+      16,
+      16,
+      8
+    ],
+    "kernel_size": 3,
+    "dropout": 0.55,
+    "l2_regularization": 0.003,
+    "gradient_clip_norm": 1.0,
+    "weight_decay": 0.0001,
+    "max_weight_norm": 3.0,
+    "input_noise_std": 0.02,
+    "use_data_augmentation": true,
+    "augmentation_noise_std": 0.04,
+    "time_mask_prob": 0.15,
+    "targets": [
+      "fan_speed",
+      "led_brightness"
+    ],
+    "max_target_value": 255,
+    "use_temporal_split": true,
+    "validate_no_leakage": true,
+    "auto_recover": true,
+    "max_recovery_attempts": 5,
+    "min_batch_size": 8
+  }
+}

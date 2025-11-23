@@ -161,6 +161,23 @@ class AuthService {
     }
   }
 
+  /// Stream user data for real-time updates
+  Stream<UserModel?> watchUserData(String uid) {
+    return _firestore
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .map((doc) {
+      if (!doc.exists || doc.data() == null) {
+        return null;
+      }
+      return UserModel.fromFirestore(doc);
+    }).handleError((error, stackTrace) {
+      // Log error but continue stream - errors are handled by provider
+      // Stream will continue with next snapshot
+    });
+  }
+
   Future<UserModel?> getUserData(String uid) async {
     try {
       final doc = await _firestore.collection('users').doc(uid).get();

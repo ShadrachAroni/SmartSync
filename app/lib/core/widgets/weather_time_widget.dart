@@ -6,46 +6,98 @@ import 'live_time_widget.dart';
 import 'lottie_weather_icon.dart';
 
 final weatherDataProvider =
-    FutureProvider.autoDispose<WeatherData?>((ref) async {
-  try {
-    final weatherService = WeatherService();
-    // Get sensor data for fallback
-    final sensorData = ref.watch(sensorStreamProvider);
-    final temp = sensorData.asData?.value?.temperature;
-    final hum = sensorData.asData?.value?.humidity;
+    StreamProvider.autoDispose<WeatherData?>((ref) async* {
+  // Keep provider alive to prevent unnecessary recreations
+  ref.keepAlive();
+  
+  final weatherService = WeatherService();
+  WeatherData? lastWeather;
+  
+  // Helper function to fetch weather
+  Future<WeatherData?> _fetchWeather() async {
+    try {
+      // Get sensor data ONLY as absolute last resort if weather API completely fails
+      double? sensorTemp;
+      double? sensorHum;
+      try {
+        final sensorData = ref.read(sensorStreamProvider);
+        sensorTemp = sensorData.asData?.value?.temperature;
+        sensorHum = sensorData.asData?.value?.humidity;
+      } catch (e) {
+        // Sensor data not available - that's okay, we'll use weather API
+      }
 
-    // Weather service will automatically request location permission and get coordinates
-    // Add timeout to prevent hanging
-    return await weatherService
-        .getCurrentWeather(
-      fallbackTemperature: temp,
-      fallbackHumidity: hum,
-    )
-        .timeout(
-      const Duration(seconds: 8),
-      onTimeout: () {
-        // Return fallback weather data on timeout
+      // Weather service will automatically:
+      // 1. Get user's location (GPS)
+      // 2. Fetch public weather data from Open-Meteo API for that location
+      // 3. Only use sensor data if weather API completely fails
+      final weather = await weatherService
+          .getCurrentWeather(
+        fallbackTemperature: sensorTemp,
+        fallbackHumidity: sensorHum,
+      )
+          .timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          // On timeout, only use sensor data if available, otherwise return null
+          if (sensorTemp != null && sensorHum != null) {
+            return WeatherData(
+              temperature: sensorTemp,
+              humidity: sensorHum,
+              description: 'Partly Cloudy',
+              condition: WeatherCondition.partlyCloudy,
+              location: 'Local (Sensor)',
+            );
+          }
+          return null;
+        },
+      );
+      
+      return weather;
+    } catch (e) {
+      // On error, try sensor data as last resort
+      double? sensorTemp;
+      double? sensorHum;
+      try {
+        final sensorData = ref.read(sensorStreamProvider);
+        sensorTemp = sensorData.asData?.value?.temperature;
+        sensorHum = sensorData.asData?.value?.humidity;
+      } catch (e) {
+        // No sensor data available
+      }
+      
+      // Only return sensor data if available
+      if (sensorTemp != null && sensorHum != null) {
         return WeatherData(
-          temperature: temp ?? 22.0,
-          humidity: hum ?? 50.0,
+          temperature: sensorTemp,
+          humidity: sensorHum,
           description: 'Partly Cloudy',
           condition: WeatherCondition.partlyCloudy,
-          location: 'Local',
+          location: 'Local (Sensor)',
         );
-      },
-    );
-  } catch (e) {
-    // Return fallback on any error
-    final sensorData = ref.watch(sensorStreamProvider);
-    final temp = sensorData.asData?.value?.temperature;
-    final hum = sensorData.asData?.value?.humidity;
-    return WeatherData(
-      temperature: temp ?? 22.0,
-      humidity: hum ?? 50.0,
-      description: 'Partly Cloudy',
-      condition: WeatherCondition.partlyCloudy,
-      location: 'Local',
-    );
+      }
+      
+      return null;
+    }
+  }
+  
+  // Initial fetch
+  final initialWeather = await _fetchWeather();
+  if (initialWeather != null) {
+    lastWeather = initialWeather;
+    yield initialWeather;
+  }
+  
+  // Fetch weather data periodically (every 5 minutes) for real-time updates
+  await for (final _ in Stream.periodic(const Duration(minutes: 5)).skip(1)) {
+    final weather = await _fetchWeather();
+    if (weather != null) {
+      lastWeather = weather;
+      yield weather;
+    } else if (lastWeather != null) {
+      // Keep last known weather if new fetch fails
+      yield lastWeather;
+    }
   }
 });
 

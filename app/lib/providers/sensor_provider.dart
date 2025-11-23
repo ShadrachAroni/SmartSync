@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/sensor_data.dart';
@@ -22,50 +23,30 @@ final sensorStreamProvider = StreamProvider.autoDispose<SensorData?>((ref) async
   
   // Initialize with timeout to prevent hanging
   try {
-    Logger.info('sensorStreamProvider: Initializing service for ${user.uid}');
     await service.initialize(user.uid).timeout(
       const Duration(seconds: 15),
-      onTimeout: () {
-        Logger.warning('sensorStreamProvider: Initialization timeout');
-      },
+      onTimeout: () {},
     );
-    Logger.info('sensorStreamProvider: Service initialized');
   } catch (e, stackTrace) {
-    Logger.error('sensorStreamProvider: Failed to initialize service', e, stackTrace);
+    Logger.error('sensorStreamProvider: Failed to initialize', e, stackTrace);
     yield null;
     return;
   }
   
-  ref.onDispose(() {
-    // Don't dispose the service since it's a singleton
-    // Just log that the provider is disposed
-    Logger.info('sensorStreamProvider: Provider disposed');
-  });
-  
   // Emit null immediately to show "no data" state, then wait for actual data
   yield null;
   
-  // Add timeout and fallback to prevent infinite loading
+  // Listen to the stream
   try {
-    // Use takeWhile to prevent infinite waiting
     await for (final data in service.sensorStream
-        .timeout(
-          const Duration(seconds: 30),
-          onTimeout: (sink) {
-            Logger.warning('sensorStreamProvider: Stream timeout, emitting null');
-            sink.add(null);
-            sink.close();
-          },
-        )
         .handleError((error, stackTrace) {
           Logger.error('sensorStreamProvider: Stream error', error, stackTrace);
         })
-        .take(1000)) { // Limit to 1000 emissions to prevent infinite loops
+        .take(10000)) {
       yield data;
     }
   } catch (e, stackTrace) {
-    Logger.error('sensorStreamProvider: Exception in stream', e, stackTrace);
-    // Yield null on any error to show "no data" state
+    Logger.error('sensorStreamProvider: Exception', e, stackTrace);
     yield null;
   }
 });

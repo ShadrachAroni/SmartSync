@@ -21,7 +21,64 @@ import 'package:tflite_flutter/src/bindings/tensorflow_lite_bindings_generated.d
 
 final DynamicLibrary _dylib = () {
   if (Platform.isAndroid) {
-    return DynamicLibrary.open('libtensorflowlite_jni.so');
+    print('🔧 [TFLite Bindings] Initializing on Android...');
+    
+    // Load main TFLite library first
+    print('   [DEBUG] Step 1: Loading main TFLite library (libtensorflowlite_jni.so)...');
+    DynamicLibrary mainLib;
+    try {
+      mainLib = DynamicLibrary.open('libtensorflowlite_jni.so');
+      print('   [DEBUG] ✅ Main TFLite library loaded successfully');
+      print('   [DEBUG]    Library handle: ${mainLib.handle.address}');
+    } catch (e, stackTrace) {
+      print('   [DEBUG] ❌ Failed to load main TFLite library: $e');
+      print('   [DEBUG]    Stack: $stackTrace');
+      rethrow;
+    }
+    
+    // Then try to load Select TF Ops library (if available)
+    // This is required for models using TensorFlow ops (e.g., FlexConv2D, CAST v5)
+    // Try multiple possible library names as they vary by version
+    print('   [DEBUG] Step 2: Attempting to load Select TF Ops library...');
+    print('   [DEBUG]    This library is required for FlexConv2D operations');
+    final flexLibNames = [
+      'libtensorflowlite_flex_jni.so',      // Most common for 2.15.0
+      'libtensorflowlite_select_tf_ops_jni.so',  // Alternative name
+      'libtensorflowlite_flex.so',          // Sometimes without _jni suffix
+    ];
+    
+    bool anyFlexLibLoaded = false;
+    for (final libName in flexLibNames) {
+      print('   [DEBUG]    Trying: $libName...');
+      try {
+        final flexLib = DynamicLibrary.open(libName);
+        print('   [DEBUG]    ✅ Successfully loaded: $libName');
+        print('   [DEBUG]       Library handle: ${flexLib.handle.address}');
+        anyFlexLibLoaded = true;
+        // Don't break - try to load all variants to ensure compatibility
+      } catch (e) {
+        print('   [DEBUG]    ❌ Failed to load $libName: $e');
+        // Continue trying other names
+      }
+    }
+    
+    if (!anyFlexLibLoaded) {
+      print('   [DEBUG] ⚠️  Could not explicitly load Select TF Ops library via DynamicLibrary.open');
+      print('   [DEBUG]    However, the library might be auto-loaded by:');
+      print('   [DEBUG]    1. Android dependency system (via build.gradle)');
+      print('   [DEBUG]    2. TfliteFlutterPlugin Kotlin code (System.loadLibrary)');
+      print('   [DEBUG]    Check logcat for "TfliteFlutterPlugin" messages');
+      print('   [DEBUG]    Interpreter creation will fail if library is truly missing');
+    } else {
+      print('   [DEBUG] ✅ At least one Select TF Ops library variant loaded');
+    }
+    
+    // Note: Even if explicit loading fails, the library might be auto-loaded
+    // by the Android dependency system or by the TfliteFlutterPlugin Kotlin code
+    // The interpreter creation will fail later if the library is truly missing
+    
+    print('   [DEBUG] ✅ Bindings initialization complete');
+    return mainLib;
   }
 
   if (Platform.isIOS) {

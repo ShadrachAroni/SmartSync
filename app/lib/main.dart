@@ -188,31 +188,8 @@ class _SmartSyncAppState extends ConsumerState<SmartSyncApp> {
   void initState() {
     debugPrint('📱 SmartSyncApp: initState called');
     super.initState();
-    // Refresh auth provider on app start to force fresh state
-    // This ensures we don't use cached/stale auth state from previous session
-    // Wait a frame to ensure ref is available
-    debugPrint('📱 SmartSyncApp: Scheduling auth state refresh...');
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      debugPrint(
-          '📱 SmartSyncApp: Post-frame callback executed, mounted: $mounted');
-      if (mounted) {
-        // Small delay to ensure Firebase Auth has finished reloading
-        Future.delayed(const Duration(milliseconds: 50), () {
-          if (mounted) {
-            debugPrint('📱 SmartSyncApp: Invalidating auth state provider...');
-            // Refresh auth state
-            ref.invalidate(authStateProvider);
-            debugPrint('✅ SmartSyncApp: Auth state provider invalidated');
-          } else {
-            debugPrint(
-                '⚠️ SmartSyncApp: Widget not mounted, skipping auth refresh');
-          }
-        });
-      } else {
-        debugPrint(
-            '⚠️ SmartSyncApp: Widget not mounted in post-frame callback');
-      }
-    });
+    // Removed unnecessary auth state invalidation to prevent rebuild loops
+    // Auth state is already refreshed in main() before runApp
   }
 
   @override

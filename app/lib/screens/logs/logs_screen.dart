@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/logging_service.dart';
 import '../../services/adaptive_auto_service.dart';
+import '../../services/firebase_service.dart';
 import '../../models/log_entry.dart';
 import '../../core/utils/logger.dart';
 import '../../core/widgets/app_notifications.dart';
@@ -86,11 +88,26 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
             icon: const Icon(Icons.filter_list, color: Colors.white70),
             onPressed: _showFilterDialog,
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white70),
-            onPressed: () {
-              ref.invalidate(userLogsProvider);
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Colors.white70),
+            color: const Color(0xFF1A1F3A),
+            onSelected: (value) {
+              if (value == 'clear_all') {
+                _showClearAllDialog(context, ref);
+              }
             },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'clear_all',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline, color: Colors.white70, size: 20),
+                    SizedBox(width: 8),
+                    Text('Clear All Logs', style: TextStyle(color: Colors.white70)),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -284,6 +301,68 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
             onPressed: () => Navigator.pop(context),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
             child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showClearAllDialog(BuildContext context, WidgetRef ref) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1F3A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Clear All Logs',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          'Are you sure you want to delete all activity logs? This action cannot be undone.',
+          style: TextStyle(color: Colors.white70, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                final firebaseService = FirebaseService();
+                final deletedCount = await firebaseService.clearAllActivityLogs(user.uid);
+                // Also clear local logs
+                final loggingService = ref.read(loggingServiceProvider);
+                loggingService.clearLocalLogs();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('✅ Deleted $deletedCount log(s)'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+                ref.invalidate(userLogsProvider);
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('❌ Error: ${e.toString()}'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete All'),
           ),
         ],
       ),

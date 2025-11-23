@@ -334,18 +334,19 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
   }
 
   Widget _buildEmptyState() {
-    return Center(
+    return SingleChildScrollView(
       child: Padding(
-        padding: const EdgeInsets.all(40),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               Icons.bluetooth_disabled_rounded,
-              size: 80,
+              size: 64,
               color: Colors.white.withOpacity(0.3),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             const Text(
               'No Devices Found',
               style: TextStyle(
@@ -361,10 +362,10 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
               style: TextStyle(
                 fontSize: 14,
                 color: Colors.white.withOpacity(0.7),
-                height: 1.6,
+                height: 1.5,
               ),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
             OutlinedButton.icon(
               onPressed: _startScan,
               icon: const Icon(Icons.refresh_rounded),

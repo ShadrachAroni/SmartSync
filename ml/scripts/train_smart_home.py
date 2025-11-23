@@ -377,9 +377,9 @@ def set_global_seed(seed: int) -> None:
 @dataclass
 class TrainingConfig:
     seed: int = 42
-    sequence_length: int = 48  # 2 days of hourly stats
+    sequence_length: int = 24  # Reduced from 48 to 24 (1 day) to significantly speed up training
     prediction_horizon: int = 1
-    batch_size: int = 24  # Balanced: faster than 16, safer than 32 for 4GB VRAM
+    batch_size: int = 32  # Balanced batch size for good training speed and stability
     epochs: int = 50  # Reduced from 80 - early stopping will handle overfitting
     learning_rate: float = 1e-4  # Reduced from 3e-4 for more stable training and better generalization
     min_learning_rate: float = 1e-6
@@ -387,19 +387,19 @@ class TrainingConfig:
     test_split: float = 0.15
     label_smoothing: float = 0.02
     datasets: Tuple[str, ...] = ("HomeC.csv", "aruba.csv", "tulum.csv")
-    conv_filters: Tuple[int, ...] = (32, 32, 16)  # Reduced from (64, 64, 32) to prevent overfitting
-    kernel_size: int = 5
-    dropout: float = 0.55  # Increased from 0.30 to 0.55 for much stronger regularization against severe overfitting
+    conv_filters: Tuple[int, ...] = (16, 16, 8)  # Increased from (4, 4) - with stratified split, can use more capacity
+    kernel_size: int = 3  # Reduced from 5 to 3 for faster computation and fewer parameters
+    dropout: float = 0.55  # Base dropout rate (increased from 0.50) - adaptive callback will increase when overfitting detected
     # Regularization hyperparameters
-    l2_regularization: float = 1e-3  # Increased from 2e-4 to 1e-3 (5x) for much stronger regularization
+    l2_regularization: float = 3e-3  # Base L2 regularization (increased from 2e-3) - adaptive callback will increase when overfitting detected
     gradient_clip_norm: float = 1.0  # Gradient clipping to prevent exploding gradients
     weight_decay: float = 1e-4  # Weight decay for optimizer (separate from L2 regularization)
     max_weight_norm: float = 3.0  # Maximum norm constraint for weight clipping
     # Data augmentation parameters
-    input_noise_std: float = 0.01  # Standard deviation for Gaussian noise injection during training
+    input_noise_std: float = 0.02  # Input noise injection for regularization
     use_data_augmentation: bool = True  # Enable data augmentation during training
-    augmentation_noise_std: float = 0.02  # Noise for data augmentation
-    time_mask_prob: float = 0.1  # Probability of masking time steps (0.1 = 10% chance)
+    augmentation_noise_std: float = 0.04  # Augmentation noise standard deviation
+    time_mask_prob: float = 0.15  # Probability of time masking (15% chance)
     targets: Tuple[str, ...] = ("fan_speed", "led_brightness")
     max_target_value: int = 255
     # Data leakage prevention
@@ -912,9 +912,32 @@ def _parse_homec(df: pd.DataFrame) -> pd.DataFrame:
     else:
         print("   ⚠️  No humidity column found, generating synthetic data")
 
+    # Parse timestamp with better error handling
+    timestamp_parsed = pd.to_datetime(df["timestamp"], errors="coerce")
+    invalid_timestamps = timestamp_parsed.isna().sum()
+    if invalid_timestamps > 0:
+        print(f"   ⚠️  Warning: {invalid_timestamps:,} rows have unparseable timestamps")
+        # Show sample of unparseable timestamps for debugging
+        if invalid_timestamps > 0 and invalid_timestamps < len(df):
+            sample_invalid = df[timestamp_parsed.isna()]["timestamp"].head(3).tolist()
+            print(f"      Sample invalid timestamps: {sample_invalid}")
+    
+    # Check timestamp range
+    valid_timestamps = timestamp_parsed[timestamp_parsed.notna()]
+    if len(valid_timestamps) > 0:
+        min_ts = valid_timestamps.min()
+        max_ts = valid_timestamps.max()
+        print(f"   📅 Timestamp range: {min_ts} to {max_ts}")
+        # Check if timestamps are outside expected range
+        min_valid_date = pd.Timestamp("2000-01-01")
+        max_valid_date = pd.Timestamp("2030-12-31")
+        if min_ts < min_valid_date or max_ts > max_valid_date:
+            out_of_range = ((timestamp_parsed < min_valid_date) | (timestamp_parsed > max_valid_date)).sum()
+            print(f"   ⚠️  Warning: {out_of_range:,} timestamps outside 2000-2030 range")
+    
     out = pd.DataFrame(
         {
-            "timestamp": pd.to_datetime(df["timestamp"], errors="coerce"),
+            "timestamp": timestamp_parsed,
             "power_kw": df.get("power_kw"),
             "house_kw": df.get("house_kw"),
             "generation_kw": df.get("generation_kw"),
@@ -1066,6 +1089,9 @@ def _parse_event_dataset(df: pd.DataFrame, name: str) -> pd.DataFrame:
 
 
 def load_datasets(dataset_files: List[Path]) -> pd.DataFrame:
+    """
+    Load datasets and add dataset source tracking for stratified splitting.
+    """
     frames = []
     for file in dataset_files:
         name = file.stem.lower()
@@ -1080,6 +1106,9 @@ def load_datasets(dataset_files: List[Path]) -> pd.DataFrame:
             # Try reading without headers first (for aruba, tulum)
             df = pd.read_csv(file, header=None)
             parsed = _parse_event_dataset(df, name)
+        
+        # Add dataset source identifier for stratified splitting
+        parsed["dataset_source"] = name
         frames.append(parsed)
         print(f"   → Parsed {len(parsed):,} rows.")
         # Verify humidity is present
@@ -1094,8 +1123,55 @@ def load_datasets(dataset_files: List[Path]) -> pd.DataFrame:
                 print(f"      Range: {power_stats['min']:.3f} - {power_stats['max']:.3f} kW")
 
     combined = pd.concat(frames, ignore_index=True)
-    combined = combined.dropna(subset=["timestamp"]).sort_values("timestamp")
-    combined = combined.reset_index(drop=True)
+    
+    # Diagnostic: Check dataset sources before filtering
+    if "dataset_source" in combined.columns:
+        print(f"\n📊 Dataset sizes before timestamp filtering:")
+        for ds in combined["dataset_source"].unique():
+            ds_rows = len(combined[combined["dataset_source"] == ds])
+            ds_valid_ts = combined[combined["dataset_source"] == ds]["timestamp"].notna().sum()
+            ds_invalid_ts = ds_rows - ds_valid_ts
+            print(f"   {ds}: {ds_rows:,} rows ({ds_valid_ts:,} valid timestamps, {ds_invalid_ts:,} invalid)")
+    
+    # Drop rows with invalid timestamps (NaT or 1970 dates indicate parsing failure)
+    before_dropna = len(combined)
+    combined = combined.dropna(subset=["timestamp"])
+    if before_dropna > len(combined):
+        print(f"   ⚠️  Dropped {before_dropna - len(combined):,} rows with NaT timestamps")
+    
+    # Filter out invalid timestamps (before 2000 or after 2030 are likely errors)
+    if len(combined) > 0:
+        min_valid_date = pd.Timestamp("2000-01-01")
+        max_valid_date = pd.Timestamp("2030-12-31")
+        before_filter = len(combined)
+        
+        # Diagnostic: Check which datasets are being filtered
+        if "dataset_source" in combined.columns:
+            invalid_mask = (combined["timestamp"] < min_valid_date) | (combined["timestamp"] > max_valid_date)
+            invalid_by_dataset = combined[invalid_mask]["dataset_source"].value_counts()
+            if len(invalid_by_dataset) > 0:
+                print(f"   ⚠️  Invalid timestamp ranges by dataset:")
+                for ds, count in invalid_by_dataset.items():
+                    ds_data = combined[combined["dataset_source"] == ds]
+                    if len(ds_data) > 0:
+                        min_ts = ds_data["timestamp"].min()
+                        max_ts = ds_data["timestamp"].max()
+                        print(f"      {ds}: {count:,} rows outside 2000-2030 (range: {min_ts} to {max_ts})")
+        
+        combined = combined[
+            (combined["timestamp"] >= min_valid_date) & 
+            (combined["timestamp"] <= max_valid_date)
+        ]
+        if before_filter > len(combined):
+            print(f"   ⚠️  Filtered out {before_filter - len(combined):,} rows with invalid timestamps")
+            
+            # Report final dataset sizes
+            if "dataset_source" in combined.columns:
+                print(f"\n📊 Dataset sizes after timestamp filtering:")
+                for ds in combined["dataset_source"].unique():
+                    ds_rows = len(combined[combined["dataset_source"] == ds])
+                    print(f"   {ds}: {ds_rows:,} rows")
+    combined = combined.sort_values("timestamp").reset_index(drop=True)
     print(f"\n✅ Combined dataset size: {len(combined):,} rows")
     
     # Verify humidity is in final dataset
@@ -1131,16 +1207,23 @@ class SmartHomePreprocessor:
         self.config = config
         self.feature_scaler = StandardScaler()
         self.feature_columns: List[str] = []
+        # Target normalization per dataset to fix distribution shifts
+        self.target_scalers: Dict[str, Dict[str, Dict[str, float]]] = {}  # dataset_name -> target_name -> {mean, std}
+        self.normalize_targets_per_dataset: bool = True  # Enable per-dataset target normalization
         self.target_columns: List[str] = list(config.targets)
 
     @staticmethod
     def _fill_missing_hours(df: pd.DataFrame) -> pd.DataFrame:
+        # Preserve dataset_source if present
+        has_dataset_source = "dataset_source" in df.columns
+        dataset_source_col = df["dataset_source"] if has_dataset_source else None
+        
         # Handle duplicate timestamps by aggregating before setting index
         if df["timestamp"].duplicated().any():
             # Build aggregation dictionary: mean for numeric columns, last for others
             agg_dict = {}
             for col in df.columns:
-                if col == "timestamp":
+                if col == "timestamp" or col == "dataset_source":
                     continue
                 if pd.api.types.is_numeric_dtype(df[col]):
                     agg_dict[col] = "mean"
@@ -1153,10 +1236,40 @@ class SmartHomePreprocessor:
                 # If no columns to aggregate, just drop duplicates
                 df = df.drop_duplicates(subset=["timestamp"], keep="last")
         
+        # Restore dataset_source if it was removed
+        if has_dataset_source and "dataset_source" not in df.columns:
+            # Use the first dataset_source value for each timestamp (should be same)
+            if dataset_source_col is not None:
+                df = df.merge(
+                    df[["timestamp"]].merge(
+                        pd.DataFrame({"timestamp": df["timestamp"].unique(), 
+                                    "dataset_source": dataset_source_col.iloc[0]}),
+                        on="timestamp", how="left"
+                    ),
+                    on="timestamp", how="left"
+                )
+        
         df = df.set_index("timestamp")
+        # Create full hourly range but preserve original data points
         full_range = pd.date_range(df.index.min(), df.index.max(), freq="H")
         df = df.reindex(full_range)
-        df = df.interpolate("time").ffill().bfill()
+        
+        # Use more aggressive interpolation to preserve data
+        # First try time-based interpolation, then forward/backward fill
+        df = df.interpolate(method="time", limit_direction="both")
+        df = df.ffill(limit=24).bfill(limit=24)  # Limit to 24 hours to avoid propagating too far
+        # Fill any remaining NaN with 0 (last resort)
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        df[numeric_cols] = df[numeric_cols].fillna(0)
+        
+        # Restore dataset_source after reindexing
+        if has_dataset_source and "dataset_source" not in df.columns and dataset_source_col is not None:
+            # Forward fill dataset_source (should be constant per dataset)
+            if len(dataset_source_col) > 0:
+                df["dataset_source"] = dataset_source_col.iloc[0]
+            else:
+                df["dataset_source"] = "unknown"
+        
         df.index.name = "timestamp"
         return df.reset_index()
 
@@ -1167,23 +1280,91 @@ class SmartHomePreprocessor:
         temperature = df["temperature_c"].fillna(22)
         humidity = df["humidity_pct"].fillna(50)
 
+        # Improved fan_speed formula with more variance
+        # Use sigmoid-like functions for smoother transitions and more variance
+        temp_component = 1 / (1 + np.exp(-(temperature - 22) / 2))  # Sigmoid centered at 22°C
+        humidity_component = 1 / (1 + np.exp(-(humidity - 50) / 10))  # Sigmoid centered at 50%
+        power_component = np.clip(power_norm / 2, 0, 1)  # Power contribution
+        
         fan_speed = (
-            0.6 * np.clip((temperature - 19) / 10, 0, 1)
-            + 0.3 * np.clip((humidity - 35) / 30, 0, 1)
-            + 0.1 * np.clip(power_norm / 3, 0, 1)
+            0.5 * temp_component
+            + 0.3 * humidity_component
+            + 0.2 * power_component
         )
+        
+        # Add small noise to break ties and create variance
+        fan_speed = fan_speed + np.random.normal(0, 0.02, len(fan_speed))
+        
+        # Improved led_brightness with better occupancy handling
+        hour = df["timestamp"].dt.hour if hasattr(df["timestamp"], 'dt') else pd.Series([12] * len(df))
+        time_component = (1 + np.sin(2 * np.pi * hour / 24)) / 2  # 0-1 range
+        
         led_brightness = (
-            0.55 * occupancy
-            + 0.25 * np.clip(
-                np.sin(2 * np.pi * df["timestamp"].dt.hour / 24) * -1, 0, 1
-            )
-            + 0.2 * np.clip(power_norm / 4, 0, 1)
+            0.4 * occupancy  # Reduced from 0.55 to reduce dataset dependency
+            + 0.35 * time_component  # Increased time component
+            + 0.25 * np.clip(power_norm / 3, 0, 1)  # Power component
         )
+        
+        # Add small noise for variance
+        led_brightness = led_brightness + np.random.normal(0, 0.02, len(led_brightness))
 
         df["fan_speed"] = np.clip(fan_speed, 0, 1) * max_value
         df["led_brightness"] = np.clip(led_brightness, 0, 1) * max_value
         return df
 
+    def _normalize_targets_per_dataset(self, df: pd.DataFrame, dataset_source: str) -> pd.DataFrame:
+        """
+        Normalize targets per dataset to fix distribution shifts.
+        This ensures similar target distributions across datasets.
+        """
+        if not self.normalize_targets_per_dataset or "dataset_source" not in df.columns:
+            return df
+        
+        # Get unique dataset sources in this dataframe
+        unique_sources = df["dataset_source"].unique()
+        
+        for source in unique_sources:
+            source_mask = df["dataset_source"] == source
+            source_df = df[source_mask].copy()
+            
+            if len(source_df) == 0:
+                continue
+            
+            # Normalize each target per dataset
+            for target_name in self.config.targets:
+                if target_name not in source_df.columns:
+                    continue
+                
+                target_values = source_df[target_name].values
+                
+                # Skip if all values are the same (zero variance)
+                if np.std(target_values) < 1e-6:
+                    continue
+                
+                # Compute stats for this dataset
+                target_mean = np.mean(target_values)
+                target_std = np.std(target_values)
+                
+                # Store stats (for reference, not used in normalization)
+                if source not in self.target_scalers:
+                    self.target_scalers[source] = {}
+                self.target_scalers[source][target_name] = {
+                    "mean": float(target_mean),
+                    "std": float(target_std)
+                }
+                
+                # Normalize to have mean ~0.5 and std ~0.15 (reasonable range)
+                # This ensures all datasets have similar distributions
+                normalized = (target_values - target_mean) / (target_std + 1e-10)
+                # Scale to desired range (mean=0.5, std=0.15)
+                normalized = normalized * 0.15 + 0.5
+                # Clip to [0, 1] and scale back to max_value
+                normalized = np.clip(normalized, 0, 1) * self.config.max_target_value
+                
+                df.loc[source_mask, target_name] = normalized
+        
+        return df
+    
     def build_hourly_features(self, df: pd.DataFrame, is_training: bool = True) -> pd.DataFrame:
         """
         Build hourly features from raw data.
@@ -1196,35 +1377,87 @@ class SmartHomePreprocessor:
             Hourly aggregated dataframe with engineered features
         """
         print("\n🔧 Aggregating to hourly features ...")
-        df = self._fill_missing_hours(df)
+        
+        # Engineer targets first (needs raw data)
         df = self._engineer_targets(df, self.config.max_target_value)
-
+        
+        # Normalize targets per dataset to fix distribution shifts
+        # This must happen BEFORE hourly aggregation to normalize raw targets
+        if self.normalize_targets_per_dataset and "dataset_source" in df.columns:
+            print("   🔄 Normalizing targets per dataset to fix distribution shifts...")
+            df = self._normalize_targets_per_dataset(df, "")
+        
+        # Preserve dataset_source if present
+        has_dataset_source = "dataset_source" in df.columns
+        dataset_source_col = df["dataset_source"] if has_dataset_source else None
+        
+        # Ensure timestamp is datetime and sorted
+        df = df.sort_values("timestamp").reset_index(drop=True)
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        
+        # Handle duplicate timestamps by aggregating
+        if df["timestamp"].duplicated().any():
+            agg_dict = {}
+            for col in df.columns:
+                if col == "timestamp" or col == "dataset_source":
+                    continue
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    agg_dict[col] = "mean"
+                else:
+                    agg_dict[col] = "last"
+            if agg_dict:
+                df = df.groupby("timestamp", as_index=False).agg(agg_dict)
+            if has_dataset_source and "dataset_source" not in df.columns and dataset_source_col is not None:
+                # Restore dataset_source - use first value for each timestamp
+                df = df.merge(
+                    df[["timestamp"]].drop_duplicates().assign(
+                        dataset_source=dataset_source_col.iloc[0] if len(dataset_source_col) > 0 else "unknown"
+                    ),
+                    on="timestamp",
+                    how="left"
+                )
+        
         # Set timestamp as index for resampling
         df = df.set_index("timestamp")
         
-        hourly = df.resample("H").agg(
-            {
-                "power_kw": ["mean", "max", "std"],
-                "house_kw": ["mean", "max"],
-                "generation_kw": "mean",
-                "appliance_kw": "mean",
-                "occupancy_signal": ["mean", "sum"],
-                "temperature_c": ["mean", "max", "min"],
-                "humidity_pct": ["mean", "max"],
-                "fan_speed": "mean",
-                "led_brightness": "mean",
-            }
-        )
+        # Build aggregation dict - use mean for most, but preserve max/min where useful
+        agg_dict = {
+            "power_kw": ["mean", "max", "std"],
+            "house_kw": ["mean", "max"],
+            "generation_kw": "mean",
+            "appliance_kw": "mean",
+            "occupancy_signal": ["mean", "sum"],
+            "temperature_c": ["mean", "max", "min"],
+            "humidity_pct": ["mean", "max"],
+            "fan_speed": "mean",
+            "led_brightness": "mean",
+        }
+        
+        # Add dataset_source aggregation
+        if has_dataset_source:
+            agg_dict["dataset_source"] = "first"
+        
+        # Resample to hourly - use min_periods=0 to keep all hours, even if empty
+        hourly = df.resample("H", label="right", closed="right").agg(agg_dict)
         hourly.columns = ["_".join(col).strip("_") for col in hourly.columns]
         hourly = hourly.reset_index().rename(columns={"timestamp": "hour"})
-
-        # Fill NaN values: std can be NaN when there's only one value, fill with 0
+        
+        # Fill NaN values more intelligently
+        # Std can be NaN when there's only one value, fill with 0
         std_cols = [col for col in hourly.columns if col.endswith("_std")]
         for col in std_cols:
             hourly[col] = hourly[col].fillna(0.0)
         
-        # Fill any remaining NaN values with forward fill, then backward fill, then 0
-        hourly = hourly.ffill().bfill().fillna(0)
+        # For other numeric columns, use forward/backward fill with longer windows
+        # This preserves more data by propagating values across gaps
+        numeric_cols = hourly.select_dtypes(include=[np.number]).columns
+        for col in numeric_cols:
+            if col not in std_cols and col != "hour":
+                # Use longer fill windows to preserve more data
+                hourly[col] = hourly[col].ffill(limit=48).bfill(limit=48)
+        
+        # Fill any remaining NaN with 0 (last resort, but should be minimal now)
+        hourly[numeric_cols] = hourly[numeric_cols].fillna(0)
 
         # Temporal encodings (safe - only use current row's timestamp)
         hourly["hour_sin"] = np.sin(2 * np.pi * hourly["hour"].dt.hour / 24)
@@ -1262,11 +1495,35 @@ class SmartHomePreprocessor:
                 hourly["led_brightness_mean"].rolling(3, min_periods=1).mean()
             )
 
-        # Only drop rows where all feature columns are NaN (shouldn't happen after fillna, but safety check)
-        feature_cols = [col for col in hourly.columns if col not in ["hour"]]
-        hourly = hourly.dropna(subset=feature_cols[:5])  # Drop only if first 5 critical columns are all NaN
+        # Only drop rows where ALL critical feature columns are NaN or zero
+        # Be more lenient - keep rows if they have ANY meaningful data
+        critical_cols = [
+            "power_kw_mean", "temperature_c_mean", "humidity_pct_mean",
+            "occupancy_signal_mean", "fan_speed_mean", "led_brightness_mean"
+        ]
+        available_critical = [col for col in critical_cols if col in hourly.columns]
+        
+        if available_critical:
+            # Keep row if at least one critical column has a non-zero value
+            # This is more lenient than checking for NaN (since we fill NaN with 0)
+            mask = (hourly[available_critical] != 0).any(axis=1) | hourly[available_critical].notna().any(axis=1)
+            before_drop = len(hourly)
+            hourly = hourly[mask].copy()
+            if len(hourly) < before_drop:
+                dropped_pct = (before_drop - len(hourly)) / before_drop * 100
+                print(f"   ⚠️  Dropped {before_drop - len(hourly):,} rows ({dropped_pct:.1f}%) with all critical columns empty")
+        
         hourly = hourly.reset_index(drop=True)
-        print(f"   → Hourly rows after feature engineering: {len(hourly):,}")
+        
+        # Report data preservation
+        if len(hourly) > 0:
+            time_span = hourly["hour"].max() - hourly["hour"].min()
+            hours_expected = time_span.total_seconds() / 3600 + 1 if pd.notna(time_span) else len(hourly)
+            print(f"   → Hourly rows after feature engineering: {len(hourly):,}")
+            if hours_expected > len(hourly) * 1.5:
+                preservation_pct = len(hourly) / hours_expected * 100 if hours_expected > 0 else 100
+                print(f"   ℹ️  Time span: {time_span.days} days, {preservation_pct:.1f}% of hours have data")
+        
         return hourly
 
     def prepare_sequences(
@@ -1289,16 +1546,33 @@ class SmartHomePreprocessor:
         
         # Initialize feature columns if not already set (first call)
         if not hasattr(self, 'feature_columns') or not self.feature_columns:
+            # Exclude non-feature columns (targets, metadata, non-numeric)
+            exclude_cols = {
+                "hour",
+                "fan_speed_mean",
+                "led_brightness_mean",
+                "dataset_source",  # Exclude dataset_source (string column, not a feature)
+                "timestamp",  # Exclude timestamp if present
+            }
+            
+            # Only include numeric columns that are not in the exclude list
             self.feature_columns = [
                 col
                 for col in df.columns
-                if col
-                not in {
-                    "hour",
-                    "fan_speed_mean",
-                    "led_brightness_mean",
-                }
+                if col not in exclude_cols
+                and pd.api.types.is_numeric_dtype(df[col])
             ]
+            
+            # Debug: print excluded columns to help diagnose issues
+            excluded = [col for col in df.columns if col not in self.feature_columns and col not in ["fan_speed_mean", "led_brightness_mean"]]
+            if excluded:
+                print(f"   ℹ️  Excluded non-feature columns: {excluded}")
+
+        # Double-check that all feature columns are numeric
+        non_numeric = [col for col in self.feature_columns if not pd.api.types.is_numeric_dtype(df[col])]
+        if non_numeric:
+            raise ValueError(f"Non-numeric columns found in feature_columns: {non_numeric}. "
+                           f"Please exclude these columns: {non_numeric}")
 
         features = df[self.feature_columns].values.astype(np.float32)
         targets = df[
@@ -1320,14 +1594,22 @@ class SmartHomePreprocessor:
         targets = targets / self.config.max_target_value
 
         X, y = [], []
-        for idx in range(len(df) - sequence_len - self.config.prediction_horizon):
-            X.append(features[idx : idx + sequence_len])
-            horizon_idx = idx + sequence_len + self.config.prediction_horizon - 1
-            y.append(targets[horizon_idx])
+        # Create sequences - use all available data (only need sequence_len for input, prediction_horizon for target)
+        # This preserves maximum number of sequences
+        max_sequences = len(df) - sequence_len
+        for idx in range(max_sequences):
+            # Input sequence: [idx : idx + sequence_len]
+            # Target: [idx + sequence_len + prediction_horizon - 1] (or idx + sequence_len if prediction_horizon=1)
+            if idx + sequence_len < len(df):
+                X.append(features[idx : idx + sequence_len])
+                # Target is at the end of sequence + prediction_horizon offset
+                target_idx = min(idx + sequence_len + self.config.prediction_horizon - 1, len(targets) - 1)
+                y.append(targets[target_idx])
 
         X = np.asarray(X, dtype=np.float32)
         y = np.asarray(y, dtype=np.float32)
         print(f"   → Sequence tensor: {X.shape}, Targets: {y.shape}")
+        print(f"   → Created {len(X):,} sequences from {len(df):,} hourly rows (preserved {len(X)/len(df)*100:.1f}%)")
         return X, y
 
 
@@ -1470,9 +1752,9 @@ def build_temporal_cnn(
         x = keras.layers.SpatialDropout1D(config.dropout)(x)
 
     x = keras.layers.GlobalAveragePooling1D()(x)
-    # Dense layers with L2 regularization and weight constraints - reduced capacity to prevent overfitting
+    # Dense layers with L2 regularization - increased capacity with balanced regularization
     x = keras.layers.Dense(
-        64,  # Reduced from 128 to prevent overfitting
+        32,  # Increased from 8 to 32 - more capacity with fixed data distribution
         activation="relu",
         kernel_regularizer=l2_reg,
         bias_regularizer=l2_reg,
@@ -1484,7 +1766,7 @@ def build_temporal_cnn(
     x = keras.layers.Dropout(config.dropout)(x)
     
     x = keras.layers.Dense(
-        32,  # Reduced from 64 to prevent overfitting
+        16,  # Second dense layer for better feature extraction
         activation="relu",
         kernel_regularizer=l2_reg,
         bias_regularizer=l2_reg,
@@ -1493,7 +1775,7 @@ def build_temporal_cnn(
         bias_constraint=weight_constraint,
     )(x)
     x = keras.layers.BatchNormalization()(x)
-    x = keras.layers.Dropout(config.dropout * 0.7)(x)  # Increased dropout before output (0.7 * 0.55 = 0.385)
+    x = keras.layers.Dropout(config.dropout * 0.7)(x)  # Slightly less dropout before output
     
     # Output layer should be float32 for mixed precision
     outputs = keras.layers.Dense(
@@ -1732,8 +2014,9 @@ class AdaptiveDropoutCallback(keras.callbacks.Callback):
     """
     Dynamically adjust dropout rates based on overfitting detection.
     Increases dropout when overfitting is detected to improve generalization.
+    Also reduces dropout if model is not learning (underfitting).
     """
-    def __init__(self, initial_dropout=0.55, max_dropout=0.75, increase_factor=1.1, gap_threshold=0.50):
+    def __init__(self, initial_dropout=0.55, max_dropout=0.75, increase_factor=1.1, gap_threshold=0.25):
         super().__init__()
         self.initial_dropout = initial_dropout
         self.max_dropout = max_dropout
@@ -1743,6 +2026,7 @@ class AdaptiveDropoutCallback(keras.callbacks.Callback):
         self.val_loss_history = []
         self.train_loss_history = []
         self.dropout_adjustments = []
+        self.gap_history = []
         
     def on_epoch_end(self, epoch: int, logs=None):
         if logs is None:
@@ -1761,32 +2045,507 @@ class AdaptiveDropoutCallback(keras.callbacks.Callback):
         if val_loss > 0 and train_loss > 0:
             max_loss = max(train_loss, val_loss)
             gap = abs(train_loss - val_loss) / max_loss if max_loss > 0 else 0
+            self.gap_history.append(gap)
             
-            # If overfitting detected (gap > threshold and val_loss > train_loss)
-            if gap > self.gap_threshold and val_loss > train_loss * 1.2:
-                # Increase dropout
-                new_dropout = min(self.current_dropout * self.increase_factor, self.max_dropout)
+            # Check if model is learning (loss decreasing)
+            is_learning = False
+            if len(self.val_loss_history) >= 3:
+                recent_losses = self.val_loss_history[-3:]
+                is_learning = recent_losses[-1] < recent_losses[0] * 0.99  # At least 1% improvement
+            
+            # Check if gap is consistently increasing (trend detection)
+            gap_increasing = False
+            if len(self.gap_history) >= 3:
+                recent_gaps = self.gap_history[-3:]
+                gap_increasing = all(recent_gaps[i] < recent_gaps[i+1] for i in range(len(recent_gaps)-1))
+            
+            # Check for underfitting: both losses high and similar, and not learning
+            is_underfitting = False
+            if epoch >= 5 and train_loss > 0.3 and val_loss > 0.3:
+                small_gap = gap < 0.15
+                if small_gap and not is_learning:
+                    is_underfitting = True
+            
+            # Reduce dropout if underfitting (model not learning due to too much regularization)
+            if is_underfitting and self.current_dropout > self.initial_dropout * 0.9:
+                new_dropout = max(self.current_dropout * 0.95, self.initial_dropout * 0.9)
+                if new_dropout < self.current_dropout:
+                    self.current_dropout = new_dropout
+                    self._update_model_dropout()
+                    print(f"\n📉 Adaptive Dropout: Reduced to {self.current_dropout:.3f} (underfitting detected - model not learning)")
+                return  # Don't increase if underfitting
+            
+            # More aggressive trigger: lower threshold and ratio requirement
+            # Also trigger if gap is consistently increasing even if below threshold
+            should_increase = False
+            if val_loss > train_loss:  # Only if validation is worse (overfitting)
+                # For severe overfitting (gap > 40%), always increase regardless of learning status
+                if gap > 0.40 and val_loss > train_loss * 1.5:
+                    should_increase = True
+                # For moderate overfitting, only increase if model is learning (to avoid making it worse)
+                elif is_learning:
+                    # Trigger if gap exceeds threshold OR if gap is increasing consistently
+                    if gap > self.gap_threshold and val_loss > train_loss * 1.15:
+                        should_increase = True
+                    elif gap_increasing and gap > self.gap_threshold * 0.8 and val_loss > train_loss * 1.1:
+                        # Trigger earlier if gap is trending upward
+                        should_increase = True
+            
+            if should_increase:
+                # Increase dropout more aggressively if gap is large
+                if gap > 0.40:
+                    factor = self.increase_factor * 1.15  # 26.5% increase for severe overfitting (>40%)
+                elif gap > 0.35:
+                    factor = self.increase_factor * 1.05  # 15% increase for moderate-severe overfitting
+                else:
+                    factor = self.increase_factor
+                
+                new_dropout = min(self.current_dropout * factor, self.max_dropout)
                 if new_dropout > self.current_dropout:
                     self.current_dropout = new_dropout
                     self._update_model_dropout()
                     self.dropout_adjustments.append((epoch, self.current_dropout))
-                    print(f"\n📈 Adaptive Dropout: Increased to {self.current_dropout:.3f} (gap: {gap:.2%})")
+                    print(f"\n📈 Adaptive Dropout: Increased to {self.current_dropout:.3f} (gap: {gap:.2%}, ratio: {val_loss/train_loss:.2f}x)")
             # If gap is improving, slightly reduce dropout (but not below initial)
-            elif gap < self.gap_threshold * 0.5 and epoch > 10:
+            elif gap < self.gap_threshold * 0.4 and epoch > 10 and val_loss <= train_loss * 1.05 and is_learning:
                 new_dropout = max(self.current_dropout * 0.98, self.initial_dropout)
                 if new_dropout < self.current_dropout:
                     self.current_dropout = new_dropout
                     self._update_model_dropout()
-                    print(f"\n📉 Adaptive Dropout: Decreased to {self.current_dropout:.3f} (gap: {gap:.2%})")
+                    print(f"\n📉 Adaptive Dropout: Decreased to {self.current_dropout:.3f} (gap: {gap:.2%}, learning well)")
     
     def _update_model_dropout(self):
-        """Update dropout rates in model layers"""
-        for layer in self.model.layers:
+        """Update dropout rates in all dropout layers (including nested layers)"""
+        updated_count = 0
+        
+        def update_layer_dropout(layer):
+            nonlocal updated_count
+            # Update standard dropout layers
             if isinstance(layer, (keras.layers.Dropout, keras.layers.SpatialDropout1D)):
                 layer.rate = self.current_dropout
-            # Also update if layer has dropout in its config
-            if hasattr(layer, 'rate'):
-                layer.rate = self.current_dropout
+                updated_count += 1
+            # Handle nested models (if any)
+            elif isinstance(layer, keras.Model):
+                for sublayer in layer.layers:
+                    update_layer_dropout(sublayer)
+        
+        # Update all layers in the model
+        for layer in self.model.layers:
+            update_layer_dropout(layer)
+        
+        if updated_count > 0:
+            print(f"   ✓ Updated {updated_count} dropout layer(s) to rate {self.current_dropout:.3f}")
+
+
+class AdaptiveL2RegularizationCallback(keras.callbacks.Callback):
+    """
+    Dynamically adjust L2 regularization based on overfitting detection.
+    Increases L2 regularization when overfitting is detected.
+    """
+    def __init__(self, initial_l2=2e-3, max_l2=1e-2, increase_factor=1.2, gap_threshold=0.25):
+        super().__init__()
+        self.initial_l2 = initial_l2
+        self.max_l2 = max_l2
+        self.increase_factor = increase_factor
+        self.gap_threshold = gap_threshold
+        self.current_l2 = initial_l2
+        self.val_loss_history = []
+        self.train_loss_history = []
+        self.l2_adjustments = []
+        self.gap_history = []
+        
+    def on_epoch_end(self, epoch: int, logs=None):
+        if logs is None:
+            return
+            
+        train_loss = logs.get('loss', 0)
+        val_loss = logs.get('val_loss', 0)
+        
+        self.train_loss_history.append(train_loss)
+        self.val_loss_history.append(val_loss)
+        
+        if len(self.val_loss_history) < 3:
+            return
+            
+        # Calculate gap
+        if val_loss > 0 and train_loss > 0:
+            max_loss = max(train_loss, val_loss)
+            gap = abs(train_loss - val_loss) / max_loss if max_loss > 0 else 0
+            self.gap_history.append(gap)
+            
+            # Check if model is learning (loss decreasing)
+            is_learning = False
+            if len(self.val_loss_history) >= 3:
+                recent_losses = self.val_loss_history[-3:]
+                is_learning = recent_losses[-1] < recent_losses[0] * 0.99  # At least 1% improvement
+            
+            # Check if gap is consistently increasing
+            gap_increasing = False
+            if len(self.gap_history) >= 3:
+                recent_gaps = self.gap_history[-3:]
+                gap_increasing = all(recent_gaps[i] < recent_gaps[i+1] for i in range(len(recent_gaps)-1))
+            
+            # Check for underfitting: both losses high and similar, and not learning
+            is_underfitting = False
+            if epoch >= 5 and train_loss > 0.3 and val_loss > 0.3:
+                small_gap = gap < 0.15
+                if small_gap and not is_learning:
+                    is_underfitting = True
+            
+            # Reduce L2 if underfitting (model not learning due to too much regularization)
+            if is_underfitting and self.current_l2 > self.initial_l2 * 1.1:
+                new_l2 = max(self.current_l2 * 0.95, self.initial_l2)
+                if new_l2 < self.current_l2:
+                    self.current_l2 = new_l2
+                    self._update_model_l2()
+                    print(f"\n📉 Adaptive L2: Reduced to {self.current_l2:.6f} (underfitting detected - model not learning)")
+                return  # Don't increase if underfitting
+            
+            # Increase L2 if overfitting detected
+            should_increase = False
+            if val_loss > train_loss:
+                # For severe overfitting (gap > 40%), always increase regardless of learning status
+                if gap > 0.40 and val_loss > train_loss * 1.5:
+                    should_increase = True
+                # For moderate overfitting, only increase if model is learning (to avoid making it worse)
+                elif is_learning:
+                    if gap > self.gap_threshold and val_loss > train_loss * 1.15:
+                        should_increase = True
+                    elif gap_increasing and gap > self.gap_threshold * 0.8 and val_loss > train_loss * 1.1:
+                        should_increase = True
+            
+            if should_increase:
+                # Increase L2 more aggressively if gap is large
+                if gap > 0.40:
+                    factor = self.increase_factor * 1.25  # 50% increase for severe overfitting (>40%)
+                elif gap > 0.35:
+                    factor = self.increase_factor * 1.1  # 32% increase for moderate-severe overfitting
+                else:
+                    factor = self.increase_factor
+                
+                new_l2 = min(self.current_l2 * factor, self.max_l2)
+                if new_l2 > self.current_l2:
+                    self.current_l2 = new_l2
+                    self._update_model_l2()
+                    self.l2_adjustments.append((epoch, self.current_l2))
+                    print(f"\n📈 Adaptive L2: Increased to {self.current_l2:.6f} (gap: {gap:.2%}, ratio: {val_loss/train_loss:.2f}x)")
+            # Reduce L2 if gap is improving and model is learning
+            elif gap < self.gap_threshold * 0.4 and epoch > 10 and val_loss <= train_loss * 1.05 and is_learning:
+                new_l2 = max(self.current_l2 * 0.95, self.initial_l2)
+                if new_l2 < self.current_l2:
+                    self.current_l2 = new_l2
+                    self._update_model_l2()
+                    print(f"\n📉 Adaptive L2: Decreased to {self.current_l2:.6f} (gap: {gap:.2%}, learning well)")
+    
+    def _update_model_l2(self):
+        """Update L2 regularization in all layers with regularizers"""
+        updated_count = 0
+        
+        def update_layer_l2(layer):
+            nonlocal updated_count
+            # Update layers with kernel_regularizer
+            if hasattr(layer, 'kernel_regularizer') and layer.kernel_regularizer is not None:
+                if hasattr(layer.kernel_regularizer, 'l2'):
+                    layer.kernel_regularizer.l2 = self.current_l2
+                    updated_count += 1
+                else:
+                    # Create new regularizer if needed
+                    layer.kernel_regularizer = keras.regularizers.l2(self.current_l2)
+                    updated_count += 1
+            
+            # Update layers with bias_regularizer
+            if hasattr(layer, 'bias_regularizer') and layer.bias_regularizer is not None:
+                if hasattr(layer.bias_regularizer, 'l2'):
+                    layer.bias_regularizer.l2 = self.current_l2
+                else:
+                    layer.bias_regularizer = keras.regularizers.l2(self.current_l2)
+            
+            # Handle nested models
+            if isinstance(layer, keras.Model):
+                for sublayer in layer.layers:
+                    update_layer_l2(sublayer)
+        
+        for layer in self.model.layers:
+            update_layer_l2(layer)
+        
+        if updated_count > 0:
+            print(f"   ✓ Updated {updated_count} layer(s) with L2={self.current_l2:.6f}")
+
+
+class AdaptiveLearningRateCallback(keras.callbacks.Callback):
+    """
+    Reduce learning rate more aggressively when overfitting is detected.
+    Complements ReduceLROnPlateau by being triggered by train/val gap.
+    """
+    def __init__(self, gap_threshold=0.30, reduction_factor=0.7, min_lr=1e-6):
+        super().__init__()
+        self.gap_threshold = gap_threshold
+        self.reduction_factor = reduction_factor
+        self.min_lr = min_lr
+        self.gap_history = []
+        self.reductions = []
+        
+    def on_epoch_end(self, epoch: int, logs=None):
+        if logs is None:
+            return
+            
+        train_loss = logs.get('loss', 0)
+        val_loss = logs.get('val_loss', 0)
+        
+        if val_loss > 0 and train_loss > 0 and val_loss > train_loss:
+            max_loss = max(train_loss, val_loss)
+            gap = abs(train_loss - val_loss) / max_loss if max_loss > 0 else 0
+            self.gap_history.append(gap)
+            
+            # Reduce LR if gap is high and consistently increasing
+            if len(self.gap_history) >= 3:
+                recent_gaps = self.gap_history[-3:]
+                gap_increasing = all(recent_gaps[i] < recent_gaps[i+1] for i in range(len(recent_gaps)-1))
+                
+                if gap > self.gap_threshold and gap_increasing:
+                    current_lr = float(self.model.optimizer.learning_rate.numpy())
+                    new_lr = max(current_lr * self.reduction_factor, self.min_lr)
+                    
+                    if new_lr < current_lr:
+                        self.model.optimizer.learning_rate.assign(new_lr)
+                        self.reductions.append((epoch, new_lr))
+                        print(f"\n📉 Adaptive LR: Reduced to {new_lr:.2e} (gap: {gap:.2%}, overfitting detected)")
+
+
+class OverfittingEarlyStopping(keras.callbacks.Callback):
+    """
+    Stop training early when overfitting gap exceeds threshold for multiple consecutive epochs.
+    More aggressive than standard early stopping - focuses on generalization gap.
+    """
+    def __init__(self, gap_threshold=0.40, patience=3, min_epochs=10):
+        super().__init__()
+        self.gap_threshold = gap_threshold
+        self.patience = patience
+        self.min_epochs = min_epochs
+        self.gap_history = []
+        self.consecutive_high_gap = 0
+        
+    def on_epoch_end(self, epoch: int, logs=None):
+        if logs is None:
+            return
+            
+        train_loss = logs.get('loss', 0)
+        val_loss = logs.get('val_loss', 0)
+        
+        if val_loss > 0 and train_loss > 0 and val_loss > train_loss:
+            max_loss = max(train_loss, val_loss)
+            gap = abs(train_loss - val_loss) / max_loss if max_loss > 0 else 0
+            self.gap_history.append(gap)
+            
+            if epoch + 1 >= self.min_epochs:
+                if gap > self.gap_threshold:
+                    self.consecutive_high_gap += 1
+                    if self.consecutive_high_gap >= self.patience:
+                        ratio = val_loss / train_loss if train_loss > 0 else float('inf')
+                        print(f"\n{'='*80}")
+                        print(f"🛑 EARLY STOPPING: Persistent Overfitting Detected")
+                        print(f"{'='*80}")
+                        print(f"   ⚠️  Train/Val gap exceeded {self.gap_threshold:.1%} for {self.patience} consecutive epochs")
+                        print(f"   📊 Current gap: {gap:.2%}")
+                        print(f"   📊 Training loss: {train_loss:.6f}")
+                        print(f"   📊 Validation loss: {val_loss:.6f}")
+                        print(f"   📈 Ratio: {ratio:.2f}x")
+                        print(f"   💡 Stopping training to prevent further overfitting")
+                        print(f"{'='*80}\n")
+                        self.model.stop_training = True
+                else:
+                    self.consecutive_high_gap = 0  # Reset counter if gap improves
+
+
+class LearningProgressMonitor(keras.callbacks.Callback):
+    """
+    Monitor if the model is actually learning by tracking loss improvements.
+    Detects underfitting, stuck training, and learning rate issues.
+    """
+    def __init__(self, min_improvement_rate=0.01, stuck_patience=5, min_epochs=3):
+        super().__init__()
+        self.min_improvement_rate = min_improvement_rate  # Minimum expected improvement per epoch
+        self.stuck_patience = stuck_patience  # Epochs without improvement before warning
+        self.min_epochs = min_epochs  # Minimum epochs before checking
+        self.best_val_loss = float('inf')
+        self.best_train_loss = float('inf')
+        self.val_loss_history = []
+        self.train_loss_history = []
+        self.no_improvement_count = 0
+        self.learning_rate_history = []
+        
+    def on_epoch_end(self, epoch: int, logs=None):
+        if logs is None:
+            return
+            
+        train_loss = logs.get('loss', 0)
+        val_loss = logs.get('val_loss', 0)
+        current_lr = float(self.model.optimizer.learning_rate.numpy())
+        
+        self.train_loss_history.append(train_loss)
+        self.val_loss_history.append(val_loss)
+        self.learning_rate_history.append(current_lr)
+        
+        # Track best losses
+        if val_loss < self.best_val_loss:
+            improvement = self.best_val_loss - val_loss
+            improvement_pct = (improvement / self.best_val_loss * 100) if self.best_val_loss > 0 else 0
+            self.best_val_loss = val_loss
+            self.no_improvement_count = 0
+            
+            # Positive feedback when learning well
+            if epoch >= self.min_epochs and improvement_pct > 1.0:
+                print(f"\n✅ Learning Progress: Validation loss improved by {improvement_pct:.2f}% "
+                      f"({self.best_val_loss:.6f})")
+        else:
+            self.no_improvement_count += 1
+            
+        if train_loss < self.best_train_loss:
+            self.best_train_loss = train_loss
+        
+        # Check if model is learning (only after minimum epochs)
+        if epoch + 1 >= self.min_epochs:
+            # Check 1: Loss not decreasing (stuck training) - check if loss is actually stuck, not just not beating best
+            if len(self.val_loss_history) >= self.stuck_patience:
+                recent_losses = self.val_loss_history[-self.stuck_patience:]
+                # Check if loss is actually increasing or flat (not decreasing)
+                # Loss is stuck if it's not decreasing by at least 0.1% per epoch on average
+                total_change = recent_losses[-1] - recent_losses[0]
+                avg_change_per_epoch = total_change / (len(recent_losses) - 1) if len(recent_losses) > 1 else 0
+                
+                # Only warn if loss is actually increasing or flat (not decreasing meaningfully)
+                if avg_change_per_epoch >= -0.001:  # Loss not decreasing by at least 0.1% per epoch
+                    avg_loss = np.mean(recent_losses)
+                    improvement_from_best = ((self.best_val_loss - recent_losses[-1]) / self.best_val_loss * 100) if self.best_val_loss > 0 else 0
+                    print(f"\n⚠️  Learning Alert: Validation loss not improving for {self.stuck_patience} epochs")
+                    print(f"   📊 Average recent loss: {avg_loss:.6f}")
+                    print(f"   📊 Best loss so far: {self.best_val_loss:.6f} ({improvement_from_best:+.2f}% from current)")
+                    print(f"   📊 Recent trend: {recent_losses[0]:.6f} → {recent_losses[-1]:.6f}")
+                    print(f"   💡 Possible causes:")
+                    print(f"      - Learning rate too low (current: {current_lr:.2e})")
+                    print(f"      - Regularization too strong (dropout/L2 may be too high)")
+                    print(f"      - Model capacity insufficient")
+                    print(f"      - Data preprocessing issues")
+            
+            # Check 2: Both losses very high and similar (underfitting)
+            if epoch >= 5:
+                if train_loss > 0.3 and val_loss > 0.3:
+                    gap = abs(train_loss - val_loss) / max(train_loss, val_loss)
+                    if gap < 0.15:  # Very similar losses
+                        print(f"\n⚠️  Underfitting Alert: Both losses are high and similar")
+                        print(f"   📊 Training loss: {train_loss:.6f} | Validation loss: {val_loss:.6f}")
+                        print(f"   📊 Gap: {gap:.2%} (very small - model may be underfitting)")
+                        print(f"   💡 Recommendations:")
+                        print(f"      - Model may need more capacity (increase layers/units)")
+                        print(f"      - Regularization may be too strong (reduce dropout/L2)")
+                        print(f"      - Learning rate may be too low (current: {current_lr:.2e})")
+                        print(f"      - Check if data preprocessing is correct")
+            
+            # Check 3: Loss increasing consistently (diverging)
+            if len(self.val_loss_history) >= 4:
+                recent = self.val_loss_history[-4:]
+                if all(recent[i] < recent[i+1] for i in range(len(recent)-1)):
+                    print(f"\n⚠️  Divergence Alert: Validation loss increasing for 4 consecutive epochs")
+                    print(f"   📊 Loss trend: {recent[0]:.6f} → {recent[-1]:.6f}")
+                    print(f"   💡 Possible causes:")
+                    print(f"      - Learning rate too high (current: {current_lr:.2e})")
+                    print(f"      - Gradient explosion (check gradient clipping)")
+                    print(f"      - Numerical instability")
+            
+            # Check 4: Learning rate too low
+            if current_lr < 1e-6 and epoch >= 10:
+                recent_improvement = self.best_val_loss - val_loss if val_loss < self.best_val_loss else 0
+                if recent_improvement < 0.001:  # Very small improvement
+                    print(f"\n⚠️  Learning Rate Alert: LR very low ({current_lr:.2e}) with minimal improvement")
+                    print(f"   💡 Consider: Learning rate may be too low for further learning")
+        
+        # Positive indicators
+        if epoch >= 2:
+            # Check if learning is happening
+            if len(self.val_loss_history) >= 3:
+                recent_improvement = self.val_loss_history[-3] - self.val_loss_history[-1]
+                if recent_improvement > 0.01:  # Significant improvement
+                    improvement_rate = recent_improvement / self.val_loss_history[-3] if self.val_loss_history[-3] > 0 else 0
+                    if improvement_rate > 0.05:  # >5% improvement
+                        print(f"\n✅ Good Learning: Validation loss improved by {improvement_rate:.1%} over last 3 epochs")
+
+
+class AdaptiveDataAugmentationCallback(keras.callbacks.Callback):
+    """
+    Increase data augmentation strength when overfitting is detected.
+    Updates augmentation layer parameters dynamically.
+    """
+    def __init__(self, initial_noise_std=0.04, max_noise_std=0.10, initial_mask_prob=0.15, max_mask_prob=0.30, gap_threshold=0.25):
+        super().__init__()
+        self.initial_noise_std = initial_noise_std
+        self.max_noise_std = max_noise_std
+        self.initial_mask_prob = initial_mask_prob
+        self.max_mask_prob = max_mask_prob
+        self.gap_threshold = gap_threshold  # Store gap_threshold as instance attribute
+        self.current_noise_std = initial_noise_std
+        self.current_mask_prob = initial_mask_prob
+        self.gap_history = []
+        self.augmentation_adjustments = []
+        
+    def on_epoch_end(self, epoch: int, logs=None):
+        if logs is None:
+            return
+            
+        train_loss = logs.get('loss', 0)
+        val_loss = logs.get('val_loss', 0)
+        
+        if val_loss > 0 and train_loss > 0 and val_loss > train_loss:
+            max_loss = max(train_loss, val_loss)
+            gap = abs(train_loss - val_loss) / max_loss if max_loss > 0 else 0
+            self.gap_history.append(gap)
+            
+            if len(self.gap_history) >= 3:
+                recent_gaps = self.gap_history[-3:]
+                gap_increasing = all(recent_gaps[i] < recent_gaps[i+1] for i in range(len(recent_gaps)-1))
+                
+                # Increase augmentation if gap is high and increasing
+                if gap > self.gap_threshold and gap_increasing:
+                    # Increase noise std
+                    new_noise_std = min(self.current_noise_std * 1.15, self.max_noise_std)
+                    # Increase mask prob
+                    new_mask_prob = min(self.current_mask_prob * 1.1, self.max_mask_prob)
+                    
+                    if new_noise_std > self.current_noise_std or new_mask_prob > self.current_mask_prob:
+                        self.current_noise_std = new_noise_std
+                        self.current_mask_prob = new_mask_prob
+                        self._update_augmentation_layers()
+                        self.augmentation_adjustments.append((epoch, self.current_noise_std, self.current_mask_prob))
+                        print(f"\n📈 Adaptive Augmentation: Increased noise_std to {self.current_noise_std:.4f}, mask_prob to {self.current_mask_prob:.3f} (gap: {gap:.2%})")
+                # Reduce if gap is improving
+                elif gap < self.gap_threshold * 0.4 and epoch > 10:
+                    new_noise_std = max(self.current_noise_std * 0.95, self.initial_noise_std)
+                    new_mask_prob = max(self.current_mask_prob * 0.95, self.initial_mask_prob)
+                    
+                    if new_noise_std < self.current_noise_std or new_mask_prob < self.current_mask_prob:
+                        self.current_noise_std = new_noise_std
+                        self.current_mask_prob = new_mask_prob
+                        self._update_augmentation_layers()
+                        print(f"\n📉 Adaptive Augmentation: Decreased noise_std to {self.current_noise_std:.4f}, mask_prob to {self.current_mask_prob:.3f} (gap: {gap:.2%})")
+    
+    def _update_augmentation_layers(self):
+        """Update augmentation layer parameters"""
+        updated_count = 0
+        
+        def update_layer(layer):
+            nonlocal updated_count
+            if isinstance(layer, TimeSeriesAugmentation):
+                layer.noise_std = self.current_noise_std
+                layer.time_mask_prob = self.current_mask_prob
+                updated_count += 1
+            elif isinstance(layer, keras.Model):
+                for sublayer in layer.layers:
+                    update_layer(sublayer)
+        
+        for layer in self.model.layers:
+            update_layer(layer)
+        
+        if updated_count > 0:
+            print(f"   ✓ Updated {updated_count} augmentation layer(s)")
 
 
 class ProgressCallback(keras.callbacks.Callback):
@@ -1848,10 +2607,33 @@ def train_model(
     state_manager: Optional[TrainingStateManager] = None,
     initial_epoch: int = 0,
     resume_checkpoint: Optional[Path] = None,
+    load_model_path: Optional[Path] = None,
     pause_flag_path: Path = PAUSE_FLAG_PATH,
     recovery_manager: Optional[AutoRecoveryManager] = None,
 ) -> Tuple[keras.Model, keras.callbacks.History, List[float]]:
-    model = build_temporal_cnn(X_train.shape[1:], config)
+    # Load existing model if specified, otherwise build new one
+    if load_model_path and load_model_path.exists():
+        print(f"\n📥 Loading existing model from {load_model_path}...")
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=UserWarning, module="keras.*")
+                model = tf.keras.models.load_model(str(load_model_path))
+            print(f"✅ Successfully loaded model")
+            print(f"   Input shape: {model.input_shape}")
+            print(f"   Output shape: {model.output_shape}")
+            # Verify input shape matches training data
+            expected_shape = X_train.shape[1:]
+            if model.input_shape[1:] != expected_shape:
+                print(f"⚠️  WARNING: Model input shape {model.input_shape[1:]} doesn't match data shape {expected_shape}")
+                print(f"   Building new model instead...")
+                model = build_temporal_cnn(X_train.shape[1:], config)
+            else:
+                print(f"   ✅ Model shape compatible with training data")
+        except Exception as e:
+            print(f"⚠️  Failed to load model ({e}). Building new model...")
+            model = build_temporal_cnn(X_train.shape[1:], config)
+    else:
+        model = build_temporal_cnn(X_train.shape[1:], config)
     if resume_checkpoint and resume_checkpoint.exists():
         # Suppress optimizer-related warnings when loading checkpoints
         # These warnings are expected when optimizer state doesn't match (e.g., mixed precision, version differences)
@@ -1884,11 +2666,16 @@ def train_model(
 
     callbacks = [
         ProgressCallback(total_epochs=config.epochs),  # Custom progress display
+        LearningProgressMonitor(
+            min_improvement_rate=0.01,  # Expect at least 1% improvement per epoch
+            stuck_patience=5,  # Warn if no improvement for 5 epochs
+            min_epochs=3  # Start monitoring after 3 epochs
+        ),  # Monitor if model is actually learning
         keras.callbacks.EarlyStopping(
             monitor="val_loss",
-            patience=10,  # Increased from 8 to allow for validation loss fluctuations
+            patience=5,  # Reduced from 10 to 5 - stop early if validation doesn't improve (aggressive against overfitting)
             restore_best_weights=True,
-            min_delta=1e-5,  # Minimum change to qualify as improvement
+            min_delta=1e-4,  # Increased from 1e-5 to 1e-4 - require more significant improvement
             verbose=0,  # Reduced verbosity
             mode="min",  # Explicitly set mode
         ),
@@ -1910,10 +2697,33 @@ def train_model(
         OverfittingMonitor(gap_threshold=0.15, smoothing_window=3, config=config),  # Monitor for overfitting with smoothing
         AdaptiveDropoutCallback(
             initial_dropout=config.dropout,
-            max_dropout=0.75,
+            max_dropout=0.75,  # Increased from 0.70 to allow more regularization when needed
             increase_factor=1.1,
-            gap_threshold=0.50
+            gap_threshold=0.25  # Lowered from 0.50 to trigger earlier (25% gap = moderate overfitting)
         ),  # Dynamically adjust dropout based on overfitting
+        AdaptiveL2RegularizationCallback(
+            initial_l2=config.l2_regularization,
+            max_l2=1e-2,  # Allow up to 10x increase in L2 regularization
+            increase_factor=1.2,
+            gap_threshold=0.25  # Trigger at same threshold as dropout
+        ),  # Dynamically adjust L2 regularization based on overfitting
+        AdaptiveLearningRateCallback(
+            gap_threshold=0.30,  # Trigger when gap exceeds 30%
+            reduction_factor=0.7,  # Reduce LR by 30% when overfitting detected
+            min_lr=config.min_learning_rate
+        ),  # Reduce learning rate more aggressively when overfitting detected
+        AdaptiveDataAugmentationCallback(
+            initial_noise_std=config.augmentation_noise_std,
+            max_noise_std=0.10,  # Allow up to 10% noise
+            initial_mask_prob=config.time_mask_prob,
+            max_mask_prob=0.30,  # Allow up to 30% time masking
+            gap_threshold=0.25  # Trigger at same threshold as other adaptive callbacks
+        ),  # Increase data augmentation strength when overfitting detected
+        OverfittingEarlyStopping(
+            gap_threshold=0.40,  # Stop if gap exceeds 40%
+            patience=3,  # For 3 consecutive epochs
+            min_epochs=10  # Allow at least 10 epochs before stopping
+        ),  # Stop training early when overfitting gap is persistently high
     ]
     pause_callback: Optional[PauseResumeCallback] = None
     if state_manager:
@@ -1950,8 +2760,76 @@ def train_model(
 
     history.history["val_r2"] = r2_callback.history
     
-    # Print training diagnostics
-    print("\n📊 Training Diagnostics:")
+    # Print comprehensive training diagnostics including learning progress
+    print("\n" + "="*80)
+    print("📊 TRAINING SUMMARY & LEARNING ANALYSIS")
+    print("="*80)
+    
+    # Get learning progress monitor if available
+    learning_monitor = None
+    for callback in callbacks:
+        if isinstance(callback, LearningProgressMonitor):
+            learning_monitor = callback
+            break
+    
+    # Final metrics
+    final_train_loss = history.history['loss'][-1] if history.history.get('loss') else 0
+    final_val_loss = history.history['val_loss'][-1] if history.history.get('val_loss') else 0
+    initial_train_loss = history.history['loss'][0] if history.history.get('loss') else final_train_loss
+    initial_val_loss = history.history['val_loss'][0] if history.history.get('val_loss') else final_val_loss
+    
+    # Calculate improvements
+    train_improvement = ((initial_train_loss - final_train_loss) / initial_train_loss * 100) if initial_train_loss > 0 else 0
+    val_improvement = ((initial_val_loss - final_val_loss) / initial_val_loss * 100) if initial_val_loss > 0 else 0
+    
+    print(f"\n📈 Learning Progress:")
+    print(f"   Training Loss:   {initial_train_loss:.6f} → {final_train_loss:.6f} ({train_improvement:+.2f}%)")
+    print(f"   Validation Loss: {initial_val_loss:.6f} → {final_val_loss:.6f} ({val_improvement:+.2f}%)")
+    
+    # Learning assessment
+    if train_improvement > 50 and val_improvement > 30:
+        print(f"   ✅ Excellent learning: Model improved significantly on both sets")
+    elif train_improvement > 20 and val_improvement > 10:
+        print(f"   ✅ Good learning: Model is learning effectively")
+    elif train_improvement > 0 and val_improvement > 0:
+        print(f"   ⚠️  Moderate learning: Model is learning but could improve more")
+    elif train_improvement > 0 and val_improvement <= 0:
+        print(f"   ⚠️  Overfitting: Training improving but validation not improving")
+    else:
+        print(f"   ❌ Poor learning: Model may not be learning effectively")
+    
+    # Final gap analysis
+    if final_val_loss > 0 and final_train_loss > 0:
+        max_loss = max(final_train_loss, final_val_loss)
+        final_gap = abs(final_train_loss - final_val_loss) / max_loss if max_loss > 0 else 0
+        print(f"\n📊 Generalization Analysis:")
+        print(f"   Final Train/Val Gap: {final_gap:.2%}")
+        if final_gap < 0.10:
+            print(f"   ✅ Excellent generalization (very low gap)")
+        elif final_gap < 0.20:
+            print(f"   ✅ Good generalization (low gap)")
+        elif final_gap < 0.35:
+            print(f"   ⚠️  Moderate overfitting (moderate gap)")
+        else:
+            print(f"   ❌ Significant overfitting (large gap)")
+    
+    # Learning monitor insights
+    if learning_monitor:
+        print(f"\n🔍 Learning Monitor Insights:")
+        if learning_monitor.best_val_loss < float('inf'):
+            best_improvement = ((initial_val_loss - learning_monitor.best_val_loss) / initial_val_loss * 100) if initial_val_loss > 0 else 0
+            print(f"   Best Validation Loss: {learning_monitor.best_val_loss:.6f} ({best_improvement:+.2f}% from start)")
+        
+        if learning_monitor.no_improvement_count > 0:
+            print(f"   ⚠️  No improvement for {learning_monitor.no_improvement_count} epoch(s) at end")
+        
+        if len(learning_monitor.learning_rate_history) > 0:
+            final_lr = learning_monitor.learning_rate_history[-1]
+            initial_lr = learning_monitor.learning_rate_history[0] if len(learning_monitor.learning_rate_history) > 0 else final_lr
+            lr_change = ((final_lr - initial_lr) / initial_lr * 100) if initial_lr > 0 else 0
+            print(f"   Learning Rate: {initial_lr:.2e} → {final_lr:.2e} ({lr_change:+.1f}%)")
+    
+    print(f"\n📊 Training Diagnostics:")
     if len(history.history['loss']) > 0:
         final_train_loss = history.history['loss'][-1]
         final_val_loss = history.history['val_loss'][-1]
@@ -2004,113 +2882,210 @@ class TrainingAnalyzer:
         self.config = config
 
     def _plot_training_curves(self, history: keras.callbacks.History) -> Path:
+        """Plot training curves with error handling"""
         fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+        
+        # Get epochs - handle case where training might have been interrupted
+        if "loss" not in history.history or len(history.history["loss"]) == 0:
+            raise ValueError("No training history found - cannot generate plots")
+        
         epochs = range(1, len(history.history["loss"]) + 1)
 
-        axes[0].plot(epochs, history.history["loss"], label="Train")
-        axes[0].plot(epochs, history.history["val_loss"], label="Val")
-        axes[0].set_title("Loss (MSE)")
-        axes[0].set_xlabel("Epoch")
-        axes[0].grid(True, alpha=0.3)
-        axes[0].legend()
+        # Plot 1: Loss
+        if "loss" in history.history and "val_loss" in history.history:
+            axes[0].plot(epochs, history.history["loss"], label="Train", linewidth=2)
+            axes[0].plot(epochs, history.history["val_loss"], label="Val", linewidth=2)
+            axes[0].set_title("Loss (MSE)", fontsize=12, fontweight='bold')
+            axes[0].set_xlabel("Epoch")
+            axes[0].set_ylabel("Loss")
+            axes[0].grid(True, alpha=0.3)
+            axes[0].legend()
+        else:
+            axes[0].text(0.5, 0.5, "No loss data available", ha='center', va='center')
+            axes[0].set_title("Loss (MSE) - No Data")
 
-        axes[1].plot(epochs, history.history["mae"], label="Train")
-        axes[1].plot(epochs, history.history["val_mae"], label="Val")
-        axes[1].set_title("Mean Absolute Error")
-        axes[1].set_xlabel("Epoch")
-        axes[1].grid(True, alpha=0.3)
-        axes[1].legend()
+        # Plot 2: MAE
+        if "mae" in history.history and "val_mae" in history.history:
+            axes[1].plot(epochs, history.history["mae"], label="Train", linewidth=2)
+            axes[1].plot(epochs, history.history["val_mae"], label="Val", linewidth=2)
+            axes[1].set_title("Mean Absolute Error", fontsize=12, fontweight='bold')
+            axes[1].set_xlabel("Epoch")
+            axes[1].set_ylabel("MAE")
+            axes[1].grid(True, alpha=0.3)
+            axes[1].legend()
+        else:
+            axes[1].text(0.5, 0.5, "No MAE data available", ha='center', va='center')
+            axes[1].set_title("Mean Absolute Error - No Data")
 
-        axes[2].plot(
-            range(1, len(history.history["val_r2"]) + 1),
-            history.history["val_r2"],
-            label="Val R²",
-        )
-        axes[2].set_ylim(-1.0, 1.0)
-        axes[2].set_title("Validation R²")
-        axes[2].set_xlabel("Epoch")
-        axes[2].grid(True, alpha=0.3)
+        # Plot 3: R²
+        if "val_r2" in history.history and len(history.history["val_r2"]) > 0:
+            r2_epochs = range(1, len(history.history["val_r2"]) + 1)
+            axes[2].plot(r2_epochs, history.history["val_r2"], label="Val R²", linewidth=2, color='green')
+            axes[2].axhline(y=0, color='r', linestyle='--', alpha=0.5, label='R² = 0')
+            axes[2].set_ylim(-1.0, 1.0)
+            axes[2].set_title("Validation R²", fontsize=12, fontweight='bold')
+            axes[2].set_xlabel("Epoch")
+            axes[2].set_ylabel("R² Score")
+            axes[2].grid(True, alpha=0.3)
+            axes[2].legend()
+        else:
+            axes[2].text(0.5, 0.5, "No R² data available", ha='center', va='center')
+            axes[2].set_title("Validation R² - No Data")
+            axes[2].set_ylim(-1.0, 1.0)
 
         plt.tight_layout()
         path = ARTIFACTS_DIR / "training_curves.png"
-        fig.savefig(path, dpi=300)
+        fig.savefig(path, dpi=300, bbox_inches='tight')
         plt.close(fig)
         return path
 
     def _plot_prediction_diagnostics(
         self, y_true: np.ndarray, y_pred: np.ndarray
     ) -> Path:
+        """Plot prediction diagnostics with error handling"""
+        # Validate inputs
+        if y_true.shape != y_pred.shape:
+            raise ValueError(f"Shape mismatch: y_true {y_true.shape} vs y_pred {y_pred.shape}")
+        if len(y_true) == 0:
+            raise ValueError("Empty arrays - cannot generate plots")
+        if y_true.shape[1] < 2 or y_pred.shape[1] < 2:
+            raise ValueError(f"Expected 2 targets, got {y_true.shape[1]} and {y_pred.shape[1]}")
+        
         fan_true, led_true = y_true[:, 0], y_true[:, 1]
         fan_pred, led_pred = y_pred[:, 0], y_pred[:, 1]
+
+        # Validate data ranges (should be normalized to [0, 1])
+        if fan_true.max() > 1.1 or fan_pred.max() > 1.1:
+            print(f"   ⚠️  Warning: Values exceed [0,1] range. Fan true max: {fan_true.max():.3f}, pred max: {fan_pred.max():.3f}")
+        if led_true.max() > 1.1 or led_pred.max() > 1.1:
+            print(f"   ⚠️  Warning: Values exceed [0,1] range. LED true max: {led_true.max():.3f}, pred max: {led_pred.max():.3f}")
 
         fig, axes = plt.subplots(2, 3, figsize=(18, 10))
         axes = axes.ravel()
 
-        axes[0].scatter(fan_true, fan_pred, alpha=0.4, s=10)
-        axes[0].plot([0, 1], [0, 1], "r--")
-        axes[0].set_title("Fan Speed: Actual vs Pred")
-        axes[0].set_xlabel("Actual")
-        axes[0].set_ylabel("Predicted")
+        # Plot 1: Fan Speed scatter
+        axes[0].scatter(fan_true, fan_pred, alpha=0.4, s=10, edgecolors='none')
+        axes[0].plot([0, 1], [0, 1], "r--", linewidth=2, label="Perfect Prediction")
+        axes[0].set_title("Fan Speed: Actual vs Predicted", fontsize=12, fontweight='bold')
+        axes[0].set_xlabel("Actual (normalized)")
+        axes[0].set_ylabel("Predicted (normalized)")
+        axes[0].set_xlim(-0.05, 1.05)
+        axes[0].set_ylim(-0.05, 1.05)
+        axes[0].grid(True, alpha=0.3)
+        axes[0].legend()
 
-        axes[1].scatter(led_true, led_pred, alpha=0.4, s=10)
-        axes[1].plot([0, 1], [0, 1], "r--")
-        axes[1].set_title("LED Brightness: Actual vs Pred")
+        # Plot 2: LED Brightness scatter
+        axes[1].scatter(led_true, led_pred, alpha=0.4, s=10, edgecolors='none')
+        axes[1].plot([0, 1], [0, 1], "r--", linewidth=2, label="Perfect Prediction")
+        axes[1].set_title("LED Brightness: Actual vs Predicted", fontsize=12, fontweight='bold')
+        axes[1].set_xlabel("Actual (normalized)")
+        axes[1].set_ylabel("Predicted (normalized)")
+        axes[1].set_xlim(-0.05, 1.05)
+        axes[1].set_ylim(-0.05, 1.05)
+        axes[1].grid(True, alpha=0.3)
+        axes[1].legend()
 
+        # Plot 3: Residual distribution
+        fan_residuals = fan_true - fan_pred
+        led_residuals = led_true - led_pred
         axes[2].hist(
-            fan_true - fan_pred,
+            fan_residuals,
             bins=40,
             alpha=0.7,
             label="Fan Residuals",
+            color='blue',
+            edgecolor='black'
         )
         axes[2].hist(
-            led_true - led_pred,
+            led_residuals,
             bins=40,
             alpha=0.7,
             label="LED Residuals",
+            color='orange',
+            edgecolor='black'
         )
+        axes[2].axvline(x=0, color='r', linestyle='--', alpha=0.5)
         axes[2].legend()
-        axes[2].set_title("Residual Distribution")
+        axes[2].set_title("Residual Distribution", fontsize=12, fontweight='bold')
+        axes[2].set_xlabel("Residual (Actual - Predicted)")
+        axes[2].set_ylabel("Frequency")
+        axes[2].grid(True, alpha=0.3)
 
+        # Plot 4: Fan Speed time series
         sample = slice(0, min(200, len(fan_true)))
-        axes[3].plot(fan_true[sample], label="Actual")
-        axes[3].plot(fan_pred[sample], label="Pred")
-        axes[3].set_title("Fan Speed (first 200 samples)")
+        axes[3].plot(fan_true[sample], label="Actual", linewidth=1.5, alpha=0.8)
+        axes[3].plot(fan_pred[sample], label="Predicted", linewidth=1.5, alpha=0.8)
+        axes[3].set_title("Fan Speed (first 200 samples)", fontsize=12, fontweight='bold')
+        axes[3].set_xlabel("Sample Index")
+        axes[3].set_ylabel("Value (normalized)")
         axes[3].legend()
+        axes[3].grid(True, alpha=0.3)
 
-        axes[4].plot(led_true[sample], label="Actual")
-        axes[4].plot(led_pred[sample], label="Pred")
-        axes[4].set_title("LED Brightness (first 200 samples)")
+        # Plot 5: LED Brightness time series
+        axes[4].plot(led_true[sample], label="Actual", linewidth=1.5, alpha=0.8)
+        axes[4].plot(led_pred[sample], label="Predicted", linewidth=1.5, alpha=0.8)
+        axes[4].set_title("LED Brightness (first 200 samples)", fontsize=12, fontweight='bold')
+        axes[4].set_xlabel("Sample Index")
+        axes[4].set_ylabel("Value (normalized)")
         axes[4].legend()
+        axes[4].grid(True, alpha=0.3)
 
+        # Plot 6: Metrics summary
         axes[5].axis("off")
-        axes[5].text(
-            0.05,
-            0.8,
-            f"Fan corr: {np.corrcoef(fan_true, fan_pred)[0,1]:.3f}",
-            fontsize=12,
-        )
-        axes[5].text(
-            0.05,
-            0.6,
-            f"LED corr: {np.corrcoef(led_true, led_pred)[0,1]:.3f}",
-            fontsize=12,
-        )
-        axes[5].text(
-            0.05,
-            0.4,
-            f"Fan R²: {r2_score(fan_true, fan_pred):.3f}",
-            fontsize=12,
-        )
-        axes[5].text(
-            0.05,
-            0.2,
-            f"LED R²: {r2_score(led_true, led_pred):.3f}",
-            fontsize=12,
-        )
+        
+        # Calculate metrics with error handling
+        try:
+            fan_corr = np.corrcoef(fan_true, fan_pred)[0, 1] if len(fan_true) > 1 else 0.0
+        except:
+            fan_corr = 0.0
+        
+        try:
+            led_corr = np.corrcoef(led_true, led_pred)[0, 1] if len(led_true) > 1 else 0.0
+        except:
+            led_corr = 0.0
+        
+        try:
+            fan_r2 = r2_score(fan_true, fan_pred)
+        except:
+            fan_r2 = 0.0
+        
+        try:
+            led_r2 = r2_score(led_true, led_pred)
+        except:
+            led_r2 = 0.0
+        
+        try:
+            fan_mae = mean_absolute_error(fan_true, fan_pred)
+        except:
+            fan_mae = 0.0
+        
+        try:
+            led_mae = mean_absolute_error(led_true, led_pred)
+        except:
+            led_mae = 0.0
+        
+        # Display metrics
+        metrics_text = f"""
+METRICS SUMMARY
+
+Fan Speed:
+  Correlation: {fan_corr:.3f}
+  R² Score:    {fan_r2:.3f}
+  MAE:         {fan_mae:.4f}
+
+LED Brightness:
+  Correlation: {led_corr:.3f}
+  R² Score:    {led_r2:.3f}
+  MAE:         {led_mae:.4f}
+
+Total Samples: {len(fan_true):,}
+        """
+        axes[5].text(0.1, 0.5, metrics_text, fontsize=11, family='monospace',
+                     verticalalignment='center', fontweight='bold')
 
         plt.tight_layout()
         path = ARTIFACTS_DIR / "prediction_diagnostics.png"
-        fig.savefig(path, dpi=300)
+        fig.savefig(path, dpi=300, bbox_inches='tight')
         plt.close(fig)
         return path
 
@@ -2316,34 +3291,192 @@ def run_pipeline(args):
 
         preprocessor = SmartHomePreprocessor(CONFIG)
         
-        # CRITICAL: Split data TEMPORALLY first (before feature engineering that uses statistics)
-        # This prevents data leakage from future data
-        print("\n📊 Splitting data temporally (train → val → test)...")
+        # CRITICAL: Split data with STRATIFIED TEMPORAL splitting per dataset
+        # This prevents target distribution shift by ensuring each split has balanced representation
+        # from all datasets
+        print("\n📊 Splitting data with stratified temporal split (per dataset)...")
         raw_df = raw_df.sort_values("timestamp").reset_index(drop=True)
         
-        total_rows = len(raw_df)
-        test_size = int(total_rows * CONFIG.test_split)
-        val_size = int(total_rows * CONFIG.validation_split)
-        train_size = total_rows - val_size - test_size
+        # Check if dataset_source column exists (added in load_datasets)
+        if "dataset_source" not in raw_df.columns:
+            # Fallback: add dummy source if not present
+            raw_df["dataset_source"] = "unknown"
+            print("   ⚠️  No dataset_source found, using simple temporal split")
+            use_stratified = False
+        else:
+            use_stratified = True
+            print(f"   ✅ Found dataset sources: {raw_df['dataset_source'].unique()}")
         
-        # Temporal split: train (earliest) → val → test (latest)
-        raw_train = raw_df.iloc[:train_size].copy()
-        raw_val = raw_df.iloc[train_size:train_size + val_size].copy()
-        raw_test = raw_df.iloc[train_size + val_size:].copy()
+        if use_stratified:
+            # Stratified temporal split: Split each dataset temporally, then combine
+            # This preserves dataset representation while maintaining temporal ordering
+            print("   Using stratified temporal split (per dataset, then combine with overlap filtering)...")
+            
+            gap_size = CONFIG.sequence_length  # Gap to prevent sequence boundary overlap
+            train_frames = []
+            val_frames = []
+            test_frames = []
+            
+            # Get time ranges for each dataset to understand overlap
+            dataset_ranges = {}
+            for dataset_name in raw_df["dataset_source"].unique():
+                dataset_df = raw_df[raw_df["dataset_source"] == dataset_name].sort_values("timestamp")
+                if len(dataset_df) > 0:
+                    dataset_ranges[dataset_name] = {
+                        "min": dataset_df["timestamp"].min(),
+                        "max": dataset_df["timestamp"].max(),
+                        "count": len(dataset_df)
+                    }
+            
+            # Split each dataset temporally
+            for dataset_name in raw_df["dataset_source"].unique():
+                dataset_df = raw_df[raw_df["dataset_source"] == dataset_name].sort_values("timestamp").reset_index(drop=True)
+                dataset_df = dataset_df.dropna(subset=["timestamp"])
+                dataset_total = len(dataset_df)
+                
+                if dataset_total == 0:
+                    continue
+                
+                # Calculate split sizes for this dataset
+                dataset_test_size = int(dataset_total * CONFIG.test_split)
+                dataset_val_size = int(dataset_total * CONFIG.validation_split)
+                dataset_train_size = dataset_total - dataset_val_size - dataset_test_size
+                
+                # Adjust gap if dataset is small
+                effective_gap = min(gap_size, max(1, dataset_train_size // 20))
+                
+                # Split this dataset temporally
+                train_end = dataset_train_size
+                val_start = min(train_end + effective_gap, dataset_total)
+                val_end = min(val_start + dataset_val_size, dataset_total)
+                test_start = min(val_end + effective_gap, dataset_total)
+                test_end = min(test_start + dataset_test_size, dataset_total)
+                
+                dataset_train = dataset_df.iloc[:train_end].copy()
+                dataset_val = dataset_df.iloc[val_start:val_end].copy() if val_end > val_start else pd.DataFrame()
+                dataset_test = dataset_df.iloc[test_start:test_end].copy() if test_end > test_start else pd.DataFrame()
+                
+                if len(dataset_train) > 0:
+                    train_frames.append(dataset_train)
+                if len(dataset_val) > 0:
+                    val_frames.append(dataset_val)
+                if len(dataset_test) > 0:
+                    test_frames.append(dataset_test)
+                
+                print(f"   {dataset_name}: Train={len(dataset_train):,}, Val={len(dataset_val):,}, Test={len(dataset_test):,}")
+            
+            # Combine splits from all datasets
+            if len(train_frames) == 0:
+                raise RuntimeError("No training data available after stratified split.")
+            
+            raw_train = pd.concat(train_frames, ignore_index=True).sort_values("timestamp").reset_index(drop=True)
+            raw_val = pd.concat(val_frames, ignore_index=True).sort_values("timestamp").reset_index(drop=True) if len(val_frames) > 0 else pd.DataFrame()
+            raw_test = pd.concat(test_frames, ignore_index=True).sort_values("timestamp").reset_index(drop=True) if len(test_frames) > 0 else pd.DataFrame()
+            
+            # Filter temporal overlaps while preserving dataset representation
+            overlap_gap = pd.Timedelta(hours=CONFIG.sequence_length)
+            
+            # Filter validation: keep only data after training ends
+            if len(raw_train) > 0 and len(raw_val) > 0:
+                train_max_time = raw_train["timestamp"].max()
+                val_cutoff = train_max_time + overlap_gap
+                val_min_time = raw_val["timestamp"].min()
+                
+                if val_min_time <= train_max_time:
+                    print(f"\n   ⚠️  Temporal overlap: Val starts {val_min_time}, Train ends {train_max_time}")
+                    print(f"      Filtering validation data after {val_cutoff}...")
+                    
+                    val_before = len(raw_val)
+                    if "dataset_source" in raw_val.columns:
+                        val_frames_filtered = []
+                        for dataset_name in raw_val["dataset_source"].unique():
+                            dataset_val = raw_val[raw_val["dataset_source"] == dataset_name].copy()
+                            dataset_val_filtered = dataset_val[dataset_val["timestamp"] > val_cutoff].copy()
+                            if len(dataset_val_filtered) > 0:
+                                val_frames_filtered.append(dataset_val_filtered)
+                                print(f"      {dataset_name}: {len(dataset_val_filtered):,}/{len(dataset_val)} rows preserved")
+                            else:
+                                print(f"      ⚠️  {dataset_name}: All validation data filtered (ends before cutoff)")
+                        raw_val = pd.concat(val_frames_filtered, ignore_index=True).sort_values("timestamp") if val_frames_filtered else pd.DataFrame()
+                    else:
+                        raw_val = raw_val[raw_val["timestamp"] > val_cutoff].copy()
+                    
+                    print(f"      Filtered {val_before - len(raw_val):,} overlapping validation rows")
+            
+            # Filter test: keep only data after validation ends
+            if len(raw_val) > 0 and len(raw_test) > 0:
+                val_max_time = raw_val["timestamp"].max()
+                test_cutoff = val_max_time + overlap_gap
+                test_min_time = raw_test["timestamp"].min()
+                
+                if test_min_time <= val_max_time:
+                    print(f"\n   ⚠️  Temporal overlap: Test starts {test_min_time}, Val ends {val_max_time}")
+                    print(f"      Filtering test data after {test_cutoff}...")
+                    
+                    test_before = len(raw_test)
+                    if "dataset_source" in raw_test.columns:
+                        test_frames_filtered = []
+                        for dataset_name in raw_test["dataset_source"].unique():
+                            dataset_test = raw_test[raw_test["dataset_source"] == dataset_name].copy()
+                            dataset_test_filtered = dataset_test[dataset_test["timestamp"] > test_cutoff].copy()
+                            if len(dataset_test_filtered) > 0:
+                                test_frames_filtered.append(dataset_test_filtered)
+                                print(f"      {dataset_name}: {len(dataset_test_filtered):,}/{len(dataset_test)} rows preserved")
+                            else:
+                                print(f"      ⚠️  {dataset_name}: All test data filtered (ends before cutoff)")
+                        raw_test = pd.concat(test_frames_filtered, ignore_index=True).sort_values("timestamp") if test_frames_filtered else pd.DataFrame()
+                    else:
+                        raw_test = raw_test[raw_test["timestamp"] > test_cutoff].copy()
+                    
+                    print(f"      Filtered {test_before - len(raw_test):,} overlapping test rows")
+            
+            # Report final dataset representation
+            if "dataset_source" in raw_train.columns:
+                print(f"\n   ✅ Final dataset representation:")
+                for split_name, split_df in [("Train", raw_train), ("Val", raw_val), ("Test", raw_test)]:
+                    if len(split_df) > 0:
+                        dataset_counts = split_df["dataset_source"].value_counts()
+                        print(f"      {split_name}: {len(split_df):,} rows from {len(dataset_counts)} datasets")
+                        for ds, count in dataset_counts.items():
+                            pct = count / len(split_df) * 100
+                            print(f"         - {ds}: {count:,} rows ({pct:.1f}%)")
+            
+            print(f"\n   ✅ Stratified temporal split complete:")
+            print(f"      Train: {len(raw_train):,} rows")
+            print(f"      Val:   {len(raw_val):,} rows")
+            print(f"      Test:  {len(raw_test):,} rows")
+        else:
+            # Fallback to simple temporal split
+            total_rows = len(raw_df)
+            test_size = int(total_rows * CONFIG.test_split)
+            val_size = int(total_rows * CONFIG.validation_split)
+            train_size = total_rows - val_size - test_size
+            
+            gap_size = CONFIG.sequence_length
+            raw_train = raw_df.iloc[:train_size].copy()
+            raw_val = raw_df.iloc[train_size + gap_size:train_size + gap_size + val_size].copy()
+            raw_test = raw_df.iloc[train_size + gap_size + val_size + gap_size:].copy()
         
-        print(f"   Train: {len(raw_train):,} rows ({raw_train['timestamp'].min()} to {raw_train['timestamp'].max()})")
-        print(f"   Val:   {len(raw_val):,} rows ({raw_val['timestamp'].min()} to {raw_val['timestamp'].max()})")
-        print(f"   Test:  {len(raw_test):,} rows ({raw_test['timestamp'].min()} to {raw_test['timestamp'].max()})")
+        print(f"\n   Final splits:")
+        print(f"      Train: {len(raw_train):,} rows ({raw_train['timestamp'].min()} to {raw_train['timestamp'].max()})")
+        print(f"      Val:   {len(raw_val):,} rows ({raw_val['timestamp'].min()} to {raw_val['timestamp'].max()})")
+        print(f"      Test:  {len(raw_test):,} rows ({raw_test['timestamp'].min()} to {raw_test['timestamp'].max()})")
         
         # Build features separately for each split to prevent leakage
         print("\n🔧 Building features for training set...")
+        print(f"   Raw training rows: {len(raw_train):,}")
         hourly_train = preprocessor.build_hourly_features(raw_train, is_training=True)
+        print(f"   Hourly training rows: {len(hourly_train):,} (preserved {len(hourly_train)/len(raw_train)*100:.1f}% after aggregation)")
         
         print("\n🔧 Building features for validation set...")
+        print(f"   Raw validation rows: {len(raw_val):,}")
         hourly_val = preprocessor.build_hourly_features(raw_val, is_training=False)
+        print(f"   Hourly validation rows: {len(hourly_val):,} (preserved {len(hourly_val)/len(raw_val)*100:.1f}% after aggregation)")
         
         print("\n🔧 Building features for test set...")
+        print(f"   Raw test rows: {len(raw_test):,}")
         hourly_test = preprocessor.build_hourly_features(raw_test, is_training=False)
+        print(f"   Hourly test rows: {len(hourly_test):,} (preserved {len(hourly_test)/len(raw_test)*100:.1f}% after aggregation)")
         
         # Prepare sequences: fit scaler ONLY on training data
         print("\n📦 Preparing sequences...")
@@ -2356,30 +3489,121 @@ def run_pipeline(args):
         print("   Test set (using training scaler)...")
         X_test, y_test = preprocessor.prepare_sequences(hourly_test, fit_scaler=False)
         
+        # Check target distributions to verify stratified split worked
+        print("\n📊 Target Distribution Check (after stratified split):")
+        for i, target_name in enumerate(CONFIG.targets):
+            train_mean = np.mean(y_train[:, i])
+            val_mean = np.mean(y_val[:, i])
+            test_mean = np.mean(y_test[:, i])
+            train_std = np.std(y_train[:, i])
+            
+            print(f"   {target_name}:")
+            print(f"      Train: mean={train_mean:.4f}, std={train_std:.4f}, range=[{np.min(y_train[:, i]):.4f}, {np.max(y_train[:, i]):.4f}]")
+            print(f"      Val:   mean={val_mean:.4f}, std={np.std(y_val[:, i]):.4f}, range=[{np.min(y_val[:, i]):.4f}, {np.max(y_val[:, i]):.4f}]")
+            print(f"      Test:  mean={test_mean:.4f}, std={np.std(y_test[:, i]):.4f}, range=[{np.min(y_test[:, i]):.4f}, {np.max(y_test[:, i]):.4f}]")
+            
+            # Check for constant targets (std = 0)
+            if train_std < 1e-6:
+                print(f"      ⚠️  Warning: Training target has zero variance (constant values). This may indicate a data issue.")
+            elif len(y_val) > 0 and len(y_test) > 0:
+                # Check for distribution shift
+                val_std = np.std(y_val[:, i])
+                test_std = np.std(y_test[:, i])
+                
+                # Use pooled std for shift calculation
+                pooled_std = np.sqrt((train_std**2 + val_std**2 + test_std**2) / 3) if (train_std > 0 or val_std > 0 or test_std > 0) else 1.0
+                
+                val_shift = abs(val_mean - train_mean) / (pooled_std + 1e-10)
+                test_shift = abs(test_mean - train_mean) / (pooled_std + 1e-10)
+                
+                if val_shift < 0.5 and test_shift < 0.5:
+                    print(f"      ✅ Good: Distribution shifts are small (< 0.5 std)")
+                elif val_shift < 1.0 and test_shift < 1.0:
+                    print(f"      ⚠️  Moderate: Distribution shifts are acceptable (< 1.0 std)")
+                else:
+                    print(f"      ⚠️  Warning: Large distribution shifts (val: {val_shift:.2f} std, test: {test_shift:.2f} std)")
+                    print(f"         This may still cause overfitting. Consider normalizing targets per dataset.")
+        
         # Comprehensive data leakage validation
         if CONFIG.validate_no_leakage:
             print("\n🔍 Validating data leakage prevention...")
             
-            # Temporal validation
-            train_max_time = raw_train["timestamp"].max()
-            val_min_time = raw_val["timestamp"].min()
-            val_max_time = raw_val["timestamp"].max()
-            test_min_time = raw_test["timestamp"].min()
-            
+            # Temporal validation (only if we have validation/test data)
             temporal_issues = []
-            if val_min_time <= train_max_time:
-                temporal_issues.append(
-                    f"Validation data ({val_min_time}) overlaps with training ({train_max_time})"
-                )
-            if test_min_time <= val_max_time:
-                temporal_issues.append(
-                    f"Test data ({test_min_time}) overlaps with validation ({val_max_time})"
-                )
+            
+            if len(raw_train) == 0:
+                temporal_issues.append("No training data available")
+            else:
+                train_max_time = raw_train["timestamp"].max()
+                
+                if len(raw_val) > 0:
+                    val_min_time = raw_val["timestamp"].min()
+                    val_max_time = raw_val["timestamp"].max()
+                    
+                    # Check for invalid timestamps (1970 dates indicate parsing errors)
+                    if val_min_time.year < 2000:
+                        temporal_issues.append(
+                            f"Invalid validation timestamps detected (min: {val_min_time}). "
+                            "This indicates timestamp parsing errors."
+                        )
+                    elif val_min_time <= train_max_time:
+                        # This should have been fixed by the re-split logic above
+                        # But if it still happens, it's a critical issue
+                        temporal_issues.append(
+                            f"Validation data ({val_min_time}) overlaps with training ({train_max_time}). "
+                            "Re-split logic failed to fix this."
+                        )
+                    
+                    if len(raw_test) > 0:
+                        test_min_time = raw_test["timestamp"].min()
+                        if test_min_time.year < 2000:
+                            temporal_issues.append(
+                                f"Invalid test timestamps detected (min: {test_min_time}). "
+                                "This indicates timestamp parsing errors."
+                            )
+                        elif test_min_time <= val_max_time:
+                            # This should have been fixed by the re-split logic above
+                            temporal_issues.append(
+                                f"Test data ({test_min_time}) overlaps with validation ({val_max_time}). "
+                                "Re-split logic failed to fix this."
+                            )
             
             if temporal_issues:
-                raise RuntimeError(
-                    f"⚠️  DATA LEAKAGE DETECTED:\n  " + "\n  ".join(temporal_issues)
-                )
+                # Don't raise error immediately - try one more fix
+                print(f"\n   ⚠️  Temporal issues detected after re-split. Attempting final fix...")
+                
+                # Final attempt: combine everything and do a clean temporal split
+                all_data = pd.concat([raw_train, raw_val, raw_test], ignore_index=True, sort=False)
+                all_data = all_data.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
+                
+                total_rows = len(all_data)
+                test_size = int(total_rows * CONFIG.test_split)
+                val_size = int(total_rows * CONFIG.validation_split)
+                train_size = total_rows - val_size - test_size
+                gap_size = CONFIG.sequence_length
+                
+                raw_train = all_data.iloc[:train_size].copy()
+                raw_val = all_data.iloc[train_size + gap_size:train_size + gap_size + val_size].copy()
+                raw_test = all_data.iloc[train_size + gap_size + val_size + gap_size:].copy()
+                
+                # Re-validate
+                train_max_time = raw_train["timestamp"].max()
+                val_min_time = raw_val["timestamp"].min() if len(raw_val) > 0 else None
+                val_max_time = raw_val["timestamp"].max() if len(raw_val) > 0 else None
+                test_min_time = raw_test["timestamp"].min() if len(raw_test) > 0 else None
+                
+                final_issues = []
+                if val_min_time and val_min_time <= train_max_time:
+                    final_issues.append(f"Final fix failed: Val ({val_min_time}) <= Train ({train_max_time})")
+                if test_min_time and val_max_time and test_min_time <= val_max_time:
+                    final_issues.append(f"Final fix failed: Test ({test_min_time}) <= Val ({val_max_time})")
+                
+                if final_issues:
+                    raise RuntimeError(
+                        f"⚠️  DATA LEAKAGE DETECTED (could not fix):\n  " + "\n  ".join(final_issues)
+                    )
+                else:
+                    print(f"   ✅ Final fix successful. Temporal ordering verified.")
             
             # Statistical validation
             is_valid, stat_issues = validate_no_data_leakage(
@@ -2473,6 +3697,31 @@ def run_pipeline(args):
 
     initial_epoch = 0
     resume_checkpoint: Optional[Path] = None
+    load_model_path: Optional[Path] = None
+    
+    # Handle --load-model flag for continuous/incremental training
+    if args.load_model:
+        model_dir = MODELS_DIR / "schedule_predictor_v2"
+        if model_dir.exists():
+            # Check if it's a valid Keras model directory
+            # Keras saves models as a directory with saved_model.pb or as .keras file
+            has_saved_model = (model_dir / "saved_model.pb").exists() or any(model_dir.glob("*.keras"))
+            if has_saved_model:
+                load_model_path = model_dir
+                print(f"\n{'='*80}")
+                print("🔄 CONTINUOUS TRAINING MODE")
+                print(f"{'='*80}")
+                print(f"   Loading model from: {load_model_path}")
+                print(f"   This will continue training from the saved model's learned weights")
+                print(f"   Training will start from epoch 0 with the loaded weights")
+                print(f"{'='*80}\n")
+            else:
+                print(f"⚠️  --load-model specified but {model_dir} doesn't contain a valid model")
+                print(f"   Starting fresh training instead...")
+        else:
+            print(f"⚠️  --load-model specified but model not found at {model_dir}")
+            print(f"   Starting fresh training instead...")
+    
     if args.resume:
         # Validate resume compatibility
         dataset_hash = cache_metadata.get("dataset_hash") if cache_metadata else None
@@ -2532,10 +3781,11 @@ def run_pipeline(args):
     recovery_manager = AutoRecoveryManager(CONFIG, state_manager) if CONFIG.auto_recover else None
     
     # Save initial state with dataset metadata for future validation
+    state_message = "Resumed" if args.resume else ("Continuous training" if args.load_model else "Fresh run")
     state_manager.save_state(
         initial_epoch,
         "running",
-        message="Resumed" if args.resume else "Fresh run",
+        message=state_message,
         dataset_hash=cache_metadata.get("dataset_hash") if cache_metadata else None,
         dataset_metadata=cache_metadata,
     )
@@ -2570,6 +3820,7 @@ def run_pipeline(args):
                 state_manager=state_manager,
                 initial_epoch=initial_epoch,
                 resume_checkpoint=resume_checkpoint if retry_count == 0 else None,  # Only load checkpoint on first attempt
+                load_model_path=load_model_path if retry_count == 0 else None,  # Only load model on first attempt
                 recovery_manager=recovery_manager,
             )
             training_successful = True
@@ -2622,7 +3873,12 @@ def run_pipeline(args):
         raise RuntimeError("Training failed after all recovery attempts")
     metrics, y_pred = evaluate_model(model, X_test, y_test)
 
+    # Generate training history graphs (especially important for --load-model continuous training)
     analyzer = TrainingAnalyzer(CONFIG)
+    if args.load_model:
+        print(f"\n{'='*80}")
+        print("📊 GENERATING TRAINING HISTORY GRAPHS (Continuous Training Mode)")
+        print(f"{'='*80}")
     artifacts = analyzer.create_reports(history, y_test, y_pred)
     for name, path in artifacts.items():
         print(f"📊 Saved {name} → {path}")
@@ -2654,6 +3910,15 @@ def parse_cli_args() -> argparse.Namespace:
         "--refresh-data",
         action="store_true",
         help="Rebuild dataset cache even if it already exists.",
+    )
+    parser.add_argument(
+        "--load-model",
+        action="store_true",
+        help=(
+            "Load the previously saved model from schedule_predictor_v2/ and continue training. "
+            "This allows incremental/continuous training where each run builds upon the previous one. "
+            "The model will start from epoch 0 but with learned weights from previous training."
+        ),
     )
     parser.add_argument(
         "--request-pause",

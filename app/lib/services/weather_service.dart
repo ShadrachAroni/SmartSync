@@ -162,7 +162,7 @@ class WeatherService {
 
               // Only use API data if valid
               if (temp != null && hum != null) {
-                Logger.info('WeatherService: Successfully fetched weather from API');
+                Logger.info('WeatherService: Successfully fetched weather from API - Temp: ${temp}°C, Humidity: ${hum}%, Location: lat=$lat, lon=$lon');
                 return WeatherData(
                   temperature: temp,
                   humidity: hum,
@@ -171,7 +171,7 @@ class WeatherService {
                   location: 'Current Location',
                 );
               } else {
-                Logger.warning('WeatherService: API returned invalid temperature/humidity data');
+                Logger.warning('WeatherService: API returned invalid temperature/humidity data - temp: $temp, hum: $hum');
               }
             } else {
               Logger.warning('WeatherService: API response missing current weather data');

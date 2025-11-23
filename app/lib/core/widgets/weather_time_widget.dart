@@ -88,8 +88,8 @@ final weatherDataProvider =
     yield initialWeather;
   }
   
-  // Fetch weather data periodically (every 5 minutes) for real-time updates
-  await for (final _ in Stream.periodic(const Duration(minutes: 5)).skip(1)) {
+  // Fetch weather data periodically (every 2 minutes) for real-time updates
+  await for (final _ in Stream.periodic(const Duration(minutes: 2)).skip(1)) {
     final weather = await _fetchWeather();
     if (weather != null) {
       lastWeather = weather;

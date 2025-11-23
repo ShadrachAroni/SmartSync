@@ -93,10 +93,6 @@ class _DeviceRegistrationDialogState
           DeviceTypeDetector.detectFromSensorData(widget.initialSensorData!) ==
               detectedType) {
         method = 'Sensor data';
-      } else if (deviceStatus != null &&
-          DeviceTypeDetector.detectFromCapabilities(deviceStatus) ==
-              detectedType) {
-        method = 'Device capabilities';
       } else {
         method = 'Default';
       }
@@ -600,11 +596,19 @@ class _DeviceRegistrationDialogState
                                   value: room.id,
                                   child: Row(
                                     children: [
-                                      Icon(
-                                        _getRoomIcon(room.icon),
-                                        color: Colors.white70,
-                                        size: 20,
-                                      ),
+                                      _getRoomImagePath(room.icon) != null
+                                          ? Image.asset(
+                                              _getRoomImagePath(room.icon)!,
+                                              width: 20,
+                                              height: 20,
+                                              color: Colors.white70,
+                                              colorBlendMode: BlendMode.srcIn,
+                                            )
+                                          : Icon(
+                                              _getRoomIcon(room.icon),
+                                              color: Colors.white70,
+                                              size: 20,
+                                            ),
                                       const SizedBox(width: 12),
                                       Text(
                                         room.name,
@@ -714,6 +718,27 @@ class _DeviceRegistrationDialogState
         return Icons.cleaning_services;
       case DeviceType.sensor:
         return Icons.sensors;
+    }
+  }
+
+  String? _getRoomImagePath(String iconName) {
+    switch (iconName) {
+      case 'living_room':
+        return 'assets/rooms/living_room.png';
+      case 'kitchen':
+        return 'assets/rooms/kitchen.png';
+      case 'bedroom':
+        return 'assets/rooms/bedroom.png';
+      case 'bathroom':
+        return 'assets/rooms/bathroom.png';
+      case 'office':
+        return 'assets/rooms/office.png';
+      case 'garage':
+        return 'assets/rooms/garage.png';
+      case 'garden':
+        return 'assets/rooms/garden.png';
+      default:
+        return null;
     }
   }
 

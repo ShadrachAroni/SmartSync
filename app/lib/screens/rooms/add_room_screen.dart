@@ -23,48 +23,56 @@ class _AddRoomScreenState extends State<AddRoomScreen> {
     {
       'id': 'living_room',
       'name': 'Living Room',
+      'image': 'assets/rooms/living_room.png',
       'icon': Icons.weekend_rounded,
       'color': Color(0xFF00BFA5)
     },
     {
       'id': 'kitchen',
       'name': 'Kitchen',
+      'image': 'assets/rooms/kitchen.png',
       'icon': Icons.kitchen_rounded,
       'color': Color(0xFFFF6B6B)
     },
     {
       'id': 'bedroom',
       'name': 'Bedroom',
+      'image': 'assets/rooms/bedroom.png',
       'icon': Icons.bed_rounded,
       'color': Color(0xFF7C4DFF)
     },
     {
       'id': 'bathroom',
       'name': 'Bathroom',
+      'image': 'assets/rooms/bathroom.png',
       'icon': Icons.bathtub_rounded,
       'color': Color(0xFF4ECDC4)
     },
     {
       'id': 'office',
       'name': 'Office',
+      'image': 'assets/rooms/office.png',
       'icon': Icons.desk_rounded,
       'color': Color(0xFFFFA726)
     },
     {
       'id': 'garage',
       'name': 'Garage',
+      'image': 'assets/rooms/garage.png',
       'icon': Icons.garage_rounded,
       'color': Color(0xFF78909C)
     },
     {
       'id': 'garden',
       'name': 'Garden',
+      'image': 'assets/rooms/garden.png',
       'icon': Icons.yard_rounded,
       'color': Color(0xFF66BB6A)
     },
     {
       'id': 'custom',
       'name': 'Custom',
+      'image': null,
       'icon': Icons.meeting_room_rounded,
       'color': Color(0xFF9E9E9E)
     },
@@ -227,16 +235,24 @@ class _AddRoomScreenState extends State<AddRoomScreen> {
       ),
       child: Stack(
         children: [
-          // Background icon
+          // Background image or icon
           Positioned.fill(
-            child: Opacity(
-              opacity: 0.1,
-              child: Icon(
-                selectedType['icon'] as IconData,
-                size: 150,
-                color: Colors.white,
-              ),
-            ),
+            child: selectedType['image'] != null
+                ? Opacity(
+                    opacity: 0.15,
+                    child: Image.asset(
+                      selectedType['image'] as String,
+                      fit: BoxFit.cover,
+                    ),
+                  )
+                : Opacity(
+                    opacity: 0.1,
+                    child: Icon(
+                      selectedType['icon'] as IconData,
+                      size: 150,
+                      color: Colors.white,
+                    ),
+                  ),
           ),
 
           // Content
@@ -252,11 +268,19 @@ class _AddRoomScreenState extends State<AddRoomScreen> {
                     color: Colors.white.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(
-                    selectedType['icon'] as IconData,
-                    color: Colors.white,
-                    size: 28,
-                  ),
+                  child: selectedType['image'] != null
+                      ? Image.asset(
+                          selectedType['image'] as String,
+                          width: 28,
+                          height: 28,
+                          color: Colors.white,
+                          colorBlendMode: BlendMode.srcIn,
+                        )
+                      : Icon(
+                          selectedType['icon'] as IconData,
+                          color: Colors.white,
+                          size: 28,
+                        ),
                 ),
                 const SizedBox(height: 12),
                 Text(
@@ -323,13 +347,23 @@ class _AddRoomScreenState extends State<AddRoomScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  type['icon'] as IconData,
-                  color: isSelected
-                      ? type['color'] as Color
-                      : Colors.grey.shade600,
-                  size: 28,
-                ),
+                type['image'] != null
+                    ? Image.asset(
+                        type['image'] as String,
+                        width: 28,
+                        height: 28,
+                        color: isSelected
+                            ? type['color'] as Color
+                            : Colors.grey.shade600,
+                        colorBlendMode: BlendMode.srcIn,
+                      )
+                    : Icon(
+                        type['icon'] as IconData,
+                        color: isSelected
+                            ? type['color'] as Color
+                            : Colors.grey.shade600,
+                        size: 28,
+                      ),
                 const SizedBox(height: 6),
                 Text(
                   type['name'],

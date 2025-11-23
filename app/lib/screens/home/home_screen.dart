@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:lottie/lottie.dart';
+import 'package:url_launcher/url_launcher.dart' as url_launcher;
 
 import '../../providers/auth_provider.dart';
 import '../../models/sensor_data.dart';
@@ -22,7 +23,6 @@ import '../../core/widgets/weather_time_widget.dart';
 import '../../core/widgets/error_boundary.dart';
 import '../../services/appliance_state_service.dart';
 import '../../services/ml_service.dart';
-import '../../models/ml_prediction.dart';
 
 // ==================== PROVIDERS ====================
 
@@ -38,12 +38,12 @@ final energyConsumptionProvider =
   final mlService = ref.watch(mlServiceProvider);
   // Use real-time stream for energy consumption updates
   // Use 7 days for better accuracy (home screen shows overall consumption)
-  return mlService.watchInsights(userId, 7)
+  return mlService
+      .watchInsights(userId, 7)
       .map((insights) => insights.energyConsumption)
       .handleError((error, stackTrace) {
     Logger.error('Energy consumption stream error: $error', error, stackTrace);
-    // Return default value to keep stream alive
-    return 0.0;
+    return Stream.value(0.0);
   });
 });
 
@@ -262,8 +262,10 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           }
         });
         next.whenOrNull(
-          error: (error, stack) =>
-              Logger.error('HomeTab: sensorData error: $error'),
+          error: (error, stack) {
+            Logger.error('HomeTab: sensorData error: $error');
+            return const SizedBox.shrink();
+          },
         );
       },
     );
@@ -271,34 +273,46 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     return Scaffold(
       backgroundColor: const Color(0xFF0A0E27),
       body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            _buildAppBar(currentUserAsync, bleConnection),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildBLEBanner(bleConnection),
-                    const SizedBox(height: 20),
-                    const WeatherTimeWidget(),
-                    const SizedBox(height: 20),
-                    _buildEnergyCard(user.uid),
-                    const SizedBox(height: 24),
-                    _buildSectionHeader('Environmental Status'),
-                    const SizedBox(height: 16),
-                    _buildSensorGrid(sensorData),
-                    const SizedBox(height: 24),
-                    _buildGlobalControlCard(bleConnection),
-                    const SizedBox(height: 24),
-                    _buildSOSButton(),
-                    const SizedBox(height: 32),
-                  ],
+        child: RefreshIndicator(
+          onRefresh: () async {
+            // Refresh all providers
+            ref.invalidate(energyConsumptionProvider(user.uid));
+            ref.invalidate(sensorStreamProvider);
+            ref.invalidate(bleConnectionProvider);
+            // Wait a bit for data to refresh
+            await Future.delayed(const Duration(milliseconds: 500));
+          },
+          child: CustomScrollView(
+            slivers: [
+              _buildAppBar(currentUserAsync, bleConnection),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildBLEBanner(bleConnection),
+                      const SizedBox(height: 20),
+                      const WeatherTimeWidget(),
+                      const SizedBox(height: 20),
+                      _buildEnergyCard(user.uid),
+                      const SizedBox(height: 24),
+                      _buildSectionHeader('Environmental Status'),
+                      const SizedBox(height: 16),
+                      _buildSensorGrid(sensorData),
+                      const SizedBox(height: 24),
+                      _buildGlobalControlCard(bleConnection),
+                      const SizedBox(height: 24),
+                      _buildSOSButton(),
+                      const SizedBox(height: 16),
+                      _buildCallCaregiverButton(),
+                      const SizedBox(height: 32),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -459,6 +473,19 @@ class _HomeTabState extends ConsumerState<HomeTab> {
 
   Widget _buildWelcomeText(String name) {
     final displayName = name.isNotEmpty ? name : 'User';
+    // Calculate adaptive font size based on name length
+    final nameLength = displayName.length;
+    double fontSize = 20.0;
+    int maxLines = 1;
+
+    if (nameLength > 25) {
+      fontSize = 16.0;
+      maxLines = 2;
+    } else if (nameLength > 15) {
+      fontSize = 18.0;
+      maxLines = 1;
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.center,
@@ -477,14 +504,15 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         const SizedBox(height: 2),
         Text(
           displayName,
-          style: const TextStyle(
-            fontSize: 20,
+          style: TextStyle(
+            fontSize: fontSize,
             fontWeight: FontWeight.bold,
             color: Colors.white,
             height: 1.1,
           ),
-          maxLines: 1,
+          maxLines: maxLines,
           overflow: TextOverflow.ellipsis,
+          softWrap: true,
         ),
       ],
     );
@@ -1110,16 +1138,17 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                     ),
                     const SizedBox(height: 10),
                     Flexible(
-                      child: Text(
-                        value,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          value,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          textAlign: TextAlign.center,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
                       ),
                     ),
                     const SizedBox(height: 5),
@@ -1213,16 +1242,17 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                     ),
                     const SizedBox(height: 10),
                     Flexible(
-                      child: Text(
-                        value,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          value,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          textAlign: TextAlign.center,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
                       ),
                     ),
                     const SizedBox(height: 5),
@@ -1412,8 +1442,13 @@ class _HomeTabState extends ConsumerState<HomeTab> {
               ),
             ),
             const SizedBox(width: 12),
-            const Text('Emergency Alert',
-                style: TextStyle(color: Colors.white)),
+            const Expanded(
+              child: Text(
+                'Emergency Alert',
+                style: TextStyle(color: Colors.white),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
         content: const Text(
@@ -1487,5 +1522,195 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       );
     }
     return success;
+  }
+
+  // ==================== CALL CAREGIVER BUTTON ====================
+
+  Widget _buildCallCaregiverButton() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return const SizedBox.shrink();
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('caregiver_relationships')
+          .where('userId', isEqualTo: user.uid)
+          .where('status', isEqualTo: 'active')
+          .snapshots(),
+      builder: (context, snapshot) {
+        final caregivers = snapshot.data?.docs ?? [];
+        final caregiversWithPhone = caregivers.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          return data['caregiverPhone'] != null &&
+              (data['caregiverPhone'] as String).isNotEmpty;
+        }).toList();
+
+        if (caregiversWithPhone.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        return Container(
+          width: double.infinity,
+          height: 60,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.blue.shade600, Colors.blue.shade800],
+            ),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.blue.shade600.withOpacity(0.4),
+                blurRadius: 15,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () =>
+                  _showCallCaregiverDialog(context, caregiversWithPhone),
+              borderRadius: BorderRadius.circular(20),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.phone_rounded,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'CALL CAREGIVER',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showCallCaregiverDialog(
+      BuildContext context, List<QueryDocumentSnapshot> caregivers) {
+    if (caregivers.isEmpty) {
+      AppNotifications.showSnackBar(
+        context,
+        message: 'No caregivers with phone numbers available',
+        type: AppNotificationType.warning,
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1F3A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.phone_rounded,
+                color: Colors.blue,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Call Caregiver',
+                style: TextStyle(color: Colors.white),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: caregivers.length,
+            itemBuilder: (context, index) {
+              final data = caregivers[index].data() as Map<String, dynamic>;
+              final name = data['caregiverName'] ?? 'Unknown';
+              final phone = data['caregiverPhone'] ?? '';
+              final relationship = data['relationship'] ?? 'Caregiver';
+
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.blue.withOpacity(0.2),
+                  child: const Icon(Icons.person, color: Colors.blue),
+                ),
+                title: Text(
+                  name,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                subtitle: Text(
+                  '$relationship • $phone',
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.phone, color: Colors.blue),
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    final uri = Uri.parse('tel:$phone');
+                    try {
+                      if (await url_launcher.canLaunchUrl(uri)) {
+                        await url_launcher.launchUrl(uri,
+                            mode: url_launcher.LaunchMode.externalApplication);
+                      } else {
+                        if (context.mounted) {
+                          AppNotifications.showSnackBar(
+                            context,
+                            message: 'Could not make phone call',
+                            type: AppNotificationType.error,
+                          );
+                        }
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        AppNotifications.showSnackBar(
+                          context,
+                          message: 'Error launching phone call: $e',
+                          type: AppNotificationType.error,
+                        );
+                      }
+                    }
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey.shade400, fontSize: 16),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

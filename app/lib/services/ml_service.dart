@@ -90,9 +90,26 @@ class MLService {
         try {
 
           // Fetch sensor logs for local inference
-          final sensorLogs = await _fetchSensorLogs(userId, deviceId, hours: 24);
+          // Fetch up to 30 days to capture all available historical data
+          // The model only uses the last 24 hours, but fetching more ensures we have enough
+          // even if data is sparse. Works with minimum 1 day (24 hours) of data.
+          final sensorLogs = await _fetchSensorLogs(userId, deviceId, hours: 30 * 24);
 
-          if (sensorLogs.length >= 24) {
+          // Check if we have at least 24 distinct hours of data (minimum requirement)
+          final distinctHours = sensorLogs.map((log) {
+            return DateTime(
+              log.timestamp.year,
+              log.timestamp.month,
+              log.timestamp.day,
+              log.timestamp.hour,
+            );
+          }).toSet();
+          
+          Logger.info('📊 Data check: ${sensorLogs.length} total logs, ${distinctHours.length} distinct hours');
+          
+          // Minimum requirement: 24 distinct hours (works with 1 day of data)
+          // We check distinct hours first as that's what the model actually needs
+          if (distinctHours.length >= 24) {
             final localPredictions = await _tfliteService.predictSchedulesLocal(
               userId,
               deviceId,
@@ -108,8 +125,10 @@ class MLService {
               Logger.warning('⚠️  Local inference returned no predictions, falling back to server');
             }
           } else {
-            Logger.warning('⚠️  Insufficient data for local inference: ${sensorLogs.length} hours collected, need 24 hours minimum');
-            Logger.info('   💡 The model requires at least 24 hours (1 day) of sensor data to generate predictions');
+            Logger.warning('⚠️  Insufficient data for local inference: ${sensorLogs.length} data points, ${distinctHours.length} distinct hours');
+            Logger.info('   💡 The model requires at least 24 distinct hours (1 day) of sensor data to generate predictions');
+            Logger.info('   💡 You have ${distinctHours.length} distinct hours. Need 24+ hours with data.');
+            Logger.info('   💡 Generate at least 1 day of test data to enable predictions.');
           }
         } catch (e) {
           Logger.warning('⚠️  Local inference failed: $e, falling back to server');
@@ -136,6 +155,7 @@ class MLService {
   }) async {
     try {
       final cutoff = DateTime.now().subtract(Duration(hours: hours));
+      Logger.info('📥 Fetching sensor logs: userId=$userId, deviceId=$deviceId, hours=$hours, cutoff=${cutoff.toIso8601String()}');
 
       // Build query - handle 'all' deviceId
       Query query = _firestore
@@ -148,15 +168,31 @@ class MLService {
         query = query.where('deviceId', isEqualTo: deviceId);
       }
 
-      final snapshot = await query.orderBy('timestamp').get();
+      // Add a reasonable limit to avoid fetching too much data at once
+      // 30 days * 24 hours * 12 readings per hour (5-min intervals) = 8,640 max
+      // Use 10,000 to be safe
+      query = query.orderBy('timestamp').limit(10000);
+
+      final snapshot = await query.get();
 
       final logs = snapshot.docs
           .map((doc) => SensorData.fromJson(doc.data() as Map<String, dynamic>))
           .toList();
 
+      Logger.info('✅ Fetched ${logs.length} sensor logs from Firestore');
+      if (logs.isNotEmpty) {
+        final oldest = logs.first.timestamp;
+        final newest = logs.last.timestamp;
+        Logger.info('   Time range: ${oldest.toIso8601String()} to ${newest.toIso8601String()}');
+      }
+
       return logs;
-    } catch (e) {
-      Logger.error('Failed to fetch sensor logs: $e');
+    } catch (e, stackTrace) {
+      Logger.error('Failed to fetch sensor logs: $e', stackTrace);
+      // If it's an index error, provide helpful message
+      if (e.toString().contains('index') || e.toString().contains('Index')) {
+        Logger.warning('⚠️  Firestore index may be missing. Check Firebase Console for required indexes.');
+      }
       return [];
     }
   }
@@ -661,7 +697,6 @@ class MLService {
         // If we have very few logs, use average power over the entire time period
         if (sortedLogs.length < 10) {
           final firstLog = sortedLogs.first;
-          final lastLog = sortedLogs.last;
           
           // Calculate average power across all logs
           double totalFanPower = 0.0;

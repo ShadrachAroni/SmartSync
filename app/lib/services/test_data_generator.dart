@@ -203,10 +203,7 @@ class TestDataGenerator {
     final hour = timestamp.hour;
     final dayOfWeek = timestamp.weekday;
     final isWeekend = dayOfWeek == 6 || dayOfWeek == 7;
-    final minute = timestamp.minute;
     
-    // Get previous temperature for fan cooling effect
-    final previousTemp = deviceState?['currentTemp'] as double? ?? 22.0;
     final motionActive = deviceState?['motionActive'] as bool? ?? false;
 
     // ========== TEMPERATURE ==========

@@ -5,6 +5,8 @@ import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../core/widgets/app_notifications.dart';
 import '../../core/widgets/lottie_loading.dart';
+import '../../services/logging_service.dart';
+import '../../models/log_entry.dart';
 
 class NotificationSettingsScreen extends ConsumerStatefulWidget {
   const NotificationSettingsScreen({super.key});
@@ -51,13 +53,51 @@ class _NotificationSettingsScreenState
   Future<void> _save() async {
     final user = ref.read(authStateProvider).value;
     if (user == null) return;
+    
+    // Get previous preferences for logging
     final storage = ref.read(storageServiceProvider);
+    final previousPrefs = <String, bool>{};
+    for (final key in _prefs.keys) {
+      previousPrefs[key] = storage.getBool('notifications.$key', defaultValue: _prefs[key] ?? true);
+    }
+    
+    // Save new preferences
     for (final entry in _prefs.entries) {
       await storage.saveBool('notifications.${entry.key}', entry.value);
     }
     await ref
         .read(notificationServiceProvider)
         .updateAlertPreferences(user.uid, _prefs);
+    
+    // Log detailed changes
+    final loggingService = LoggingService();
+    final changes = <String, Map<String, dynamic>>{};
+    for (final entry in _prefs.entries) {
+      if (previousPrefs[entry.key] != entry.value) {
+        changes[entry.key] = {
+          'previous': previousPrefs[entry.key],
+          'new': entry.value,
+          'label': _labels[entry.key] ?? entry.key,
+        };
+      }
+    }
+    
+    if (changes.isNotEmpty) {
+      await loggingService.logAction(
+        action: 'Notification Preferences Updated',
+        category: 'settings',
+        details: 'Updated ${changes.length} notification preference(s): ${changes.keys.map((k) => _labels[k] ?? k).join(", ")}',
+        metadata: {
+          'setting': 'notification_preferences',
+          'changes': changes,
+          'allPreferences': _prefs,
+          'actionType': 'notification_preferences_update',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.info,
+      );
+    }
+    
     if (!mounted) return;
     AppNotifications.showSnackBar(
       context,

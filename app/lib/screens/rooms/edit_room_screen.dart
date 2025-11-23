@@ -91,12 +91,12 @@ class _EditRoomScreenState extends State<EditRoomScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: const Color(0xFF0A0E27),
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFF1A1F3A),
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.black87),
+          icon: const Icon(Icons.close, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
@@ -104,9 +104,10 @@ class _EditRoomScreenState extends State<EditRoomScreen> {
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
-            color: Colors.black87,
+            color: Colors.white,
           ),
         ),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Form(
         key: _formKey,
@@ -125,7 +126,7 @@ class _EditRoomScreenState extends State<EditRoomScreen> {
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: Colors.white,
                 ),
               ),
               const SizedBox(height: 12),
@@ -133,20 +134,20 @@ class _EditRoomScreenState extends State<EditRoomScreen> {
                 controller: _nameController,
                 style: const TextStyle(
                   fontSize: 16,
-                  color: Colors.black87,
+                  color: Colors.white,
                 ),
                 decoration: InputDecoration(
                   hintText: 'Enter room name',
-                  hintStyle: TextStyle(color: Colors.grey.shade500),
+                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
                   filled: true,
-                  fillColor: Colors.white,
+                  fillColor: const Color(0xFF1A1F3A),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide.none,
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey.shade200),
+                    borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -172,7 +173,7 @@ class _EditRoomScreenState extends State<EditRoomScreen> {
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: Colors.white,
                 ),
               ),
               const SizedBox(height: 12),
@@ -315,12 +316,12 @@ class _EditRoomScreenState extends State<EditRoomScreen> {
           child: Container(
             decoration: BoxDecoration(
               color: isSelected
-                  ? (type['color'] as Color).withOpacity(0.1)
-                  : Colors.white,
+                  ? (type['color'] as Color).withOpacity(0.2)
+                  : const Color(0xFF1A1F3A),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color:
-                    isSelected ? type['color'] as Color : Colors.grey.shade200,
+                    isSelected ? type['color'] as Color : Colors.white.withOpacity(0.1),
                 width: isSelected ? 2 : 1,
               ),
             ),
@@ -331,7 +332,7 @@ class _EditRoomScreenState extends State<EditRoomScreen> {
                   type['icon'] as IconData,
                   color: isSelected
                       ? type['color'] as Color
-                      : Colors.grey.shade600,
+                      : Colors.white.withOpacity(0.7),
                   size: 28,
                 ),
                 const SizedBox(height: 6),
@@ -343,7 +344,7 @@ class _EditRoomScreenState extends State<EditRoomScreen> {
                         isSelected ? FontWeight.w600 : FontWeight.normal,
                     color: isSelected
                         ? type['color'] as Color
-                        : Colors.grey.shade700,
+                        : Colors.white.withOpacity(0.7),
                   ),
                   textAlign: TextAlign.center,
                   maxLines: 1,

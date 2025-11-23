@@ -44,6 +44,7 @@ dependencies:
   connectivity_plus: ^7.0.0
   package_info_plus: ^8.0.0
   image_picker: ^1.2.1
+  url_launcher: ^6.2.5
   geolocator: ^13.0.1
   flutter_local_notifications: ^18.0.1
   
@@ -84,6 +85,14 @@ flutter:
     - assets/images/Onboarding_2.png
     - assets/images/Onboarding_3.png
     - assets/icons/
+    - assets/rooms/
+    - assets/rooms/living_room.png
+    - assets/rooms/kitchen.png
+    - assets/rooms/bedroom.png
+    - assets/rooms/bathroom.png
+    - assets/rooms/office.png
+    - assets/rooms/garage.png
+    - assets/rooms/garden.png
     - assets/animations/
     - assets/models/
     - assets/models/schedule_predictor.tflite

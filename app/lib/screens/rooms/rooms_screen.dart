@@ -117,7 +117,23 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
               child: roomsAsync.when(
                 data: (rooms) {
                   if (rooms.isEmpty) {
-                    return _buildEmptyState();
+                    return RefreshIndicator(
+                      onRefresh: () async {
+                        ref.invalidate(roomsProvider);
+                        final user = FirebaseAuth.instance.currentUser;
+                        if (user != null) {
+                          ref.invalidate(deviceControllerProvider(user.uid));
+                        }
+                        await Future.delayed(const Duration(milliseconds: 500));
+                      },
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        child: SizedBox(
+                          height: MediaQuery.of(context).size.height * 0.7,
+                          child: _buildEmptyState(),
+                        ),
+                      ),
+                    );
                   }
 
                   final filteredRooms = _selectedFilter == 'All'
@@ -125,14 +141,40 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
                       : rooms.where((r) => r.name == _selectedFilter).toList();
 
                   if (filteredRooms.isEmpty) {
-                    return _buildNoResultsState();
+                    return RefreshIndicator(
+                      onRefresh: () async {
+                        ref.invalidate(roomsProvider);
+                        final user = FirebaseAuth.instance.currentUser;
+                        if (user != null) {
+                          ref.invalidate(deviceControllerProvider(user.uid));
+                        }
+                        await Future.delayed(const Duration(milliseconds: 500));
+                      },
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        child: SizedBox(
+                          height: MediaQuery.of(context).size.height * 0.7,
+                          child: _buildNoResultsState(),
+                        ),
+                      ),
+                    );
                   }
 
                   final devices = devicesAsync.maybeWhen(
                     data: (list) => list,
                     orElse: () => <DeviceModel>[],
                   );
-                  return _buildRoomsGrid(filteredRooms, devices);
+                  return RefreshIndicator(
+                    onRefresh: () async {
+                      ref.invalidate(roomsProvider);
+                      final user = FirebaseAuth.instance.currentUser;
+                      if (user != null) {
+                        ref.invalidate(deviceControllerProvider(user.uid));
+                      }
+                      await Future.delayed(const Duration(milliseconds: 500));
+                    },
+                    child: _buildRoomsGrid(filteredRooms, devices),
+                  );
                 },
                 loading: () => const Center(
                   child: LottieLoading(
@@ -268,23 +310,39 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
                 children: [
                   // Background pattern
                   Positioned.fill(
-                    child: Opacity(
-                      opacity: 0.1,
-                      child: Icon(
-                        _getRoomIcon(room.icon),
-                        size: 100,
-                        color: Colors.white,
-                      ),
-                    ),
+                    child: _getRoomImagePath(room.icon) != null
+                        ? Opacity(
+                            opacity: 0.15,
+                            child: Image.asset(
+                              _getRoomImagePath(room.icon)!,
+                              fit: BoxFit.cover,
+                            ),
+                          )
+                        : Opacity(
+                            opacity: 0.1,
+                            child: Icon(
+                              _getRoomIcon(room.icon),
+                              size: 100,
+                              color: Colors.white,
+                            ),
+                          ),
                   ),
 
                   // Room icon
                   Center(
-                    child: Icon(
-                      _getRoomIcon(room.icon),
-                      size: 50,
-                      color: Colors.white,
-                    ),
+                    child: _getRoomImagePath(room.icon) != null
+                        ? Image.asset(
+                            _getRoomImagePath(room.icon)!,
+                            width: 50,
+                            height: 50,
+                            color: Colors.white,
+                            colorBlendMode: BlendMode.srcIn,
+                          )
+                        : Icon(
+                            _getRoomIcon(room.icon),
+                            size: 50,
+                            color: Colors.white,
+                          ),
                   ),
 
                   // Device count badge
@@ -509,6 +567,27 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
         ),
       ),
     );
+  }
+
+  String? _getRoomImagePath(String iconName) {
+    switch (iconName) {
+      case 'living_room':
+        return 'assets/rooms/living_room.png';
+      case 'kitchen':
+        return 'assets/rooms/kitchen.png';
+      case 'bedroom':
+        return 'assets/rooms/bedroom.png';
+      case 'bathroom':
+        return 'assets/rooms/bathroom.png';
+      case 'office':
+        return 'assets/rooms/office.png';
+      case 'garage':
+        return 'assets/rooms/garage.png';
+      case 'garden':
+        return 'assets/rooms/garden.png';
+      default:
+        return null;
+    }
   }
 
   IconData _getRoomIcon(String iconName) {

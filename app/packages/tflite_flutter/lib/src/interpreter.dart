@@ -46,17 +46,114 @@ class Interpreter {
 
   Interpreter._(this._interpreter) {
     // Allocate tensors when interpreter is created
-    allocateTensors();
+    // Note: This may fail if Select TF Ops are needed but not properly linked
+    print('   [DEBUG] Interpreter._ constructor called');
+    print('   [DEBUG]    Interpreter pointer: ${_interpreter.address}');
+    print('   [DEBUG]    Attempting to allocate tensors...');
+    try {
+      allocateTensors();
+      print('   [DEBUG] ✅ Tensors allocated successfully');
+    } catch (e, stackTrace) {
+      print('   [DEBUG] ❌ Failed to allocate tensors: $e');
+      print('   [DEBUG]    Error Type: ${e.runtimeType}');
+      print('   [DEBUG]    Stack: $stackTrace');
+      print('   [DEBUG]    This might indicate:');
+      print('   [DEBUG]    1. Select TF Ops library is not loaded');
+      print('   [DEBUG]    2. Model uses operations not supported by current TFLite build');
+      print('   [DEBUG]    3. Model file is corrupted');
+      // If allocation fails, it might be because Select TF Ops aren't available
+      // The error will be caught by the caller
+      rethrow;
+    }
   }
 
   /// Creates interpreter from model
   ///
   /// Throws [ArgumentError] is unsuccessful.
   factory Interpreter._create(Model model, {InterpreterOptions? options}) {
-    final interpreter = tfliteBinding.TfLiteInterpreterCreate(
-        model.base, options?.base ?? cast<TfLiteInterpreterOptions>(nullptr));
+    // Create interpreter using standard API
+    // When tensorflow-lite-select-tf-ops is included as a dependency,
+    // the Select TF Ops library is automatically loaded and will handle
+    // TensorFlow operations (e.g., FlexConv2D, CAST v5) automatically
+    Pointer<TfLiteInterpreter> interpreter;
+    
+    // DEBUG: Log interpreter creation attempt
+    print('🔧 [TFLite Interpreter] Creating interpreter...');
+    print('   [DEBUG] Model base pointer: ${model.base.address}');
+    print('   [DEBUG] Options: ${options != null ? "provided" : "null"}');
+    
+    // Try the experimental Select TF Ops function first (if available)
+    // This is marked as experimental in the TensorFlow Lite API
+    print('   [DEBUG] Attempt 1: Trying TfLiteInterpreterCreateWithSelectedOps...');
+    try {
+      final selectedOpsInterpreter = tfliteBinding.TfLiteInterpreterCreateWithSelectedOps(
+          model.base, options?.base ?? cast<TfLiteInterpreterOptions>(nullptr));
+      if (isNotNull(selectedOpsInterpreter)) {
+        print('   [DEBUG] ✅ TfLiteInterpreterCreateWithSelectedOps returned non-null pointer');
+        print('   [DEBUG]    Pointer address: ${selectedOpsInterpreter.address}');
+        try {
+          // Try to create and allocate tensors with Select TF Ops
+          print('   [DEBUG]    Attempting to allocate tensors with Select TF Ops...');
+          final result = Interpreter._(selectedOpsInterpreter);
+          print('   [DEBUG] ✅ Successfully created interpreter with Select TF Ops');
+          return result;
+        } catch (e, stackTrace) {
+          print('   [DEBUG] ❌ Failed to allocate tensors with Select TF Ops: $e');
+          print('   [DEBUG]    Stack: $stackTrace');
+          print('   [DEBUG]    The Select TF Ops library might not be properly linked');
+          print('   [DEBUG]    Falling through to regular interpreter creation...');
+          // If allocation fails, the Select TF Ops library might not be properly linked
+          // Fall through to regular interpreter creation
+        }
+      } else {
+        print('   [DEBUG] ⚠️  TfLiteInterpreterCreateWithSelectedOps returned null');
+        print('   [DEBUG]    Falling through to regular interpreter creation...');
+      }
+    } catch (e, stackTrace) {
+      print('   [DEBUG] ❌ TfLiteInterpreterCreateWithSelectedOps threw exception: $e');
+      print('   [DEBUG]    Stack: $stackTrace');
+      print('   [DEBUG]    If TfLiteInterpreterCreateWithSelectedOps is not available or failed,');
+      print('   [DEBUG]    falling through to regular interpreter creation...');
+      // If TfLiteInterpreterCreateWithSelectedOps is not available or failed,
+      // fall through to regular interpreter creation
+    }
+    
+    // Use standard interpreter creation
+    // If Select TF Ops library is loaded (via dependency), it will automatically
+    // handle TensorFlow operations. If not, this will fail for models requiring Select TF Ops.
+    print('   [DEBUG] Attempt 2: Trying standard TfLiteInterpreterCreate...');
+    try {
+      interpreter = tfliteBinding.TfLiteInterpreterCreate(
+          model.base, options?.base ?? cast<TfLiteInterpreterOptions>(nullptr));
+      if (isNotNull(interpreter)) {
+        print('   [DEBUG] ✅ TfLiteInterpreterCreate returned non-null pointer');
+        print('   [DEBUG]    Pointer address: ${interpreter.address}');
+        try {
+          final result = Interpreter._(interpreter);
+          print('   [DEBUG] ✅ Successfully created interpreter with standard API');
+          return result;
+        } catch (e, stackTrace) {
+          print('   [DEBUG] ❌ Failed to allocate tensors: $e');
+          print('   [DEBUG]    Stack: $stackTrace');
+          print('   [DEBUG]    This might indicate Select TF Ops library is missing');
+          rethrow;
+        }
+      } else {
+        print('   [DEBUG] ❌ TfLiteInterpreterCreate returned null');
+      }
+    } catch (e, stackTrace) {
+      print('   [DEBUG] ❌ TfLiteInterpreterCreate threw exception: $e');
+      print('   [DEBUG]    Stack: $stackTrace');
+      rethrow;
+    }
+    
+    // This should not be reached due to checkArgument, but add logging just in case
+    print('   [DEBUG] ❌ Both interpreter creation methods failed');
     checkArgument(isNotNull(interpreter),
-        message: 'Unable to create interpreter.');
+        message: 'Unable to create interpreter. If your model uses TensorFlow ops (e.g., FlexConv2D), '
+                  'ensure that org.tensorflow:tensorflow-lite-select-tf-ops is included in your Android dependencies.');
+    // ignore: null_check_on_nullable_type_parameter
+    // checkArgument with isNotNull guarantees interpreter is not null
     return Interpreter._(interpreter);
   }
 
@@ -153,8 +250,27 @@ class Interpreter {
 
   /// Updates allocations for all tensors.
   void allocateTensors() {
-    checkState(tfliteBinding.TfLiteInterpreterAllocateTensors(_interpreter) ==
-        TfLiteStatus.kTfLiteOk);
+    print('   [DEBUG] allocateTensors() called');
+    print('   [DEBUG]    Interpreter pointer: ${_interpreter.address}');
+    print('   [DEBUG]    Calling TfLiteInterpreterAllocateTensors...');
+    
+    final status = tfliteBinding.TfLiteInterpreterAllocateTensors(_interpreter);
+    print('   [DEBUG]    Allocation status: $status');
+    print('   [DEBUG]    Expected: ${TfLiteStatus.kTfLiteOk}');
+    
+    if (status != TfLiteStatus.kTfLiteOk) {
+      print('   [DEBUG] ❌ Tensor allocation failed with status: $status');
+      print('   [DEBUG]    Common causes:');
+      print('   [DEBUG]    1. Select TF Ops library not loaded (for FlexConv2D, CAST v5)');
+      print('   [DEBUG]    2. Model uses unsupported operations');
+      print('   [DEBUG]    3. Invalid model file');
+      print('   [DEBUG]    4. Insufficient memory');
+      print('   [DEBUG]    Check logcat for detailed TFLite error messages');
+    } else {
+      print('   [DEBUG] ✅ Tensor allocation successful');
+    }
+    
+    checkState(status == TfLiteStatus.kTfLiteOk);
     _allocated = true;
   }
 

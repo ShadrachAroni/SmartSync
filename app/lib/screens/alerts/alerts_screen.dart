@@ -50,6 +50,27 @@ class AlertsScreen extends ConsumerWidget {
               MaterialPageRoute(builder: (_) => const AlertSettingsScreen()),
             ),
           ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Colors.white70),
+            color: const Color(0xFF1A1F3A),
+            onSelected: (value) {
+              if (value == 'clear_all') {
+                _showClearAllDialog(context, ref, user.uid);
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'clear_all',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline, color: Colors.white70, size: 20),
+                    SizedBox(width: 8),
+                    Text('Clear All Alerts', style: TextStyle(color: Colors.white70)),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: alertsAsync.when(
@@ -143,6 +164,62 @@ class AlertsScreen extends ConsumerWidget {
       ),
     );
   }
+
+  void _showClearAllDialog(BuildContext context, WidgetRef ref, String userId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1F3A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Clear All Alerts',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          'Are you sure you want to delete all alerts? This action cannot be undone.',
+          style: TextStyle(color: Colors.white70, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                final firebaseService = FirebaseService();
+                final deletedCount = await firebaseService.clearAllAlerts(userId);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('✅ Deleted $deletedCount alert(s)'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+                ref.invalidate(alertsStreamProvider(userId));
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('❌ Error: ${e.toString()}'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete All'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _AlertCard extends ConsumerWidget {
@@ -229,22 +306,92 @@ class _AlertCard extends ConsumerWidget {
             ),
           ),
         ),
-        trailing: alert.read
-            ? Icon(Icons.check_circle_outline, color: Colors.green.shade400)
-            : Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                ),
-              ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20),
+              color: Colors.white.withOpacity(0.5),
+              onPressed: () => _showDeleteDialog(context, ref, alert.id),
+            ),
+            const SizedBox(width: 4),
+            alert.read
+                ? Icon(Icons.check_circle_outline, color: Colors.green.shade400)
+                : Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+          ],
+        ),
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => AlertDetailsScreen(alert: alert),
           ),
         ),
+      ),
+    );
+  }
+
+  void _showDeleteDialog(BuildContext context, WidgetRef ref, String alertId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1F3A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Delete Alert',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          'Are you sure you want to delete this alert?',
+          style: TextStyle(color: Colors.white70, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                final firebaseService = FirebaseService();
+                await firebaseService.deleteAlert(alertId);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('✅ Alert deleted'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+                final user = ref.read(authStateProvider).value;
+                if (user != null) {
+                  ref.invalidate(alertsStreamProvider(user.uid));
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('❌ Error: ${e.toString()}'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }

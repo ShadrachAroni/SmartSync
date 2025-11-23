@@ -7,7 +7,10 @@ import '../../core/constants/routes.dart';
 import '../../core/widgets/app_notifications.dart';
 import '../../core/widgets/lottie_loading.dart';
 import '../../services/logging_service.dart';
+import '../../services/test_data_generator.dart';
+import '../../services/debug_service.dart';
 import '../../models/log_entry.dart';
+import '../../screens/analytics/analytics_screen.dart';
 import 'notifications_settings.dart';
 import 'privacy_settings.dart';
 import 'about_screen.dart';
@@ -147,7 +150,366 @@ class SettingsScreen extends ConsumerWidget {
               MaterialPageRoute(builder: (_) => const AboutScreen()),
             ),
           ),
+          const SizedBox(height: 24),
+          _buildSectionHeader('Developer'),
+          _buildNavTile(
+            context,
+            icon: Icons.science_outlined,
+            title: 'Generate Test Data',
+            subtitle: 'Create sample sensor data for testing',
+            onTap: () => _showGenerateTestDataDialog(context, ref),
+          ),
+          const SizedBox(height: 12),
+          _buildNavTile(
+            context,
+            icon: Icons.delete_sweep_outlined,
+            title: 'Reset Test Data',
+            subtitle: 'Delete all generated test data',
+            onTap: () => _showResetTestDataDialog(context, ref),
+          ),
+          const SizedBox(height: 12),
+          _buildNavTile(
+            context,
+            icon: Icons.bug_report_outlined,
+            title: 'Debug Sensor Data',
+            subtitle: 'Diagnose why data might not be appearing',
+            onTap: () => _showDebugDialog(context, ref),
+          ),
         ],
+      ),
+    );
+  }
+
+  void _showGenerateTestDataDialog(BuildContext context, WidgetRef ref) {
+    final timeUnitController = TextEditingController(text: '7');
+    bool useDays = true;
+    bool isLoading = false;
+    bool generateForAllDevices = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1F3A),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text(
+            'Generate Test Data',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (isLoading)
+                  const Text(
+                    'Generating test sensor data... This may take a moment.',
+                    style: TextStyle(color: Colors.white70),
+                  )
+                else ...[
+                  const Text(
+                    'Generate realistic sensor data for testing analytics and ML features.',
+                    style: TextStyle(color: Colors.white70, height: 1.4),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Flexible(
+                        flex: 2,
+                        child: TextField(
+                          controller: timeUnitController,
+                          keyboardType: TextInputType.number,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            labelText: 'Amount',
+                            labelStyle: const TextStyle(color: Colors.white70),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: Colors.white.withOpacity(0.1),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        flex: 2,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white.withOpacity(0.3)),
+                          ),
+                          child: ToggleButtons(
+                            isSelected: [useDays, !useDays],
+                            onPressed: (index) {
+                              setState(() => useDays = index == 0);
+                            },
+                            borderRadius: BorderRadius.circular(12),
+                            selectedColor: Colors.white,
+                            color: Colors.white70,
+                            fillColor: Colors.blue.withOpacity(0.3),
+                            constraints: const BoxConstraints(
+                              minHeight: 48,
+                              minWidth: 0,
+                            ),
+                            children: const [
+                              Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 6),
+                                child: Text('Days', style: TextStyle(fontSize: 13)),
+                              ),
+                              Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 6),
+                                child: Text('Hours', style: TextStyle(fontSize: 13)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    useDays
+                        ? 'Recommended: 7-30 days for better ML predictions and analytics'
+                        : 'Minimum: 24 hours for predictions | Recommended: 168 hours (7 days)',
+                    style: TextStyle(
+                      color: Colors.white60,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: generateForAllDevices,
+                        onChanged: (value) {
+                          setState(() => generateForAllDevices = value ?? false);
+                        },
+                        activeColor: Colors.blue,
+                      ),
+                      Expanded(
+                        child: Text(
+                          'Generate for all devices',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (generateForAllDevices)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 40, top: 4),
+                      child: Text(
+                        'Creates data for each device in your account',
+                        style: TextStyle(
+                          color: Colors.white60,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isLoading
+                  ? null
+                  : () {
+                      timeUnitController.dispose();
+                      Navigator.pop(context);
+                    },
+              child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            ),
+            ElevatedButton(
+              onPressed: isLoading
+                  ? null
+                  : () async {
+                      final value = int.tryParse(timeUnitController.text.trim());
+                      if (value == null || value <= 0) {
+                        AppNotifications.showSnackBar(
+                          context,
+                          message: 'Please enter a valid number greater than 0',
+                          type: AppNotificationType.warning,
+                        );
+                        return;
+                      }
+
+                      if (useDays && value > 365) {
+                        AppNotifications.showSnackBar(
+                          context,
+                          message: 'Maximum 365 days allowed',
+                          type: AppNotificationType.warning,
+                        );
+                        return;
+                      }
+
+                      if (!useDays && value > 8760) {
+                        AppNotifications.showSnackBar(
+                          context,
+                          message: 'Maximum 8760 hours (365 days) allowed',
+                          type: AppNotificationType.warning,
+                        );
+                        return;
+                      }
+
+                      setState(() => isLoading = true);
+                      try {
+                        final generator = TestDataGenerator();
+                        if (useDays) {
+                          await generator.generateTestData(
+                            days: value,
+                            generateForAllDevices: generateForAllDevices,
+                          );
+                        } else {
+                          await generator.generateTestData(
+                            hours: value,
+                            generateForAllDevices: generateForAllDevices,
+                          );
+                        }
+                        
+                        // Wait a moment for Firestore to propagate the new data
+                        await Future.delayed(const Duration(seconds: 2));
+                        
+                        // Invalidate analytics providers to refresh the UI
+                        final user = FirebaseAuth.instance.currentUser;
+                        if (user != null) {
+                          // Invalidate all analytics providers
+                          // StreamProviders should auto-update, but this forces a refresh
+                          ref.invalidate(sensorHistoryProvider);
+                          ref.invalidate(dailyAnalyticsProvider);
+                          ref.invalidate(analyticsInsightsProvider);
+                          ref.invalidate(previousPeriodInsightsProvider);
+                          ref.invalidate(schedulePredictionsProvider);
+                        }
+                        
+                        if (context.mounted) {
+                          timeUnitController.dispose();
+                          Navigator.pop(context);
+                          AppNotifications.showSnackBar(
+                            context,
+                            message: '✅ Test data generated successfully! Analytics will update shortly.',
+                            type: AppNotificationType.success,
+                          );
+                        }
+                      } catch (e) {
+                        setState(() => isLoading = false);
+                        if (context.mounted) {
+                          AppNotifications.showSnackBar(
+                            context,
+                            message: 'Failed to generate test data: ${e.toString()}',
+                            type: AppNotificationType.error,
+                          );
+                        }
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+              ),
+              child: isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: LottieLoading.small(),
+                    )
+                  : const Text('Generate'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showResetTestDataDialog(BuildContext context, WidgetRef ref) {
+    bool isLoading = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1F3A),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text(
+            'Reset Test Data',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: Text(
+            isLoading
+                ? 'Deleting all test sensor data... This may take a moment.'
+                : 'This will permanently delete ALL generated test sensor data. This action cannot be undone. Continue?',
+            style: const TextStyle(color: Colors.white70, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isLoading
+                  ? null
+                  : () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            ),
+            ElevatedButton(
+              onPressed: isLoading
+                  ? null
+                  : () async {
+                      setState(() => isLoading = true);
+                      try {
+                        final generator = TestDataGenerator();
+                        final deletedCount = await generator.clearTestData();
+                        
+                        // Wait a moment for Firestore to propagate the deletion
+                        await Future.delayed(const Duration(seconds: 1));
+                        
+                        // Invalidate analytics providers to refresh the UI
+                        final user = FirebaseAuth.instance.currentUser;
+                        if (user != null) {
+                          ref.invalidate(sensorHistoryProvider);
+                          ref.invalidate(dailyAnalyticsProvider);
+                          ref.invalidate(analyticsInsightsProvider);
+                          ref.invalidate(previousPeriodInsightsProvider);
+                          ref.invalidate(schedulePredictionsProvider);
+                        }
+                        
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                          AppNotifications.showSnackBar(
+                            context,
+                            message: deletedCount > 0
+                                ? '✅ Deleted $deletedCount test data entries. Analytics will update shortly.'
+                                : 'ℹ️ No test data found to delete.',
+                            type: deletedCount > 0
+                                ? AppNotificationType.success
+                                : AppNotificationType.info,
+                          );
+                        }
+                      } catch (e) {
+                        setState(() => isLoading = false);
+                        if (context.mounted) {
+                          AppNotifications.showSnackBar(
+                            context,
+                            message: 'Failed to delete test data: ${e.toString()}',
+                            type: AppNotificationType.error,
+                          );
+                        }
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+              ),
+              child: isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: LottieLoading.small(),
+                    )
+                  : const Text('Delete All'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -738,6 +1100,133 @@ class SettingsScreen extends ConsumerWidget {
                       child: LottieLoading.small(),
                     )
                   : const Text('Change Password'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDebugDialog(BuildContext context, WidgetRef ref) {
+    bool isLoading = false;
+    String? debugResults;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1F3A),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text(
+            'Debug Sensor Data',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: SingleChildScrollView(
+            child: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (isLoading)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: Column(
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 16),
+                            Text(
+                              'Running diagnostics...',
+                              style: TextStyle(color: Colors.white70),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else if (debugResults != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      ),
+                      child: SelectableText(
+                        debugResults!,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'This report shows why sensor data might not be appearing in analytics.',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ]
+                  else
+                    const Text(
+                      'Click "Run Diagnostics" to check why sensor data might not be appearing.',
+                      style: TextStyle(color: Colors.white70, height: 1.4),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isLoading
+                  ? null
+                  : () {
+                      Navigator.pop(context);
+                    },
+              child: const Text('Close', style: TextStyle(color: Colors.white70)),
+            ),
+            ElevatedButton(
+              onPressed: isLoading
+                  ? null
+                  : () async {
+                      setState(() {
+                        isLoading = true;
+                        debugResults = null;
+                      });
+
+                      try {
+                        final debugService = DebugService();
+                        final results = await debugService.debugSensorData();
+                        final formatted = debugService.formatDebugResults(results);
+
+                        if (context.mounted) {
+                          setState(() {
+                            isLoading = false;
+                            debugResults = formatted;
+                          });
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          setState(() {
+                            isLoading = false;
+                            debugResults = 'Error running diagnostics: $e';
+                          });
+                        }
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+              ),
+              child: isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Run Diagnostics'),
             ),
           ],
         ),

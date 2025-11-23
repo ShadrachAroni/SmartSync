@@ -18,80 +18,79 @@ import '../../core/utils/analytics_utils.dart';
 import '../../core/utils/logger.dart';
 import '../../core/widgets/error_boundary.dart';
 
+// ==================== PROVIDER PARAMETER CLASSES ====================
+@immutable
+class AnalyticsParams {
+  final String userId;
+  final int days;
+  
+  const AnalyticsParams({required this.userId, required this.days});
+  
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AnalyticsParams &&
+          runtimeType == other.runtimeType &&
+          userId == other.userId &&
+          days == other.days;
+  
+  @override
+  int get hashCode => userId.hashCode ^ days.hashCode;
+}
+
+@immutable
+class PredictionsParams {
+  final String userId;
+  final String deviceId;
+  
+  const PredictionsParams({required this.userId, this.deviceId = 'all'});
+  
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PredictionsParams &&
+          runtimeType == other.runtimeType &&
+          userId == other.userId &&
+          deviceId == other.deviceId;
+  
+  @override
+  int get hashCode => userId.hashCode ^ deviceId.hashCode;
+}
+
 // ==================== PROVIDERS ====================
 final mlServiceProvider = Provider((ref) => MLService());
 final sensorHistoryProvider =
-    FutureProvider.autoDispose.family<List<SensorData>, Map<String, dynamic>>(
-  (ref, params) async {
-    final userId = params['userId'] as String;
-    final days = params['days'] as int;
-    
-    Logger.info('📊 sensorHistoryProvider: Starting load for user $userId, $days days');
-    final stopwatch = Stopwatch()..start();
-    
+    StreamProvider.family<List<SensorData>, AnalyticsParams>(
+  (ref, params) {
     try {
-      final firebase = ref.watch(firebaseServiceProvider);
-      Logger.info('📊 sensorHistoryProvider: Firebase service obtained');
-      
-      final history = await firebase
-          .getUserSensorHistory(userId, days)
-          .timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          Logger.warning('📊 sensorHistoryProvider: Timeout after 10s');
-          return <SensorData>[];
-        },
-      );
-      
-      stopwatch.stop();
-      Logger.success('📊 sensorHistoryProvider: Loaded ${history.length} records in ${stopwatch.elapsedMilliseconds}ms');
-      return history;
+      final firebase = ref.read(firebaseServiceProvider);
+      return firebase
+          .watchUserSensorHistory(params.userId, params.days)
+          .handleError((error, stackTrace) {
+        Logger.error('sensorHistoryProvider: Stream error', error, stackTrace);
+        // Return empty list on error to prevent stream from closing
+      });
     } catch (e, stackTrace) {
-      stopwatch.stop();
-      Logger.error(
-        '📊 sensorHistoryProvider: Error loading sensor history (took ${stopwatch.elapsedMilliseconds}ms)',
-        e,
-        stackTrace,
-      );
-      return <SensorData>[];
+      Logger.error('sensorHistoryProvider: Error', e, stackTrace);
+      return Stream.value(<SensorData>[]);
     }
   },
 );
 
-final dailyAnalyticsProvider = FutureProvider.autoDispose
-    .family<List<DailyAnalytics>, Map<String, dynamic>>(
-  (ref, params) async {
-    final userId = params['userId'] as String;
-    final days = params['days'] as int;
-    
-    Logger.info('📊 dailyAnalyticsProvider: Starting load for user $userId, $days days');
-    final stopwatch = Stopwatch()..start();
-    
+final dailyAnalyticsProvider = StreamProvider
+    .family<List<DailyAnalytics>, AnalyticsParams>(
+  (ref, params) {
     try {
-      final firebase = ref.watch(firebaseServiceProvider);
-      Logger.info('📊 dailyAnalyticsProvider: Firebase service obtained');
-      
-      final analytics = await firebase
-          .getDailyAnalytics(userId, days)
-          .timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          Logger.warning('📊 dailyAnalyticsProvider: Timeout after 10s');
-          return <DailyAnalytics>[];
-        },
-      );
-      
-      stopwatch.stop();
-      Logger.success('📊 dailyAnalyticsProvider: Loaded ${analytics.length} records in ${stopwatch.elapsedMilliseconds}ms');
-      return analytics;
+      final firebase = ref.read(firebaseServiceProvider);
+      return firebase
+          .watchDailyAnalytics(params.userId, params.days)
+          .handleError((error, stackTrace) {
+        Logger.error('dailyAnalyticsProvider: Stream error', error, stackTrace);
+        // Return empty list on error to prevent stream from closing
+      });
     } catch (e, stackTrace) {
-      stopwatch.stop();
-      Logger.error(
-        '📊 dailyAnalyticsProvider: Error loading daily analytics (took ${stopwatch.elapsedMilliseconds}ms)',
-        e,
-        stackTrace,
-      );
-      return <DailyAnalytics>[];
+      Logger.error('dailyAnalyticsProvider: Error', e, stackTrace);
+      return Stream.value(<DailyAnalytics>[]);
     }
   },
 );
@@ -99,46 +98,15 @@ final dailyAnalyticsProvider = FutureProvider.autoDispose
 final analyticsTimeRangeProvider = StateProvider<int>((ref) => 7); // Days
 
 final analyticsInsightsProvider =
-    FutureProvider.autoDispose.family<AnalyticsInsights, Map<String, dynamic>>(
-  (ref, params) async {
-    final userId = params['userId'] as String;
-    final days = params['days'] as int;
-    
-    Logger.info('📊 analyticsInsightsProvider: Starting load for user $userId, $days days');
-    final stopwatch = Stopwatch()..start();
-    
+    StreamProvider.family<AnalyticsInsights, AnalyticsParams>(
+  (ref, params) {
     try {
-      final mlService = ref.watch(mlServiceProvider);
-      Logger.info('📊 analyticsInsightsProvider: ML service obtained');
-      
-      final insights = await mlService.getInsights(userId, days).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () {
-          Logger.warning('📊 analyticsInsightsProvider: Timeout after 15s');
-          return AnalyticsInsights(
-            totalLogs: 0,
-            avgTemperature: 0.0,
-            avgHumidity: 0.0,
-            motionEvents: 0,
-            energyConsumption: 0.0,
-            avgFanUsage: 0.0,
-            avgLightUsage: 0.0,
-            peakUsageHour: 0,
-          );
-        },
-      );
-      
-      stopwatch.stop();
-      Logger.success('📊 analyticsInsightsProvider: Loaded insights (${insights.totalLogs} logs) in ${stopwatch.elapsedMilliseconds}ms');
-      return insights;
+      final mlService = ref.read(mlServiceProvider);
+      // Use real-time stream for insights updates
+      return mlService.watchInsights(params.userId, params.days);
     } catch (e, stackTrace) {
-      stopwatch.stop();
-      Logger.error(
-        '📊 analyticsInsightsProvider: Error loading insights (took ${stopwatch.elapsedMilliseconds}ms)',
-        e,
-        stackTrace,
-      );
-      return AnalyticsInsights(
+      Logger.error('analyticsInsightsProvider: Error', e, stackTrace);
+      return Stream.value(AnalyticsInsights(
         totalLogs: 0,
         avgTemperature: 0.0,
         avgHumidity: 0.0,
@@ -147,59 +115,50 @@ final analyticsInsightsProvider =
         avgFanUsage: 0.0,
         avgLightUsage: 0.0,
         peakUsageHour: 0,
-      );
+      ));
     }
   },
 );
 
-final schedulePredictionsProvider = FutureProvider.autoDispose
-    .family<List<SchedulePrediction>, Map<String, String>>(
+final previousPeriodInsightsProvider =
+    FutureProvider.family<AnalyticsInsights?, AnalyticsParams>(
   (ref, params) async {
-    final userId = params['userId']!;
-    final deviceId = params['deviceId'] ?? 'all';
-    
-    Logger.info('📊 schedulePredictionsProvider: Starting load for user $userId, device $deviceId');
-    final stopwatch = Stopwatch()..start();
-    
-    final mlService = ref.watch(mlServiceProvider);
-
-    // Ensure ML Service is initialized before making predictions
     try {
-      Logger.info('📊 schedulePredictionsProvider: Initializing ML service...');
+      final mlService = ref.read(mlServiceProvider);
+      return await mlService.getPreviousPeriodInsights(params.userId, params.days).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => null,
+      );
+    } catch (e, stackTrace) {
+      Logger.error('previousPeriodInsightsProvider: Error', e, stackTrace);
+      return null;
+    }
+  },
+);
+
+final schedulePredictionsProvider = FutureProvider
+    .family<List<SchedulePrediction>, PredictionsParams>(
+  (ref, params) async {
+    final mlService = ref.read(mlServiceProvider);
+
+    try {
       await mlService.initialize().timeout(
         const Duration(seconds: 5),
-        onTimeout: () {
-          Logger.warning('📊 schedulePredictionsProvider: ML service init timeout');
-        },
+        onTimeout: () {},
       );
-      Logger.info('📊 schedulePredictionsProvider: ML service initialized');
     } catch (e, stackTrace) {
-      Logger.warning('📊 schedulePredictionsProvider: ML Service initialization failed: $e');
-      Logger.error('📊 schedulePredictionsProvider: Init error details', e, stackTrace);
+      Logger.error('schedulePredictionsProvider: ML init failed', e, stackTrace);
     }
 
     try {
-      Logger.info('📊 schedulePredictionsProvider: Calling predictSchedules...');
-      final predictions = await mlService
-          .predictSchedules(userId, deviceId)
+      return await mlService
+          .predictSchedules(params.userId, params.deviceId)
           .timeout(
         const Duration(seconds: 15),
-        onTimeout: () {
-          Logger.warning('📊 schedulePredictionsProvider: predictSchedules timeout after 15s');
-          return <SchedulePrediction>[];
-        },
+        onTimeout: () => <SchedulePrediction>[],
       );
-      
-      stopwatch.stop();
-      Logger.success('📊 schedulePredictionsProvider: Loaded ${predictions.length} predictions in ${stopwatch.elapsedMilliseconds}ms');
-      return predictions;
     } catch (e, stackTrace) {
-      stopwatch.stop();
-      Logger.error(
-        '📊 schedulePredictionsProvider: Error loading schedule predictions (took ${stopwatch.elapsedMilliseconds}ms)',
-        e,
-        stackTrace,
-      );
+      Logger.error('schedulePredictionsProvider: Error', e, stackTrace);
       return <SchedulePrediction>[];
     }
   },
@@ -367,8 +326,22 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                           _buildTimeRangeItem('Last 90 Days', 90, timeRange),
                         ],
                         onSelected: (days) {
-                          ref.read(analyticsTimeRangeProvider.notifier).state =
-                              days;
+                          final oldDays = ref.read(analyticsTimeRangeProvider);
+                          ref.read(analyticsTimeRangeProvider.notifier).state = days;
+                          
+                          // Invalidate all providers when time range changes
+                          if (oldDays != days) {
+                            final oldParams = AnalyticsParams(userId: userId, days: oldDays);
+                            final newParams = AnalyticsParams(userId: userId, days: days);
+                            
+                            // Invalidate old providers
+                            ref.invalidate(analyticsInsightsProvider(oldParams));
+                            ref.invalidate(previousPeriodInsightsProvider(oldParams));
+                            ref.invalidate(sensorHistoryProvider(oldParams));
+                            ref.invalidate(dailyAnalyticsProvider(oldParams));
+                            
+                            // The new providers will be created automatically when watched
+                          }
                         },
                       ),
                     ],
@@ -421,54 +394,59 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
 
 // ==================== TAB WIDGETS (Isolated to prevent rebuild loops) ====================
 
-class _OverviewTab extends ConsumerWidget {
+class _OverviewTab extends ConsumerStatefulWidget {
   final String userId;
 
   const _OverviewTab({required this.userId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final timeRange = ref.watch(analyticsTimeRangeProvider);
+  ConsumerState<_OverviewTab> createState() => _OverviewTabState();
+}
 
-    final insightsAsync = ref.watch(analyticsInsightsProvider({
-      'userId': userId,
-      'days': timeRange,
-    }));
-    final historyAsync = ref.watch(sensorHistoryProvider({
-      'userId': userId,
-      'days': timeRange,
-    }));
-    final dailyAnalyticsAsync = ref.watch(dailyAnalyticsProvider({
-      'userId': userId,
-      'days': timeRange,
-    }));
+class _OverviewTabState extends ConsumerState<_OverviewTab> {
+  AnalyticsParams? _cachedParams;
+  int? _cachedTimeRange;
+
+  AnalyticsParams _getProviderParams(int timeRange) {
+    if (_cachedParams == null || _cachedTimeRange != timeRange) {
+      _cachedParams = AnalyticsParams(
+        userId: widget.userId,
+        days: timeRange,
+      );
+      _cachedTimeRange = timeRange;
+    }
+    return _cachedParams!;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final timeRange = ref.watch(analyticsTimeRangeProvider);
+    final providerParams = _getProviderParams(timeRange);
+
+    final insightsAsync = ref.watch(analyticsInsightsProvider(providerParams));
+    final historyAsync = ref.watch(sensorHistoryProvider(providerParams));
+    final dailyAnalyticsAsync = ref.watch(dailyAnalyticsProvider(providerParams));
 
     return RefreshIndicator(
       onRefresh: () async {
-        ref.invalidate(analyticsInsightsProvider({
-          'userId': userId,
-          'days': timeRange,
-        }));
-        ref.invalidate(sensorHistoryProvider({
-          'userId': userId,
-          'days': timeRange,
-        }));
-        ref.invalidate(dailyAnalyticsProvider({
-          'userId': userId,
-          'days': timeRange,
-        }));
+        ref.invalidate(analyticsInsightsProvider(providerParams));
+        ref.invalidate(previousPeriodInsightsProvider(providerParams));
+        ref.invalidate(sensorHistoryProvider(providerParams));
+        ref.invalidate(dailyAnalyticsProvider(providerParams));
       },
       child: insightsAsync.when(
         data: (insights) {
+          // Show empty state immediately if no data, regardless of other providers
           if (insights.totalLogs == 0) {
             return _AnalyticsTabHelpers.buildEmptyState(
                 'No sensor data available yet. Start using your devices to see analytics.');
           }
+          
+          // Only wait for other providers if we have data
           return dailyAnalyticsAsync.when(
             data: (dailyData) {
               return historyAsync.when(
                 data: (history) {
-                  Logger.info('📊 OverviewTab: Processing ${history.length} history records');
                   final trendData = Logger.safeExecute(
                     'mapDailyAnalytics/buildDailyTrends',
                     () => dailyData.isNotEmpty
@@ -482,41 +460,113 @@ class _OverviewTab extends ConsumerWidget {
                     () => buildHourlyActivity(history),
                     defaultValue: <HourlyActivityPoint>[],
                   )!;
-                  
-                  Logger.info('📊 OverviewTab: Processed ${trendData.length} trend points, ${hourlyActivity.length} hourly points');
 
-                  return Container(
-                    color: const Color(0xFF0A0E27),
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(20),
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _AnalyticsTabHelpers.buildSummaryCards(insights),
-                          const SizedBox(height: 24),
-                          _AnalyticsTabHelpers.buildSectionHeader(
-                              'Environmental Trends'),
-                          const SizedBox(height: 16),
-                          _AnalyticsTabHelpers.buildEnvironmentalChart(
-                              trendData),
-                          const SizedBox(height: 24),
-                          _AnalyticsTabHelpers.buildSectionHeader(
-                              'Usage Patterns'),
-                          const SizedBox(height: 16),
-                          _AnalyticsTabHelpers.buildUsageChart(
-                              hourlyActivity, insights.peakUsageHour),
-                          const SizedBox(height: 24),
-                          _AnalyticsTabHelpers.buildSectionHeader(
-                              'Energy Breakdown'),
-                          const SizedBox(height: 16),
-                          _AnalyticsTabHelpers.buildEnergyBreakdown(insights),
-                        ],
-                      ),
-                    ),
+                  // Fetch previous period insights for trend comparison
+                  final previousInsightsAsync = ref.watch(previousPeriodInsightsProvider(providerParams));
+                  
+                  return previousInsightsAsync.when(
+                    data: (previousInsights) {
+                      return Container(
+                        color: const Color(0xFF0A0E27),
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(20),
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _AnalyticsTabHelpers.buildSummaryCards(insights, previousInsights),
+                              const SizedBox(height: 24),
+                              _AnalyticsTabHelpers.buildSectionHeader(
+                                  'Environmental Trends'),
+                              const SizedBox(height: 16),
+                              _AnalyticsTabHelpers.buildEnvironmentalChart(
+                                  trendData),
+                              const SizedBox(height: 24),
+                              _AnalyticsTabHelpers.buildSectionHeader(
+                                  'Usage Patterns'),
+                              const SizedBox(height: 16),
+                              _AnalyticsTabHelpers.buildUsageChart(
+                                  hourlyActivity, insights.peakUsageHour),
+                              const SizedBox(height: 24),
+                              _AnalyticsTabHelpers.buildSectionHeader(
+                                  'Energy Breakdown'),
+                              const SizedBox(height: 16),
+                              _AnalyticsTabHelpers.buildEnergyBreakdown(insights),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                    loading: () {
+                      // Show content with current insights even if previous period is loading
+                      return Container(
+                        color: const Color(0xFF0A0E27),
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(20),
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _AnalyticsTabHelpers.buildSummaryCards(insights, null),
+                              const SizedBox(height: 24),
+                              _AnalyticsTabHelpers.buildSectionHeader(
+                                  'Environmental Trends'),
+                              const SizedBox(height: 16),
+                              _AnalyticsTabHelpers.buildEnvironmentalChart(
+                                  trendData),
+                              const SizedBox(height: 24),
+                              _AnalyticsTabHelpers.buildSectionHeader(
+                                  'Usage Patterns'),
+                              const SizedBox(height: 16),
+                              _AnalyticsTabHelpers.buildUsageChart(
+                                  hourlyActivity, insights.peakUsageHour),
+                              const SizedBox(height: 24),
+                              _AnalyticsTabHelpers.buildSectionHeader(
+                                  'Energy Breakdown'),
+                              const SizedBox(height: 16),
+                              _AnalyticsTabHelpers.buildEnergyBreakdown(insights),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                    error: (error, stackTrace) {
+                      // Show content with current insights even if previous period fails
+                      return Container(
+                        color: const Color(0xFF0A0E27),
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(20),
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _AnalyticsTabHelpers.buildSummaryCards(insights, null),
+                              const SizedBox(height: 24),
+                              _AnalyticsTabHelpers.buildSectionHeader(
+                                  'Environmental Trends'),
+                              const SizedBox(height: 16),
+                              _AnalyticsTabHelpers.buildEnvironmentalChart(
+                                  trendData),
+                              const SizedBox(height: 24),
+                              _AnalyticsTabHelpers.buildSectionHeader(
+                                  'Usage Patterns'),
+                              const SizedBox(height: 16),
+                              _AnalyticsTabHelpers.buildUsageChart(
+                                  hourlyActivity, insights.peakUsageHour),
+                              const SizedBox(height: 24),
+                              _AnalyticsTabHelpers.buildSectionHeader(
+                                  'Energy Breakdown'),
+                              const SizedBox(height: 16),
+                              _AnalyticsTabHelpers.buildEnergyBreakdown(insights),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   );
                 },
                 loading: () {
+                  // Show loading only if we have insights data but history is loading
                   return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -545,16 +595,14 @@ class _OverviewTab extends ConsumerWidget {
                     ref,
                     error.toString(),
                     onRetry: () {
-                      ref.invalidate(sensorHistoryProvider({
-                        'userId': userId,
-                        'days': timeRange,
-                      }));
+                      ref.invalidate(sensorHistoryProvider(providerParams));
                     },
                   );
                 },
               );
             },
             loading: () {
+              // Show loading only if we have insights data but daily analytics is loading
               return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -583,10 +631,7 @@ class _OverviewTab extends ConsumerWidget {
                 ref,
                 error.toString(),
                 onRetry: () {
-                  ref.invalidate(dailyAnalyticsProvider({
-                    'userId': userId,
-                    'days': timeRange,
-                  }));
+                  ref.invalidate(dailyAnalyticsProvider(providerParams));
                 },
               );
             },
@@ -622,10 +667,7 @@ class _OverviewTab extends ConsumerWidget {
             ref,
             error.toString(),
             onRetry: () {
-              ref.invalidate(analyticsInsightsProvider({
-                'userId': userId,
-                'days': timeRange,
-              }));
+              ref.invalidate(analyticsInsightsProvider(providerParams));
             },
           );
         },
@@ -636,7 +678,7 @@ class _OverviewTab extends ConsumerWidget {
 
 // ==================== TAB WIDGETS (Isolated to prevent rebuild loops) ====================
 
-class _InsightsTab extends ConsumerWidget {
+class _InsightsTab extends ConsumerStatefulWidget {
   final String userId;
   final TabController tabController;
 
@@ -646,68 +688,256 @@ class _InsightsTab extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_InsightsTab> createState() => _InsightsTabState();
+}
+
+class _InsightsTabState extends ConsumerState<_InsightsTab> {
+  AnalyticsParams? _cachedParams;
+  int? _cachedTimeRange;
+
+  AnalyticsParams _getProviderParams(int timeRange) {
+    if (_cachedParams == null || _cachedTimeRange != timeRange) {
+      _cachedParams = AnalyticsParams(
+        userId: widget.userId,
+        days: timeRange,
+      );
+      _cachedTimeRange = timeRange;
+    }
+    return _cachedParams!;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final timeRange = ref.watch(analyticsTimeRangeProvider);
-    final insightsAsync = ref.watch(analyticsInsightsProvider({
-      'userId': userId,
-      'days': timeRange,
-    }));
+    final providerParams = _getProviderParams(timeRange);
+    final insightsAsync = ref.watch(analyticsInsightsProvider(providerParams));
+    final previousInsightsAsync = ref.watch(previousPeriodInsightsProvider(providerParams));
 
     return insightsAsync.when(
       data: (insights) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _AnalyticsTabHelpers.buildInsightCard(
-                icon: Icons.lightbulb_rounded,
-                title: 'Energy Saving Tip',
-                description: insights.totalLogs > 0
-                    ? 'Your fan usage is ${_AnalyticsTabHelpers.getFanUsageLevel(insights.avgFanUsage)}. '
-                        'Check ML predictions to optimize schedules and save energy.'
-                    : 'Start using your devices to get personalized energy-saving recommendations.',
-                color: const Color(0xFFFFA726),
-                actionLabel: 'View Predictions',
-                onTap: () => tabController.animateTo(2),
+        // Show empty state if no data
+        if (insights.totalLogs == 0) {
+          return RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(analyticsInsightsProvider(providerParams));
+              ref.invalidate(previousPeriodInsightsProvider(providerParams));
+            },
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(20),
+              child: SizedBox(
+                height: MediaQuery.of(context).size.height * 0.6,
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.insights_outlined,
+                        size: 80,
+                        color: Colors.white.withOpacity(0.3),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'No Insights Available',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Start using your SmartSync devices to see insights and analytics',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.7),
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              const SizedBox(height: 16),
-              _AnalyticsTabHelpers.buildInsightCard(
-                icon: Icons.thermostat_rounded,
-                title: 'Temperature Pattern',
-                description: insights.peakUsageHour > 0
-                    ? 'Temperature peaks at ${insights.peakUsageHour}:00. '
-                        'Schedule cooling to start 30 minutes earlier for optimal comfort.'
-                    : 'Temperature data shows consistent patterns. '
-                        'Use ML predictions to optimize your schedule.',
-                color: const Color(0xFFFF6B6B),
-                actionLabel: 'View Predictions',
-                onTap: () => tabController.animateTo(2),
+            ),
+          );
+        }
+        
+        return previousInsightsAsync.when(
+          data: (previousInsights) {
+            return RefreshIndicator(
+              onRefresh: () async {
+                ref.invalidate(analyticsInsightsProvider(providerParams));
+                ref.invalidate(previousPeriodInsightsProvider(providerParams));
+              },
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _AnalyticsTabHelpers.buildInsightCard(
+                    icon: Icons.lightbulb_rounded,
+                    title: 'Energy Saving Tip',
+                    description: insights.totalLogs > 0
+                        ? 'Your fan usage is ${_AnalyticsTabHelpers.getFanUsageLevel(insights.avgFanUsage)}. '
+                            'Check ML predictions to optimize schedules and save energy.'
+                        : 'Start using your devices to get personalized energy-saving recommendations.',
+                    color: const Color(0xFFFFA726),
+                    actionLabel: 'View Predictions',
+                    onTap: () => widget.tabController.animateTo(2),
+                  ),
+                  const SizedBox(height: 16),
+                  _AnalyticsTabHelpers.buildInsightCard(
+                    icon: Icons.thermostat_rounded,
+                    title: 'Temperature Pattern',
+                    description: insights.peakUsageHour > 0
+                        ? 'Temperature peaks at ${insights.peakUsageHour}:00. '
+                            'Schedule cooling to start 30 minutes earlier for optimal comfort.'
+                        : 'Temperature data shows consistent patterns. '
+                            'Use ML predictions to optimize your schedule.',
+                    color: const Color(0xFFFF6B6B),
+                    actionLabel: 'View Predictions',
+                    onTap: () => widget.tabController.animateTo(2),
+                  ),
+                  const SizedBox(height: 16),
+                  _AnalyticsTabHelpers.buildInsightCard(
+                    icon: Icons.emoji_events_rounded,
+                    title: 'Efficiency Score',
+                    description:
+                        'Your home is ${_AnalyticsTabHelpers.getEfficiencyScore(insights)}% more efficient '
+                        'than similar households. Great job!',
+                    color: const Color(0xFF66BB6A),
+                    actionLabel: 'View Details',
+                    onTap: () => _AnalyticsTabHelpers._showEfficiencyDetails(context, insights),
+                  ),
+                  const SizedBox(height: 16),
+                  _AnalyticsTabHelpers.buildInsightCard(
+                    icon: Icons.timeline_rounded,
+                    title: 'Usage Trend',
+                    description:
+                        'Motion activity has ${_AnalyticsTabHelpers.getMotionTrend(insights.motionEvents, previousInsights?.motionEvents)} '
+                        'compared to previous period. Monitor for health changes.',
+                    color: const Color(0xFF7C4DFF),
+                    actionLabel: 'View History',
+                    onTap: () => widget.tabController.animateTo(0),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              _AnalyticsTabHelpers.buildInsightCard(
-                icon: Icons.emoji_events_rounded,
-                title: 'Efficiency Score',
-                description:
-                    'Your home is ${_AnalyticsTabHelpers.getEfficiencyScore(insights)}% more efficient '
-                    'than similar households. Great job!',
-                color: const Color(0xFF66BB6A),
-                actionLabel: 'View Details',
-                onTap: () {},
+            ),
+          );
+          },
+          loading: () {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _AnalyticsTabHelpers.buildInsightCard(
+                    icon: Icons.lightbulb_rounded,
+                    title: 'Energy Saving Tip',
+                    description: insights.totalLogs > 0
+                        ? 'Your fan usage is ${_AnalyticsTabHelpers.getFanUsageLevel(insights.avgFanUsage)}. '
+                            'Check ML predictions to optimize schedules and save energy.'
+                        : 'Start using your devices to get personalized energy-saving recommendations.',
+                    color: const Color(0xFFFFA726),
+                    actionLabel: 'View Predictions',
+                    onTap: () => widget.tabController.animateTo(2),
+                  ),
+                  const SizedBox(height: 16),
+                  _AnalyticsTabHelpers.buildInsightCard(
+                    icon: Icons.thermostat_rounded,
+                    title: 'Temperature Pattern',
+                    description: insights.peakUsageHour > 0
+                        ? 'Temperature peaks at ${insights.peakUsageHour}:00. '
+                            'Schedule cooling to start 30 minutes earlier for optimal comfort.'
+                        : 'Temperature data shows consistent patterns. '
+                            'Use ML predictions to optimize your schedule.',
+                    color: const Color(0xFFFF6B6B),
+                    actionLabel: 'View Predictions',
+                    onTap: () => widget.tabController.animateTo(2),
+                  ),
+                  const SizedBox(height: 16),
+                  _AnalyticsTabHelpers.buildInsightCard(
+                    icon: Icons.emoji_events_rounded,
+                    title: 'Efficiency Score',
+                    description:
+                        'Your home is ${_AnalyticsTabHelpers.getEfficiencyScore(insights)}% more efficient '
+                        'than similar households. Great job!',
+                    color: const Color(0xFF66BB6A),
+                    actionLabel: 'View Details',
+                    onTap: () => _AnalyticsTabHelpers._showEfficiencyDetails(context, insights),
+                  ),
+                  const SizedBox(height: 16),
+                  _AnalyticsTabHelpers.buildInsightCard(
+                    icon: Icons.timeline_rounded,
+                    title: 'Usage Trend',
+                    description:
+                        'Motion activity: ${_AnalyticsTabHelpers.getMotionTrend(insights.motionEvents, null)}. '
+                        'Loading comparison data...',
+                    color: const Color(0xFF7C4DFF),
+                    actionLabel: 'View History',
+                    onTap: () => widget.tabController.animateTo(0),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              _AnalyticsTabHelpers.buildInsightCard(
-                icon: Icons.timeline_rounded,
-                title: 'Usage Trend',
-                description:
-                    'Motion activity has ${_AnalyticsTabHelpers.getMotionTrend(insights.motionEvents)} '
-                    'compared to last week. Monitor for health changes.',
-                color: const Color(0xFF7C4DFF),
-                actionLabel: 'View History',
-                onTap: () {},
+            );
+          },
+          error: (error, stackTrace) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _AnalyticsTabHelpers.buildInsightCard(
+                    icon: Icons.lightbulb_rounded,
+                    title: 'Energy Saving Tip',
+                    description: insights.totalLogs > 0
+                        ? 'Your fan usage is ${_AnalyticsTabHelpers.getFanUsageLevel(insights.avgFanUsage)}. '
+                            'Check ML predictions to optimize schedules and save energy.'
+                        : 'Start using your devices to get personalized energy-saving recommendations.',
+                    color: const Color(0xFFFFA726),
+                    actionLabel: 'View Predictions',
+                    onTap: () => widget.tabController.animateTo(2),
+                  ),
+                  const SizedBox(height: 16),
+                  _AnalyticsTabHelpers.buildInsightCard(
+                    icon: Icons.thermostat_rounded,
+                    title: 'Temperature Pattern',
+                    description: insights.peakUsageHour > 0
+                        ? 'Temperature peaks at ${insights.peakUsageHour}:00. '
+                            'Schedule cooling to start 30 minutes earlier for optimal comfort.'
+                        : 'Temperature data shows consistent patterns. '
+                            'Use ML predictions to optimize your schedule.',
+                    color: const Color(0xFFFF6B6B),
+                    actionLabel: 'View Predictions',
+                    onTap: () => widget.tabController.animateTo(2),
+                  ),
+                  const SizedBox(height: 16),
+                  _AnalyticsTabHelpers.buildInsightCard(
+                    icon: Icons.emoji_events_rounded,
+                    title: 'Efficiency Score',
+                    description:
+                        'Your home is ${_AnalyticsTabHelpers.getEfficiencyScore(insights)}% more efficient '
+                        'than similar households. Great job!',
+                    color: const Color(0xFF66BB6A),
+                    actionLabel: 'View Details',
+                    onTap: () => _AnalyticsTabHelpers._showEfficiencyDetails(context, insights),
+                  ),
+                  const SizedBox(height: 16),
+                  _AnalyticsTabHelpers.buildInsightCard(
+                    icon: Icons.timeline_rounded,
+                    title: 'Usage Trend',
+                    description:
+                        'Motion activity: ${_AnalyticsTabHelpers.getMotionTrend(insights.motionEvents, null)}. '
+                        'Comparison data unavailable.',
+                    color: const Color(0xFF7C4DFF),
+                    actionLabel: 'View History',
+                    onTap: () => widget.tabController.animateTo(0),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
       loading: () {
@@ -739,10 +969,7 @@ class _InsightsTab extends ConsumerWidget {
           ref,
           error.toString(),
           onRetry: () {
-            ref.invalidate(analyticsInsightsProvider({
-              'userId': userId,
-              'days': timeRange,
-            }));
+            ref.invalidate(analyticsInsightsProvider(providerParams));
           },
         );
       },
@@ -750,24 +977,34 @@ class _InsightsTab extends ConsumerWidget {
   }
 }
 
-class _PredictionsTab extends ConsumerWidget {
+class _PredictionsTab extends ConsumerStatefulWidget {
   final String userId;
 
   const _PredictionsTab({required this.userId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final predictionsAsync = ref.watch(schedulePredictionsProvider({
-      'userId': userId,
-      'deviceId': 'all',
-    }));
+  ConsumerState<_PredictionsTab> createState() => _PredictionsTabState();
+}
+
+class _PredictionsTabState extends ConsumerState<_PredictionsTab> {
+  PredictionsParams? _cachedParams;
+
+  PredictionsParams _getProviderParams() {
+    _cachedParams ??= PredictionsParams(
+      userId: widget.userId,
+      deviceId: 'all',
+    );
+    return _cachedParams!;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final providerParams = _getProviderParams();
+    final predictionsAsync = ref.watch(schedulePredictionsProvider(providerParams));
 
     return RefreshIndicator(
       onRefresh: () async {
-        ref.invalidate(schedulePredictionsProvider({
-          'userId': userId,
-          'deviceId': 'all',
-        }));
+        ref.invalidate(schedulePredictionsProvider(providerParams));
       },
       child: predictionsAsync.when(
         data: (predictions) {
@@ -819,10 +1056,7 @@ class _PredictionsTab extends ConsumerWidget {
             ref,
             error.toString(),
             onRetry: () {
-              ref.invalidate(schedulePredictionsProvider({
-                'userId': userId,
-                'deviceId': 'all',
-              }));
+              ref.invalidate(schedulePredictionsProvider(providerParams));
             },
           );
         },
@@ -833,13 +1067,195 @@ class _PredictionsTab extends ConsumerWidget {
 
 // ==================== HELPER CLASS FOR TAB WIDGETS ====================
 class _AnalyticsTabHelpers {
+  static void _showEfficiencyDetails(BuildContext context, AnalyticsInsights insights) {
+    final efficiencyScore = getEfficiencyScore(insights);
+    final fanUsagePercent = (insights.avgFanUsage / 255 * 100);
+    final lightUsagePercent = (insights.avgLightUsage / 255 * 100);
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1F3A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF66BB6A).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.emoji_events_rounded,
+                    color: Color(0xFF66BB6A),
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Text(
+                    'Efficiency Score Details',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white70),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF66BB6A).withOpacity(0.2),
+                    const Color(0xFF66BB6A).withOpacity(0.05),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: const Color(0xFF66BB6A).withOpacity(0.3),
+                ),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    '$efficiencyScore%',
+                    style: const TextStyle(
+                      fontSize: 48,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF66BB6A),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Overall Efficiency',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Breakdown',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildEfficiencyMetric(
+              'Fan Usage',
+              fanUsagePercent,
+              '${fanUsagePercent.toStringAsFixed(1)}%',
+              const Color(0xFF4ECDC4),
+            ),
+            const SizedBox(height: 12),
+            _buildEfficiencyMetric(
+              'Light Usage',
+              lightUsagePercent,
+              '${lightUsagePercent.toStringAsFixed(1)}%',
+              const Color(0xFFFFE66D),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.info_outline,
+                    color: Color(0xFF66BB6A),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Efficiency is calculated based on average device usage. Lower usage means higher efficiency.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.white.withOpacity(0.7),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildEfficiencyMetric(
+    String label,
+    double percentage,
+    String value,
+    Color color,
+  ) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Colors.white70,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        const SizedBox(width: 12),
+        SizedBox(
+          width: 100,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: percentage / 100,
+              minHeight: 8,
+              backgroundColor: Colors.white.withOpacity(0.1),
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   static List<DailyTrendPoint> mapDailyAnalytics(
       List<DailyAnalytics> analytics) {
     return Logger.safeExecute(
       'mapDailyAnalytics',
       () {
         if (analytics.isEmpty) {
-          Logger.info('mapDailyAnalytics: Empty analytics, returning empty list');
           return <DailyTrendPoint>[];
         }
         
@@ -881,10 +1297,22 @@ class _AnalyticsTabHelpers {
     return efficiency.clamp(0, 100);
   }
 
-  static String getMotionTrend(int events) {
-    if (events > 100) return 'increased by 15%';
-    if (events < 50) return 'decreased by 12%';
-    return 'remained stable';
+  static String getMotionTrend(int currentEvents, int? previousEvents) {
+    if (previousEvents == null || previousEvents == 0) {
+      if (currentEvents == 0) return 'no data';
+      return 'new data';
+    }
+    
+    final change = currentEvents - previousEvents;
+    final percentChange = (change / previousEvents * 100).abs();
+    
+    if (percentChange < 5) {
+      return 'remained stable';
+    } else if (change > 0) {
+      return 'increased by ${percentChange.toStringAsFixed(0)}%';
+    } else {
+      return 'decreased by ${percentChange.toStringAsFixed(0)}%';
+    }
   }
 
   static Widget buildEmptyState(String message) {
@@ -987,7 +1415,7 @@ class _AnalyticsTabHelpers {
     );
   }
 
-  static Widget buildSummaryCards(AnalyticsInsights insights) {
+  static Widget buildSummaryCards(AnalyticsInsights insights, AnalyticsInsights? previousInsights) {
     final hasData = insights.totalLogs > 0;
 
     return Column(
@@ -1003,7 +1431,7 @@ class _AnalyticsTabHelpers {
                     : 'N/A',
                 color: const Color(0xFFFF6B6B),
                 trend: hasData && insights.avgTemperature > 0
-                    ? _getTemperatureTrend(insights.avgTemperature)
+                    ? _getTemperatureTrend(insights.avgTemperature, previousInsights?.avgTemperature)
                     : null,
               ),
             ),
@@ -1017,7 +1445,7 @@ class _AnalyticsTabHelpers {
                     : 'N/A',
                 color: const Color(0xFF4ECDC4),
                 trend: hasData && insights.avgHumidity > 0
-                    ? _getHumidityTrend(insights.avgHumidity)
+                    ? _getHumidityTrend(insights.avgHumidity, previousInsights?.avgHumidity)
                     : null,
               ),
             ),
@@ -1097,23 +1525,31 @@ class _AnalyticsTabHelpers {
               ),
               const Spacer(),
               if (trend != null)
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: trend.startsWith('+')
-                        ? Colors.green.shade50
-                        : Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    trend,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
+                Flexible(
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    decoration: BoxDecoration(
                       color: trend.startsWith('+')
-                          ? Colors.green.shade700
-                          : Colors.red.shade700,
+                          ? Colors.green.shade50
+                          : trend == 'stable'
+                              ? Colors.blue.shade50
+                              : Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      trend.length > 12 ? trend.substring(0, 10) + '..' : trend,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: trend.startsWith('+')
+                            ? Colors.green.shade700
+                            : trend == 'stable'
+                                ? Colors.blue.shade700
+                                : Colors.red.shade700,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ),
@@ -1151,16 +1587,38 @@ class _AnalyticsTabHelpers {
     );
   }
 
-  static String _getTemperatureTrend(double temp) {
-    if (temp > 24) return '+2.5°C';
-    if (temp < 20) return '-1.8°C';
-    return '+0.5°C';
+  static String _getTemperatureTrend(double currentTemp, double? previousTemp) {
+    if (previousTemp == null || previousTemp == 0) {
+      return 'no data';
+    }
+    
+    final change = currentTemp - previousTemp;
+    final absChange = change.abs();
+    
+    if (absChange < 0.5) {
+      return 'stable';
+    } else if (change > 0) {
+      return '+${absChange.toStringAsFixed(1)}°C';
+    } else {
+      return '${absChange.toStringAsFixed(1)}°C';
+    }
   }
 
-  static String _getHumidityTrend(double humidity) {
-    if (humidity > 60) return '+5%';
-    if (humidity < 40) return '-3%';
-    return '+1%';
+  static String _getHumidityTrend(double currentHumidity, double? previousHumidity) {
+    if (previousHumidity == null || previousHumidity == 0) {
+      return 'no data';
+    }
+    
+    final change = currentHumidity - previousHumidity;
+    final absChange = change.abs();
+    
+    if (absChange < 2) {
+      return 'stable';
+    } else if (change > 0) {
+      return '+${absChange.toStringAsFixed(0)}%';
+    } else {
+      return '${absChange.toStringAsFixed(0)}%';
+    }
   }
 
   static Widget _buildNoDataCard(String message) {
@@ -1252,13 +1710,11 @@ class _AnalyticsTabHelpers {
       'buildEnvironmentalChart',
       () {
         if (trendData.isEmpty) {
-          Logger.info('buildEnvironmentalChart: Empty trend data');
           return _buildNoDataCard(
             'We need at least one day of sensor logs to chart trends.',
           );
         }
 
-        Logger.info('buildEnvironmentalChart: Building chart with ${trendData.length} points');
         return Container(
       height: 280,
       padding: const EdgeInsets.all(16),
@@ -1335,13 +1791,11 @@ class _AnalyticsTabHelpers {
         final hasActivity = activityData.any((point) => point.activityValue > 0.0);
 
         if (!hasActivity) {
-          Logger.info('buildUsageChart: No activity data');
           return _buildNoDataCard(
             'No motion activity was captured for this time range.',
           );
         }
 
-        Logger.info('buildUsageChart: Building chart with ${activityData.length} points');
         return Container(
       height: 250,
       padding: const EdgeInsets.all(16),
@@ -1758,7 +2212,7 @@ class _AnalyticsTabHelpers {
             ),
             const SizedBox(height: 12),
             Text(
-              'We need at least 30 days of usage data\nto generate accurate predictions',
+              'We need at least 1 day (24 hours) of usage data\nto generate predictions. 7 days recommended for better accuracy.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,
@@ -1768,6 +2222,7 @@ class _AnalyticsTabHelpers {
             ),
             const SizedBox(height: 24),
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: Colors.blue.withOpacity(0.2),
@@ -1775,17 +2230,18 @@ class _AnalyticsTabHelpers {
                 border: Border.all(color: Colors.blue.withOpacity(0.3)),
               ),
               child: Row(
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.info_outline,
                       color: Colors.blue.shade300, size: 20),
                   const SizedBox(width: 8),
-                  Text(
-                    'Keep using SmartSync to unlock predictions',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.blue.shade300,
-                      fontWeight: FontWeight.w500,
+                  Flexible(
+                    child: Text(
+                      'Keep using SmartSync to unlock predictions',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue.shade300,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                 ],

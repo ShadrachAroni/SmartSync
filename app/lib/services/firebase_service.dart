@@ -163,7 +163,10 @@ class FirebaseService {
   // ==================== SENSOR DATA ====================
 
   Future<void> logSensorData(SensorData data) async {
-    await _firestore.collection('sensor_logs').add(data.toJson());
+    // Convert to JSON and ensure timestamp is a Firestore Timestamp
+    final jsonData = data.toJson();
+    jsonData['timestamp'] = Timestamp.fromDate(data.timestamp);
+    await _firestore.collection('sensor_logs').add(jsonData);
   }
 
   Stream<List<SensorData>> getSensorLogs(String deviceId, int hours) {
@@ -192,6 +195,18 @@ class FirebaseService {
     return snapshot.docs.map(DailyAnalytics.fromDoc).toList();
   }
 
+  /// Stream daily analytics for real-time updates
+  Stream<List<DailyAnalytics>> watchDailyAnalytics(String userId, int days) {
+    final cutoff = DateTime.now().subtract(Duration(days: days));
+    return _firestore
+        .collection('daily_analytics')
+        .where('userId', isEqualTo: userId)
+        .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(cutoff))
+        .orderBy('date', descending: false)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map(DailyAnalytics.fromDoc).toList());
+  }
+
   Future<List<SensorData>> getUserSensorHistory(
       String userId, int days, {int limit = 2000}) async {
     final cutoff = DateTime.now().subtract(Duration(days: days));
@@ -206,6 +221,22 @@ class FirebaseService {
     return snapshot.docs
         .map((doc) => SensorData.fromJson(doc.data()))
         .toList();
+  }
+
+  /// Stream sensor history for real-time updates
+  Stream<List<SensorData>> watchUserSensorHistory(
+      String userId, int days, {int limit = 2000}) {
+    final cutoff = DateTime.now().subtract(Duration(days: days));
+    return _firestore
+        .collection('sensor_logs')
+        .where('userId', isEqualTo: userId)
+        .where('timestamp', isGreaterThan: Timestamp.fromDate(cutoff))
+        .orderBy('timestamp', descending: false)
+        .limit(limit)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => SensorData.fromJson(doc.data()))
+            .toList());
   }
 
   Future<List<DeviceModel>> fetchUserDevices(String userId) async {
@@ -505,6 +536,92 @@ class FirebaseService {
         .map((snapshot) => snapshot.docs.length);
   }
 
+  /// Delete a specific alert
+  Future<void> deleteAlert(String alertId) async {
+    await _firestore.collection('alerts').doc(alertId).delete();
+  }
+
+  /// Clear all alerts for a user
+  Future<int> clearAllAlerts(String userId) async {
+    try {
+      int totalDeleted = 0;
+      const batchSize = 500;
+      bool hasMore = true;
+
+      while (hasMore) {
+        final snapshot = await _firestore
+            .collection('alerts')
+            .where('userId', isEqualTo: userId)
+            .limit(batchSize)
+            .get();
+
+        if (snapshot.docs.isEmpty) {
+          hasMore = false;
+          break;
+        }
+
+        final batch = _firestore.batch();
+        for (var doc in snapshot.docs) {
+          batch.delete(doc.reference);
+        }
+
+        await batch.commit();
+        totalDeleted += snapshot.docs.length;
+
+        if (snapshot.docs.length < batchSize) {
+          hasMore = false;
+        }
+      }
+
+      return totalDeleted;
+    } catch (e) {
+      throw Exception('Failed to clear alerts: $e');
+    }
+  }
+
+  /// Delete a specific activity log
+  Future<void> deleteActivityLog(String logId) async {
+    await _firestore.collection('activity_logs').doc(logId).delete();
+  }
+
+  /// Clear all activity logs for a user
+  Future<int> clearAllActivityLogs(String userId) async {
+    try {
+      int totalDeleted = 0;
+      const batchSize = 500;
+      bool hasMore = true;
+
+      while (hasMore) {
+        final snapshot = await _firestore
+            .collection('activity_logs')
+            .where('userId', isEqualTo: userId)
+            .limit(batchSize)
+            .get();
+
+        if (snapshot.docs.isEmpty) {
+          hasMore = false;
+          break;
+        }
+
+        final batch = _firestore.batch();
+        for (var doc in snapshot.docs) {
+          batch.delete(doc.reference);
+        }
+
+        await batch.commit();
+        totalDeleted += snapshot.docs.length;
+
+        if (snapshot.docs.length < batchSize) {
+          hasMore = false;
+        }
+      }
+
+      return totalDeleted;
+    } catch (e) {
+      throw Exception('Failed to clear activity logs: $e');
+    }
+  }
+
   // ==================== AUTOMATIONS ====================
 
   Stream<List<Map<String, dynamic>>> getRoomAutomations(
@@ -591,17 +708,73 @@ class FirebaseService {
     required File imageFile,
   }) async {
     try {
+      // Check if file exists and is readable
+      if (!await imageFile.exists()) {
+        throw Exception('Image file does not exist');
+      }
+
+      // Create storage reference
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = '$timestamp.jpg';
       final ref = _storage
           .ref()
           .child('rooms')
           .child(userId)
           .child(roomId)
-          .child('${DateTime.now().millisecondsSinceEpoch}.jpg');
+          .child(fileName);
 
-      final uploadTask = ref.putFile(imageFile);
+      // Upload file with metadata
+      final metadata = SettableMetadata(
+        contentType: 'image/jpeg',
+        customMetadata: {
+          'uploadedAt': DateTime.now().toIso8601String(),
+          'roomId': roomId,
+        },
+      );
+
+      final uploadTask = ref.putFile(imageFile, metadata);
+      
+      // Wait for upload to complete and check state
       final snapshot = await uploadTask;
-      final downloadUrl = await snapshot.ref.getDownloadURL();
-      return downloadUrl;
+      
+      // Verify upload completed successfully
+      if (snapshot.state != TaskState.success) {
+        throw Exception('Upload failed with state: ${snapshot.state}');
+      }
+
+      // Wait a brief moment to ensure the file is fully processed
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Get download URL
+      try {
+        final downloadUrl = await snapshot.ref.getDownloadURL();
+        return downloadUrl;
+      } catch (urlError) {
+        // If getting URL fails, try again after a short delay
+        await Future.delayed(const Duration(seconds: 1));
+        final downloadUrl = await snapshot.ref.getDownloadURL();
+        return downloadUrl;
+      }
+    } on FirebaseException catch (e) {
+      // Handle Firebase-specific errors
+      String errorMessage = 'Failed to upload room image';
+      switch (e.code) {
+        case 'object-not-found':
+          errorMessage = 'Storage bucket not found. Please check Firebase Storage configuration.';
+          break;
+        case 'unauthorized':
+          errorMessage = 'Permission denied. Please check Firebase Storage rules.';
+          break;
+        case 'canceled':
+          errorMessage = 'Upload was canceled.';
+          break;
+        case 'unknown':
+          errorMessage = 'Unknown error occurred during upload.';
+          break;
+        default:
+          errorMessage = 'Firebase Storage error: ${e.message}';
+      }
+      throw Exception('$errorMessage (Code: ${e.code})');
     } catch (e) {
       throw Exception('Failed to upload room image: $e');
     }

@@ -47,7 +47,6 @@ class MonitoringService {
 
     // If currently initializing, wait for that to complete
     if (_isInitializing && _initializationCompleter != null) {
-      Logger.info('MonitoringService: Already initializing, waiting...');
       return _initializationCompleter!.future;
     }
 
@@ -56,8 +55,6 @@ class MonitoringService {
     _initializationCompleter = Completer<void>();
 
     try {
-      Logger.info('MonitoringService: Starting initialization for $userId');
-      
       // Recreate controllers if they were closed
       if (_sensorController?.isClosed ?? true) {
         _sensorController = StreamController<SensorData?>.broadcast();
@@ -69,17 +66,12 @@ class MonitoringService {
       _userId = userId;
       
       // Initialize ML service with timeout to prevent hanging
-      Logger.info('MonitoringService: Initializing ML service...');
       try {
         await _mlService.initialize().timeout(
           const Duration(seconds: 10),
-          onTimeout: () {
-            Logger.warning('MonitoringService: ML service init timeout, continuing anyway');
-          },
+          onTimeout: () {},
         );
-        Logger.info('MonitoringService: ML service initialized');
       } catch (e) {
-        Logger.warning('MonitoringService: ML service init failed, continuing: $e');
         // Continue even if ML service fails
       }
 

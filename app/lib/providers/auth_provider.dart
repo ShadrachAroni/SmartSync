@@ -16,57 +16,30 @@ final authStateProvider = StreamProvider<User?>((ref) {
 
 final currentUserProvider = StreamProvider<UserModel?>((ref) {
   final authService = ref.watch(authServiceProvider);
-  return authService.authStateChanges.asyncMap((user) async {
+  
+  // Combine auth state changes with user data stream for real-time updates
+  return authService.authStateChanges.asyncExpand((user) {
     if (user == null) {
-      return null;
+      return Stream.value(null);
     }
     
-    try {
-      // Add comprehensive error handling with retry logic
-      UserModel? userData;
-      int retries = 0;
-      const maxRetries = 2;
-      
-      while (retries <= maxRetries) {
-        try {
-          userData = await authService.getUserData(user.uid).timeout(
-            const Duration(seconds: 8),
-            onTimeout: () {
-              throw TimeoutException('User data fetch timeout', const Duration(seconds: 8));
-            },
-          );
-          break; // Success, exit retry loop
-        } catch (e) {
-          retries++;
-          if (retries > maxRetries) {
-            Logger.error('currentUserProvider: All retries exhausted. Error: $e');
-            // Fall through to fallback
-            break;
-          } else {
-            await Future.delayed(Duration(milliseconds: 500 * retries)); // Exponential backoff
-          }
-        }
+    // Use real-time stream for user data updates
+    return authService.watchUserData(user.uid).map((userData) {
+      // If stream returns null, provide fallback from auth user
+      if (userData == null) {
+        return UserModel(
+          id: user.uid,
+          name: user.displayName ?? 'User',
+          email: user.email ?? '',
+          profileImageUrl: null,
+          createdAt: DateTime.now(),
+        );
       }
-      
-      // Return fetched data or fallback
-      return userData ?? UserModel(
-        id: user.uid,
-        name: user.displayName ?? 'User',
-        email: user.email ?? '',
-        profileImageUrl: null,
-        createdAt: DateTime.now(),
-      );
-    } catch (e, stackTrace) {
-      Logger.error('currentUserProvider: Unexpected error: $e');
-      Logger.error('currentUserProvider: Stack trace: $stackTrace');
-      // Return basic user model on error to prevent infinite loading
-      return UserModel(
-        id: user.uid,
-        name: user.displayName ?? 'User',
-        email: user.email ?? '',
-        profileImageUrl: null,
-        createdAt: DateTime.now(),
-      );
-    }
+      return userData;
+    });
+  }).handleError((error, stackTrace) {
+    Logger.error('currentUserProvider: Stream error', error, stackTrace);
+    // Return null on error - let UI handle it
+    return null;
   });
 });

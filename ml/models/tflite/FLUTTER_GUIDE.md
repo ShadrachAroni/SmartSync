@@ -37,9 +37,6 @@ await mlService.initialize();
 
 // Get predictions for schedule suggestions
 final predictions = await mlService.predictSchedules(userId, deviceId);
-
-// Check for anomalies
-final report = await mlService.detectAnomalies(userId, Duration(hours: 24));
 ```
 
 ## 5. Test on Device

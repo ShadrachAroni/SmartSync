@@ -9,6 +9,7 @@ import '../core/utils/logger.dart';
 import 'appliance_state_service.dart';
 import 'firebase_service.dart';
 import 'monitoring_service.dart';
+import 'notification_service.dart';
 
 class BluetoothService {
   static final BluetoothService _instance = BluetoothService._internal();
@@ -147,6 +148,23 @@ class BluetoothService {
       Logger.success('Connected successfully');
       _emitStatus('Connected to ${device.advName}');
 
+      // Send connection notification
+      try {
+        final notificationService = NotificationService();
+        await notificationService.showLocalNotification(
+          id: DateTime.now().millisecondsSinceEpoch % 2147483647,
+          title: '✅ Device Connected',
+          body: 'Successfully connected to ${device.advName}',
+          payload: jsonEncode({
+            'type': 'device_connection',
+            'status': 'connected',
+            'deviceId': device.remoteId.toString(),
+          }),
+        );
+      } catch (e) {
+        Logger.warning('Failed to send connection notification: $e');
+      }
+
       // Initialize MonitoringService to ensure data collection and storage
       // This ensures sensor data is stored even if sensorStreamProvider isn't being watched
       final user = FirebaseAuth.instance.currentUser;
@@ -177,6 +195,7 @@ class BluetoothService {
   // Disconnect from device
   Future<void> disconnect() async {
     try {
+      final deviceName = _connectedDevice?.advName ?? 'Device';
       if (_connectedDevice != null) {
         await _connectedDevice!.disconnect();
         _connectedDevice = null;
@@ -184,7 +203,23 @@ class BluetoothService {
         _txCharacteristic = null;
         _connectionController.add(false);
         Logger.info('Disconnected');
-      _emitStatus('Connection closed');
+        _emitStatus('Connection closed');
+        
+        // Send disconnection notification
+        try {
+          final notificationService = NotificationService();
+          await notificationService.showLocalNotification(
+            id: (DateTime.now().millisecondsSinceEpoch + 2) % 2147483647,
+            title: '⚠️ Device Disconnected',
+            body: 'Lost connection to $deviceName',
+            payload: jsonEncode({
+              'type': 'device_connection',
+              'status': 'disconnected',
+            }),
+          );
+        } catch (e) {
+          Logger.warning('Failed to send disconnection notification: $e');
+        }
       }
     } catch (e) {
       Logger.error('Disconnect error: $e');
@@ -260,6 +295,23 @@ class BluetoothService {
         securityEnabled: currentState?['securityEnabled'] ?? false,
         autoMode: currentState?['autoMode'],
       );
+      
+      // Send notification for manual device change
+      try {
+        final notificationService = NotificationService();
+        await notificationService.showLocalNotification(
+          id: DateTime.now().millisecondsSinceEpoch % 2147483647,
+          title: '🔧 Device Updated',
+          body: 'Fan speed set to ${speed}%',
+          payload: jsonEncode({
+            'type': 'device_change',
+            'device': 'fan',
+            'value': speed,
+          }),
+        );
+      } catch (e) {
+        Logger.warning('Failed to send notification: $e');
+      }
     }
     return success;
   }
@@ -277,6 +329,23 @@ class BluetoothService {
         securityEnabled: currentState?['securityEnabled'] ?? false,
         autoMode: currentState?['autoMode'],
       );
+      
+      // Send notification for manual device change
+      try {
+        final notificationService = NotificationService();
+        await notificationService.showLocalNotification(
+          id: (DateTime.now().millisecondsSinceEpoch + 1) % 2147483647,
+          title: '💡 Device Updated',
+          body: 'LED brightness set to ${brightness}%',
+          payload: jsonEncode({
+            'type': 'device_change',
+            'device': 'led',
+            'value': brightness,
+          }),
+        );
+      } catch (e) {
+        Logger.warning('Failed to send notification: $e');
+      }
     }
     return success;
   }

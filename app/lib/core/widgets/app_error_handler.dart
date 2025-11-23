@@ -36,8 +36,12 @@ class AppErrorHandler {
     String? context,
     Widget? fallback,
   }) {
+    final contextName = context ?? 'App';
+    // Create a unique key based on context and child type to prevent duplicates
+    final childType = child.runtimeType.toString();
     return ErrorBoundary(
-      context: context ?? 'App',
+      key: ValueKey('ErrorBoundary_${contextName}_$childType'),
+      context: contextName,
       fallback: fallback,
       child: child,
     );

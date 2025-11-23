@@ -23,7 +23,6 @@ class MLService {
   /// Initialize ML Service
   Future<void> initialize() async {
     if (_isInitialized) {
-      Logger.debug('ML Service already initialized');
       return;
     }
 
@@ -81,18 +80,14 @@ class MLService {
     String deviceId,
   ) async {
     try {
-      Logger.info('Requesting schedule prediction...');
-
       // Ensure ML Service is initialized before making predictions
       if (!_isInitialized) {
-        Logger.info('ML Service not initialized, initializing now...');
         await initialize();
       }
 
       // ========== PRIMARY: Try local TFLite inference first ==========
       if (_tfliteService.isReady) {
         try {
-          Logger.info('🤖 PRIMARY: Attempting local TFLite inference (using trained model from assets)...');
 
           // Fetch sensor logs for local inference
           final sensorLogs = await _fetchSensorLogs(userId, deviceId, hours: 24);
@@ -107,12 +102,14 @@ class MLService {
             if (localPredictions.isNotEmpty) {
               Logger.success('✅ PRIMARY SUCCESS: Local TFLite inference completed - ${localPredictions.length} predictions generated from local model');
               Logger.info('   📊 Using model: assets/models/schedule_predictor.tflite (from train_smart_home.py)');
+              Logger.info('   📊 Data: ${sensorLogs.length} hours collected (model requires 24 hours)');
               return localPredictions; // Return immediately - local model takes priority
             } else {
               Logger.warning('⚠️  Local inference returned no predictions, falling back to server');
             }
           } else {
-            Logger.warning('⚠️  Insufficient sensor data for local inference (${sensorLogs.length}/24 hours), falling back to server');
+            Logger.warning('⚠️  Insufficient data for local inference: ${sensorLogs.length} hours collected, need 24 hours minimum');
+            Logger.info('   💡 The model requires at least 24 hours (1 day) of sensor data to generate predictions');
           }
         } catch (e) {
           Logger.warning('⚠️  Local inference failed: $e, falling back to server');
@@ -123,8 +120,7 @@ class MLService {
 
       // ========== FALLBACK: Server-side inference only if local fails ==========
       // Note: Cloud Functions require Blaze plan, so this fallback is disabled on Spark plan
-      Logger.warning('⚠️  Local TFLite inference unavailable. Server-side inference requires Blaze plan.');
-      Logger.info('💡 Please ensure local TFLite models are available in assets/models/');
+      // Local TFLite inference unavailable
       return await _predictSchedulesServer(userId, deviceId);
     } catch (e) {
       Logger.error('Schedule prediction failed: $e');
@@ -158,7 +154,6 @@ class MLService {
           .map((doc) => SensorData.fromJson(doc.data() as Map<String, dynamic>))
           .toList();
 
-      Logger.info('Fetched ${logs.length} sensor logs');
       return logs;
     } catch (e) {
       Logger.error('Failed to fetch sensor logs: $e');
@@ -176,8 +171,7 @@ class MLService {
   ) async {
     // Cloud Functions are not available on Spark plan
     // Return empty list - local TFLite inference should have been used instead
-    Logger.info('ℹ️  Server-side inference skipped (Cloud Functions require Blaze plan). Using local TFLite models only.');
-    Logger.info('💡 Tip: Ensure local TFLite models are loaded for ML predictions.');
+    // Server-side inference skipped
     return [];
     
     // Original Cloud Function code (disabled for Spark plan compatibility):
@@ -331,7 +325,137 @@ class MLService {
     }
   }
 
-  /// Get analytics insights
+  /// Stream analytics insights for real-time updates
+  Stream<AnalyticsInsights> watchInsights(String userId, int days) {
+    final cutoff = DateTime.now().subtract(Duration(days: days));
+    
+    return _firestore
+        .collection('sensor_logs')
+        .where('userId', isEqualTo: userId)
+        .where('timestamp', isGreaterThan: Timestamp.fromDate(cutoff))
+        .orderBy('timestamp', descending: true)
+        .limit(1000)
+        .snapshots()
+        .map((snapshot) {
+      try {
+        if (snapshot.docs.isEmpty) {
+          return _getDefaultInsights();
+        }
+
+        final logs = snapshot.docs
+            .map((doc) => SensorData.fromJson(doc.data()))
+            .toList();
+
+        // Calculate statistics
+        final avgTemp = logs.map((l) => l.temperature).reduce((a, b) => a + b) / logs.length;
+        final avgHumidity = logs.map((l) => l.humidity).reduce((a, b) => a + b) / logs.length;
+        final motionEvents = logs.where((l) => l.motionDetected).length;
+        final avgFan = logs.map((l) => l.fanSpeed.toDouble()).reduce((a, b) => a + b) / logs.length;
+        final avgLed = logs.map((l) => l.ledBrightness.toDouble()).reduce((a, b) => a + b) / logs.length;
+
+        // Find peak usage hour
+        final hourCounts = <int, int>{};
+        for (var log in logs) {
+          final hour = log.timestamp.hour;
+          hourCounts[hour] = (hourCounts[hour] ?? 0) + 1;
+        }
+        final peakHour = hourCounts.isNotEmpty
+            ? hourCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key
+            : 0;
+
+        // Calculate energy consumption properly (Energy = Power × Time)
+        final sortedLogs = List<SensorData>.from(logs)
+          ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        
+        double energy = 0.0;
+        
+        if (sortedLogs.isNotEmpty) {
+          // If we have very few logs, use average power over the entire time period
+          if (sortedLogs.length < 10) {
+            final firstLog = sortedLogs.first;
+            final lastLog = sortedLogs.last;
+            final totalDuration = lastLog.timestamp.difference(firstLog.timestamp);
+            
+            if (totalDuration.inHours > 0 || totalDuration.inMinutes > 0) {
+              // Calculate average power across all logs
+              double totalFanPower = 0.0;
+              double totalLedPower = 0.0;
+              for (var log in sortedLogs) {
+                totalFanPower += (log.fanSpeed / 255.0) * 0.05;
+                totalLedPower += (log.ledBrightness / 255.0) * 0.01;
+              }
+              final avgFanPower = totalFanPower / sortedLogs.length;
+              final avgLedPower = totalLedPower / sortedLogs.length;
+              final avgTotalPower = avgFanPower + avgLedPower;
+              
+              // Use the time span from first to last log, or until now if last log is recent
+              final endTime = lastLog.timestamp.isAfter(DateTime.now().subtract(const Duration(hours: 1)))
+                  ? DateTime.now()
+                  : lastLog.timestamp;
+              final hours = endTime.difference(firstLog.timestamp).inSeconds.clamp(60, 86400) / 3600.0;
+              energy = avgTotalPower * hours;
+            }
+          } else {
+            // For many logs, use interval-based calculation
+            for (int i = 0; i < sortedLogs.length; i++) {
+              final log = sortedLogs[i];
+              
+              final fanPowerKw = (log.fanSpeed / 255.0) * 0.05;
+              final ledPowerKw = (log.ledBrightness / 255.0) * 0.01;
+              final totalPowerKw = fanPowerKw + ledPowerKw;
+              
+              Duration duration;
+              if (i < sortedLogs.length - 1) {
+                duration = sortedLogs[i + 1].timestamp.difference(log.timestamp);
+              } else {
+                duration = DateTime.now().difference(log.timestamp);
+                if (duration.isNegative || duration.inMinutes > 60) {
+                  duration = const Duration(minutes: 5);
+                }
+              }
+              
+              // Use minimum of 1 minute, but don't clamp maximum too aggressively
+              final hours = duration.inSeconds.clamp(60, 3600) / 3600.0;
+              energy += totalPowerKw * hours;
+            }
+          }
+          
+          // Ensure minimum energy is shown if devices are actually being used
+          if (energy < 0.01 && sortedLogs.any((log) => log.fanSpeed > 0 || log.ledBrightness > 0)) {
+            // Estimate based on average usage if calculated energy is too small
+            final avgFan = sortedLogs.map((l) => l.fanSpeed).reduce((a, b) => a + b) / sortedLogs.length;
+            final avgLed = sortedLogs.map((l) => l.ledBrightness).reduce((a, b) => a + b) / sortedLogs.length;
+            if (avgFan > 0 || avgLed > 0) {
+              final avgPower = ((avgFan / 255.0) * 0.05) + ((avgLed / 255.0) * 0.01);
+              final timeSpan = sortedLogs.last.timestamp.difference(sortedLogs.first.timestamp);
+              final hours = timeSpan.inSeconds.clamp(3600, 86400) / 3600.0;
+              energy = avgPower * hours;
+            }
+          }
+        }
+
+        return AnalyticsInsights(
+          totalLogs: logs.length,
+          avgTemperature: avgTemp,
+          avgHumidity: avgHumidity,
+          motionEvents: motionEvents,
+          avgFanUsage: avgFan,
+          avgLightUsage: avgLed,
+          peakUsageHour: peakHour,
+          energyConsumption: energy,
+        );
+      } catch (e) {
+        Logger.error('Failed to calculate insights from stream: $e');
+        return _getDefaultInsights();
+      }
+    }).handleError((error, stackTrace) {
+      Logger.error('watchInsights: Stream error', error, stackTrace);
+      // Return default insights on error to prevent stream from closing
+      return _getDefaultInsights();
+    });
+  }
+
+  /// Get analytics insights (one-time fetch)
   Future<AnalyticsInsights> getInsights(String userId, int days) async {
     try {
       final cutoff = DateTime.now().subtract(Duration(days: days));
@@ -371,8 +495,9 @@ class MLService {
         final hour = log.timestamp.hour;
         hourCounts[hour] = (hourCounts[hour] ?? 0) + 1;
       }
-      final peakHour =
-          hourCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+      final peakHour = hourCounts.isNotEmpty
+          ? hourCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key
+          : 0;
 
       // Calculate energy consumption properly (Energy = Power × Time)
       // Sort logs by timestamp to calculate time intervals
@@ -384,32 +509,72 @@ class MLService {
       if (sortedLogs.isEmpty) {
         energy = 0.0;
       } else {
-        // Calculate energy for each time interval
-        for (int i = 0; i < sortedLogs.length; i++) {
-          final log = sortedLogs[i];
+        // If we have very few logs, use average power over the entire time period
+        if (sortedLogs.length < 10) {
+          final firstLog = sortedLogs.first;
+          final lastLog = sortedLogs.last;
+          final totalDuration = lastLog.timestamp.difference(firstLog.timestamp);
           
-          // Calculate power in kW
-          final fanPowerKw = (log.fanSpeed / 255.0) * 0.05; // 0-0.05 kW
-          final ledPowerKw = (log.ledBrightness / 255.0) * 0.01; // 0-0.01 kW
-          final totalPowerKw = fanPowerKw + ledPowerKw;
-          
-          // Calculate time duration
-          Duration duration;
-          if (i < sortedLogs.length - 1) {
-            duration = sortedLogs[i + 1].timestamp.difference(log.timestamp);
-          } else {
-            // Last log: use time until now or default 5 minutes
-            duration = DateTime.now().difference(log.timestamp);
-            if (duration.isNegative || duration.inMinutes > 60) {
-              duration = const Duration(minutes: 5);
+          if (totalDuration.inHours > 0 || totalDuration.inMinutes > 0) {
+            // Calculate average power across all logs
+            double totalFanPower = 0.0;
+            double totalLedPower = 0.0;
+            for (var log in sortedLogs) {
+              totalFanPower += (log.fanSpeed / 255.0) * 0.05;
+              totalLedPower += (log.ledBrightness / 255.0) * 0.01;
             }
+            final avgFanPower = totalFanPower / sortedLogs.length;
+            final avgLedPower = totalLedPower / sortedLogs.length;
+            final avgTotalPower = avgFanPower + avgLedPower;
+            
+            // Use the time span from first to last log, or until now if last log is recent
+            final endTime = lastLog.timestamp.isAfter(DateTime.now().subtract(const Duration(hours: 1)))
+                ? DateTime.now()
+                : lastLog.timestamp;
+            final hours = endTime.difference(firstLog.timestamp).inSeconds.clamp(60, 86400) / 3600.0;
+            energy = avgTotalPower * hours;
           }
-          
-          // Ensure minimum duration of 1 minute
-          final hours = duration.inSeconds.clamp(60, 3600) / 3600.0;
-          
-          // Energy = Power × Time
-          energy += totalPowerKw * hours;
+        } else {
+          // For many logs, use interval-based calculation
+          for (int i = 0; i < sortedLogs.length; i++) {
+            final log = sortedLogs[i];
+            
+            // Calculate power in kW
+            final fanPowerKw = (log.fanSpeed / 255.0) * 0.05; // 0-0.05 kW
+            final ledPowerKw = (log.ledBrightness / 255.0) * 0.01; // 0-0.01 kW
+            final totalPowerKw = fanPowerKw + ledPowerKw;
+            
+            // Calculate time duration
+            Duration duration;
+            if (i < sortedLogs.length - 1) {
+              duration = sortedLogs[i + 1].timestamp.difference(log.timestamp);
+            } else {
+              // Last log: use time until now or default 5 minutes
+              duration = DateTime.now().difference(log.timestamp);
+              if (duration.isNegative || duration.inMinutes > 60) {
+                duration = const Duration(minutes: 5);
+              }
+            }
+            
+            // Ensure minimum duration of 1 minute
+            final hours = duration.inSeconds.clamp(60, 3600) / 3600.0;
+            
+            // Energy = Power × Time
+            energy += totalPowerKw * hours;
+          }
+        }
+        
+        // Ensure minimum energy is shown if devices are actually being used
+        if (energy < 0.01 && sortedLogs.any((log) => log.fanSpeed > 0 || log.ledBrightness > 0)) {
+          // Estimate based on average usage if calculated energy is too small
+          final avgFan = sortedLogs.map((l) => l.fanSpeed).reduce((a, b) => a + b) / sortedLogs.length;
+          final avgLed = sortedLogs.map((l) => l.ledBrightness).reduce((a, b) => a + b) / sortedLogs.length;
+          if (avgFan > 0 || avgLed > 0) {
+            final avgPower = ((avgFan / 255.0) * 0.05) + ((avgLed / 255.0) * 0.01);
+            final timeSpan = sortedLogs.last.timestamp.difference(sortedLogs.first.timestamp);
+            final hours = timeSpan.inSeconds.clamp(3600, 86400) / 3600.0;
+            energy = avgPower * hours;
+          }
         }
       }
 
@@ -426,6 +591,143 @@ class MLService {
     } catch (e) {
       Logger.error('Failed to get insights: $e');
       return _getDefaultInsights();
+    }
+  }
+
+  /// Get previous period insights for trend comparison
+  Future<AnalyticsInsights?> getPreviousPeriodInsights(String userId, int days) async {
+    try {
+      // Calculate previous period range (same duration, but before current period)
+      final currentCutoff = DateTime.now().subtract(Duration(days: days));
+      final previousCutoff = currentCutoff.subtract(Duration(days: days));
+
+      // Fetch sensor logs from previous period
+      // Note: Firestore requires orderBy on the field used in range queries
+      // We use a single range query with isGreaterThan and filter in memory for upper bound
+      // to avoid needing a composite index
+      final snapshot = await _firestore
+          .collection('sensor_logs')
+          .where('userId', isEqualTo: userId)
+          .where('timestamp', isGreaterThan: Timestamp.fromDate(previousCutoff))
+          .orderBy('timestamp', descending: false)
+          .limit(1000)
+          .get();
+      
+      // Filter to only include logs before current cutoff
+      final filteredDocs = snapshot.docs.where((doc) {
+        final timestamp = (doc.data()['timestamp'] as Timestamp?)?.toDate();
+        if (timestamp == null) return false;
+        return timestamp.isAfter(previousCutoff) && 
+               (timestamp.isBefore(currentCutoff) || timestamp.isAtSameMomentAs(currentCutoff));
+      }).toList();
+
+      if (filteredDocs.isEmpty) {
+        return null; // No previous period data available
+      }
+
+      final logs =
+          filteredDocs.map((doc) => SensorData.fromJson(doc.data())).toList();
+
+      // Calculate statistics for previous period
+      final avgTemp =
+          logs.map((l) => l.temperature).reduce((a, b) => a + b) / logs.length;
+      final avgHumidity =
+          logs.map((l) => l.humidity).reduce((a, b) => a + b) / logs.length;
+      final motionEvents = logs.where((l) => l.motionDetected).length;
+      final avgFan =
+          logs.map((l) => l.fanSpeed.toDouble()).reduce((a, b) => a + b) /
+              logs.length;
+      final avgLed =
+          logs.map((l) => l.ledBrightness.toDouble()).reduce((a, b) => a + b) /
+              logs.length;
+
+      // Find peak usage hour
+      final hourCounts = <int, int>{};
+      for (var log in logs) {
+        final hour = log.timestamp.hour;
+        hourCounts[hour] = (hourCounts[hour] ?? 0) + 1;
+      }
+      final peakHour = hourCounts.isNotEmpty
+          ? hourCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key
+          : 0;
+
+      // Calculate energy consumption for previous period
+      final sortedLogs = List<SensorData>.from(logs)
+        ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      
+      double energy = 0.0;
+      
+      if (sortedLogs.isNotEmpty) {
+        // If we have very few logs, use average power over the entire time period
+        if (sortedLogs.length < 10) {
+          final firstLog = sortedLogs.first;
+          final lastLog = sortedLogs.last;
+          
+          // Calculate average power across all logs
+          double totalFanPower = 0.0;
+          double totalLedPower = 0.0;
+          for (var log in sortedLogs) {
+            totalFanPower += (log.fanSpeed / 255.0) * 0.05;
+            totalLedPower += (log.ledBrightness / 255.0) * 0.01;
+          }
+          final avgFanPower = totalFanPower / sortedLogs.length;
+          final avgLedPower = totalLedPower / sortedLogs.length;
+          final avgTotalPower = avgFanPower + avgLedPower;
+          
+          // Use the time span from first to last log, or until current cutoff
+          final endTime = currentCutoff;
+          final hours = endTime.difference(firstLog.timestamp).inSeconds.clamp(60, 86400) / 3600.0;
+          energy = avgTotalPower * hours;
+        } else {
+          // For many logs, use interval-based calculation
+          for (int i = 0; i < sortedLogs.length; i++) {
+            final log = sortedLogs[i];
+            
+            final fanPowerKw = (log.fanSpeed / 255.0) * 0.05;
+            final ledPowerKw = (log.ledBrightness / 255.0) * 0.01;
+            final totalPowerKw = fanPowerKw + ledPowerKw;
+            
+            Duration duration;
+            if (i < sortedLogs.length - 1) {
+              duration = sortedLogs[i + 1].timestamp.difference(log.timestamp);
+            } else {
+              duration = currentCutoff.difference(log.timestamp);
+              if (duration.isNegative || duration.inMinutes > 60) {
+                duration = const Duration(minutes: 5);
+              }
+            }
+            
+            final hours = duration.inSeconds.clamp(60, 3600) / 3600.0;
+            energy += totalPowerKw * hours;
+          }
+        }
+        
+        // Ensure minimum energy is shown if devices are actually being used
+        if (energy < 0.01 && sortedLogs.any((log) => log.fanSpeed > 0 || log.ledBrightness > 0)) {
+          final avgFan = sortedLogs.map((l) => l.fanSpeed).reduce((a, b) => a + b) / sortedLogs.length;
+          final avgLed = sortedLogs.map((l) => l.ledBrightness).reduce((a, b) => a + b) / sortedLogs.length;
+          if (avgFan > 0 || avgLed > 0) {
+            final avgPower = ((avgFan / 255.0) * 0.05) + ((avgLed / 255.0) * 0.01);
+            final timeSpan = currentCutoff.difference(sortedLogs.first.timestamp);
+            final hours = timeSpan.inSeconds.clamp(3600, 86400) / 3600.0;
+            energy = avgPower * hours;
+          }
+        }
+      }
+
+      return AnalyticsInsights(
+        totalLogs: logs.length,
+        avgTemperature: avgTemp,
+        avgHumidity: avgHumidity,
+        motionEvents: motionEvents,
+        avgFanUsage: avgFan,
+        avgLightUsage: avgLed,
+        peakUsageHour: peakHour,
+        energyConsumption: energy,
+      );
+    } catch (e) {
+      Logger.error('Failed to get previous period insights: $e');
+      return null;
     }
   }
 

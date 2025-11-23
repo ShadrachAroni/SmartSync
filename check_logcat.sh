@@ -27,5 +27,6 @@ echo ""
 adb logcat -c
 
 # Filter for Flutter, SmartSync, and error messages
-adb logcat | grep -iE "flutter|smartsync|error|exception|crash|fatal|❌|⚠️"
+# Exclude BLASTBufferQueue verbose logs (known Android system log, not an error)
+adb logcat | grep -iE "flutter|smartsync|error|exception|crash|fatal|❌|⚠️" | grep -v "BLASTBufferQueue"
 

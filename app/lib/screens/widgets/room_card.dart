@@ -7,6 +7,27 @@ class RoomCard extends StatelessWidget {
 
   const RoomCard({super.key, required this.room});
 
+  String? _getRoomImagePath() {
+    switch (room.icon) {
+      case 'living_room':
+        return 'assets/rooms/living_room.png';
+      case 'kitchen':
+        return 'assets/rooms/kitchen.png';
+      case 'bedroom':
+        return 'assets/rooms/bedroom.png';
+      case 'bathroom':
+        return 'assets/rooms/bathroom.png';
+      case 'office':
+        return 'assets/rooms/office.png';
+      case 'garage':
+        return 'assets/rooms/garage.png';
+      case 'garden':
+        return 'assets/rooms/garden.png';
+      default:
+        return null;
+    }
+  }
+
   IconData _getRoomIcon() {
     switch (room.icon) {
       case 'living_room':
@@ -64,11 +85,19 @@ class RoomCard extends StatelessWidget {
                     color: const Color(0xFF00BFA5).withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(
-                    _getRoomIcon(),
-                    color: const Color(0xFF00BFA5),
-                    size: 24,
-                  ),
+                  child: _getRoomImagePath() != null
+                      ? Image.asset(
+                          _getRoomImagePath()!,
+                          width: 24,
+                          height: 24,
+                          color: const Color(0xFF00BFA5),
+                          colorBlendMode: BlendMode.srcIn,
+                        )
+                      : Icon(
+                          _getRoomIcon(),
+                          color: const Color(0xFF00BFA5),
+                          size: 24,
+                        ),
                 ),
                 const SizedBox(height: 12),
 

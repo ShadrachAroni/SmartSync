@@ -144,14 +144,18 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
             (data.ledBrightness / 255 * 100).roundToDouble();
         final allOn = (fanSpeedPercent > 0 || brightnessPercent > 0);
 
-        if ((_fanSpeed != fanSpeedPercent ||
-            _masterBrightness != brightnessPercent ||
+        // If master controller is off, force values to 0
+        final finalFanSpeed = allOn ? fanSpeedPercent : 0.0;
+        final finalBrightness = allOn ? brightnessPercent : 0.0;
+
+        if ((_fanSpeed != finalFanSpeed ||
+            _masterBrightness != finalBrightness ||
             _allDevicesOn != allOn)) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
               setState(() {
-                _fanSpeed = fanSpeedPercent;
-                _masterBrightness = brightnessPercent;
+                _fanSpeed = finalFanSpeed;
+                _masterBrightness = finalBrightness;
                 _allDevicesOn = allOn;
                 _updateAnimations();
               });
@@ -163,80 +167,90 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0E27),
-      body: CustomScrollView(
-        slivers: [
-          // Custom App Bar with room image/gradient
-          _buildSliverAppBar(),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          final user = FirebaseAuth.instance.currentUser;
+          if (user != null) {
+            ref.invalidate(deviceControllerProvider(user.uid));
+            // Invalidate any other providers if needed
+            await Future.delayed(const Duration(milliseconds: 500));
+          }
+        },
+        child: CustomScrollView(
+          slivers: [
+            // Custom App Bar with room image/gradient
+            _buildSliverAppBar(),
 
-          // Room controls and devices
-          SliverToBoxAdapter(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 20),
+            // Room controls and devices
+            SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 20),
 
-                // Quick Room Stats
-                _buildQuickStats(),
-                const SizedBox(height: 24),
+                  // Quick Room Stats
+                  _buildQuickStats(),
+                  const SizedBox(height: 24),
 
-                // Master Controls
-                _buildMasterControls(),
-                const SizedBox(height: 24),
+                  // Master Controls
+                  _buildMasterControls(),
+                  const SizedBox(height: 24),
 
-                // Devices Section
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Devices',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                  // Devices Section
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Devices',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
                         ),
-                      ),
-                      TextButton.icon(
-                        onPressed: _navigateToAddDevice,
-                        icon: const Icon(Icons.add, size: 18),
-                        label: const Text('Add'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.blue,
+                        TextButton.icon(
+                          onPressed: _navigateToAddDevice,
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('Add'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.blue,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-                // Device List
-                devicesAsync.when(
-                  data: (devices) {
-                    if (devices.isEmpty) {
-                      return _buildEmptyDevices();
-                    }
-                    return _buildDevicesList(devices);
-                  },
-                  loading: () => const Center(
-                    child: LottieLoading.medium(),
+                  // Device List
+                  devicesAsync.when(
+                    data: (devices) {
+                      if (devices.isEmpty) {
+                        return _buildEmptyDevices();
+                      }
+                      return _buildDevicesList(devices);
+                    },
+                    loading: () => const Center(
+                      child: LottieLoading.medium(),
+                    ),
+                    error: (error, _) => _buildErrorState(),
                   ),
-                  error: (error, _) => _buildErrorState(),
-                ),
 
-                const SizedBox(height: 24),
+                  const SizedBox(height: 24),
 
-                // Room Automations Section
-                _buildAutomationsSection(),
-                const SizedBox(height: 24),
+                  // Room Automations Section
+                  _buildAutomationsSection(),
+                  const SizedBox(height: 24),
 
-                // Room Settings
-                _buildRoomSettings(),
-                const SizedBox(height: 40),
-              ],
+                  // Room Settings
+                  _buildRoomSettings(),
+                  const SizedBox(height: 40),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -421,6 +435,9 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                   label: 'Active',
                   value: '$activeCount',
                   color: const Color(0xFF00BFA5),
+                  zeroReason: activeCount == 0 
+                      ? 'All devices off' 
+                      : null,
                 );
               },
               loading: () => _buildStatCard(
@@ -461,6 +478,9 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                         label: 'Energy',
                         value: '${energy.toStringAsFixed(1)} kWh',
                         color: const Color(0xFFFFA726),
+                        zeroReason: energy == 0.0 
+                            ? 'No device usage today' 
+                            : null,
                       );
                     },
                   )
@@ -507,7 +527,11 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
     required String label,
     required String value,
     required Color color,
+    String? zeroReason,
   }) {
+    // Check if value is zero and needs explanation
+    final isZero = value == '0' || value == '0.0' || value == '0.0 kWh' || value == '0 kWh';
+    
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -549,6 +573,18 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
               color: Colors.white70,
             ),
           ),
+          if (isZero && zeroReason != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              zeroReason,
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.white.withOpacity(0.5),
+                fontStyle: FontStyle.italic,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ],
       ),
     );
@@ -606,7 +642,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                         _masterBrightness = 50;
                         _updateAnimations();
                       } else {
-                        // When turning off, set to 0
+                        // When turning off, force to 0
                         _fanSpeed = 0;
                         _masterBrightness = 0;
                         _updateAnimations();
@@ -627,14 +663,17 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                 AnimatedBuilder(
                   animation: _fanAnimationController,
                   builder: (context, child) {
-                    return Transform.rotate(
+                    final isDisabled = !_allDevicesOn || _fanSpeed == 0;
+                    return Opacity(
+                      opacity: isDisabled ? 0.4 : 1.0,
+                      child: Transform.rotate(
                       angle: _fanAnimationController.value * 2 * 3.14159,
                       child: Image.asset(
                         'assets/fan.png',
                         width: 32,
                         height: 32,
                         fit: BoxFit.contain,
-                        color: _fanSpeed > 0
+                          color: _fanSpeed > 0 && _allDevicesOn
                             ? Colors.blue
                                 .withOpacity(0.8 + (_fanSpeed / 100 * 0.2))
                             : Colors.white70,
@@ -645,12 +684,13 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                           return Icon(
                             Icons.air_rounded,
                             size: 32,
-                            color: _fanSpeed > 0
+                              color: _fanSpeed > 0 && _allDevicesOn
                                 ? Colors.blue
                                     .withOpacity(0.8 + (_fanSpeed / 100 * 0.2))
                                 : Colors.white70,
                           );
                         },
+                        ),
                       ),
                     );
                   },
@@ -672,7 +712,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                             ),
                           ),
                           Text(
-                            '${_fanSpeed.round()}%',
+                            '${(_allDevicesOn ? _fanSpeed : 0).round()}%',
                             style: const TextStyle(
                               fontSize: 14,
                               color: Colors.white70,
@@ -681,7 +721,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                         ],
                       ),
                       Slider(
-                        value: _fanSpeed,
+                        value: _allDevicesOn ? _fanSpeed : 0.0,
                         min: 0,
                         max: 100,
                         activeColor: Colors.blue,
@@ -712,7 +752,10 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                   animation: _bulbAnimationController,
                   builder: (context, child) {
                     final brightness = _bulbAnimationController.value;
-                    return Container(
+                    final isDisabled = !_allDevicesOn || _masterBrightness == 0;
+                    return Opacity(
+                      opacity: isDisabled ? 0.4 : 1.0,
+                      child: Container(
                       width: 32,
                       height: 32,
                       decoration: BoxDecoration(
@@ -733,6 +776,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                           brightness,
                         ),
                         size: 28,
+                        ),
                       ),
                     );
                   },
@@ -754,7 +798,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                             ),
                           ),
                           Text(
-                            '${_masterBrightness.round()}%',
+                            '${(_allDevicesOn ? _masterBrightness : 0).round()}%',
                             style: const TextStyle(
                               fontSize: 14,
                               color: Colors.white70,
@@ -763,7 +807,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                         ],
                       ),
                       Slider(
-                        value: _masterBrightness,
+                        value: _allDevicesOn ? _masterBrightness : 0.0,
                         min: 0,
                         max: 100,
                         activeColor: Colors.amber,
@@ -1338,6 +1382,33 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
   }
 
   Future<void> _toggleAutomation(String automationId, bool enabled) async {
+    // Get automation details for logging
+    try {
+      final automations = await FirebaseService().getUserAutomations(FirebaseAuth.instance.currentUser!.uid).first;
+      final automation = automations.firstWhere((a) => a['id'] == automationId, orElse: () => {});
+      
+      final loggingService = LoggingService();
+      await loggingService.logAction(
+        action: enabled ? 'Automation ENABLED' : 'Automation DISABLED',
+        category: 'automation',
+        details: 'Automation "${automation['name'] ?? automationId}" in room "${widget.room.name}" ${enabled ? "enabled" : "disabled"}',
+        metadata: {
+          'automationId': automationId,
+          'automationName': automation['name'] ?? 'Unknown',
+          'automationDescription': automation['description'] ?? '',
+          'roomId': widget.room.id,
+          'roomName': widget.room.name,
+          'previousState': !enabled,
+          'newState': enabled,
+          'actionType': 'automation_toggle',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.info,
+      );
+    } catch (e) {
+      Logger.warning('Failed to log automation toggle: $e');
+    }
+    
     await FirebaseService().toggleAutomation(automationId, enabled);
   }
 
@@ -1420,23 +1491,36 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
       return;
     }
 
-    // Log the action
+    // Log the action with detailed information
     final loggingService = LoggingService();
+    final bleService = ref.read(bluetoothServiceProvider);
+    final fanSpeedPercent = enabled ? _fanSpeed.round() : 0;
+    final brightnessPercent = enabled ? _masterBrightness.round() : 0;
+    final fanSpeedRaw = enabled ? ((_fanSpeed / 100) * 255).round() : 0;
+    final brightnessRaw = enabled ? ((_masterBrightness / 100) * 255).round() : 0;
+    
     await loggingService.logAction(
       action: 'Master Controller ${enabled ? "ON" : "OFF"}',
       category: 'device_control',
       details:
-          'Master controller for ${widget.room.name} turned ${enabled ? "on" : "off"}',
+          'Master controller for room "${widget.room.name}" turned ${enabled ? "ON" : "OFF"}. Fan: $fanSpeedPercent% (raw: $fanSpeedRaw), Brightness: $brightnessPercent% (raw: $brightnessRaw)',
       level: LogLevel.info,
       metadata: {
         'roomId': widget.room.id,
         'roomName': widget.room.name,
-        'fanSpeed': enabled ? _fanSpeed.round() : 0,
-        'brightness': enabled ? _masterBrightness.round() : 0,
+        'roomIcon': widget.room.icon,
+        'deviceCount': widget.room.deviceIds.length,
+        'fanSpeed': fanSpeedPercent,
+        'fanSpeedRaw': fanSpeedRaw,
+        'brightness': brightnessPercent,
+        'brightnessRaw': brightnessRaw,
+        'previousState': !enabled,
+        'newState': enabled,
+        'bleConnected': bleService.isConnected,
+        'actionType': 'master_controller_toggle',
+        'timestamp': DateTime.now().toIso8601String(),
       },
     );
-
-    final bleService = ref.read(bluetoothServiceProvider);
     if (bleService.isConnected) {
       Logger.debug('RoomDetailScreen: BLE connected, sending commands');
       try {
@@ -1498,12 +1582,33 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
   }
 
   Future<void> _handleFanSpeedChange(int percent) async {
+    final previousSpeed = _fanSpeed.round();
+    
     // If master control is off, force to 0
     if (!_allDevicesOn) {
       setState(() {
         _fanSpeed = 0;
         _updateAnimations();
       });
+      
+      // Log the blocked action
+      final loggingService = LoggingService();
+      await loggingService.logAction(
+        action: 'Fan Speed Change Blocked',
+        category: 'device_control',
+        details: 'Fan speed change to $percent% blocked because master controller is OFF in room "${widget.room.name}"',
+        metadata: {
+          'roomId': widget.room.id,
+          'roomName': widget.room.name,
+          'requestedSpeed': percent,
+          'actualSpeed': 0,
+          'previousSpeed': previousSpeed,
+          'masterControllerState': false,
+          'actionType': 'fan_speed_change_blocked',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.info,
+      );
       return;
     }
 
@@ -1516,6 +1621,25 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
         fanSpeed: ((percent / 100) * 255).round(),
         ledBrightness: currentState?['ledBrightness'] ?? 0,
         securityEnabled: currentState?['securityEnabled'] ?? false,
+      );
+
+      // Log the action (saved but not sent to device)
+      final loggingService = LoggingService();
+      await loggingService.logAction(
+        action: 'Fan Speed Changed (Offline)',
+        category: 'device_control',
+        details: 'Fan speed changed to $percent% in room "${widget.room.name}" (saved locally, device not connected)',
+        metadata: {
+          'roomId': widget.room.id,
+          'roomName': widget.room.name,
+          'previousSpeed': previousSpeed,
+          'newSpeed': percent,
+          'rawValue': ((percent / 100) * 255).round(),
+          'bleConnected': false,
+          'actionType': 'fan_speed_change_offline',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.info,
       );
 
       // Only show notification once, not repeatedly
@@ -1541,6 +1665,28 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
             onTimeout: () => false,
           );
 
+      // Log the action
+      final loggingService = LoggingService();
+      await loggingService.logAction(
+        action: success ? 'Fan Speed Changed' : 'Fan Speed Change Failed',
+        category: 'device_control',
+        details: success 
+            ? 'Fan speed changed from $previousSpeed% to $percent% in room "${widget.room.name}"'
+            : 'Failed to change fan speed to $percent% in room "${widget.room.name}"',
+        metadata: {
+          'roomId': widget.room.id,
+          'roomName': widget.room.name,
+          'previousSpeed': previousSpeed,
+          'newSpeed': percent,
+          'rawValue': speed,
+          'bleConnected': true,
+          'success': success,
+          'actionType': 'fan_speed_change',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: success ? LogLevel.info : LogLevel.warning,
+      );
+
       if (!mounted) return;
 
       AppNotifications.showSnackBar(
@@ -1551,6 +1697,23 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
         type: success ? AppNotificationType.success : AppNotificationType.error,
       );
     } catch (e) {
+      // Log the error
+      final loggingService = LoggingService();
+      await loggingService.logAction(
+        action: 'Fan Speed Change Error',
+        category: 'device_control',
+        details: 'Error changing fan speed to $percent% in room "${widget.room.name}": ${e.toString()}',
+        metadata: {
+          'roomId': widget.room.id,
+          'roomName': widget.room.name,
+          'requestedSpeed': percent,
+          'error': e.toString(),
+          'actionType': 'fan_speed_change_error',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.error,
+      );
+      
       if (!mounted) return;
       AppNotifications.showSnackBar(
         context,
@@ -1561,12 +1724,33 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
   }
 
   Future<void> _handleLightBrightnessChange(int percent) async {
+    final previousBrightness = _masterBrightness.round();
+    
     // If master control is off, force to 0
     if (!_allDevicesOn) {
       setState(() {
         _masterBrightness = 0;
         _updateAnimations();
       });
+      
+      // Log the blocked action
+      final loggingService = LoggingService();
+      await loggingService.logAction(
+        action: 'Light Brightness Change Blocked',
+        category: 'device_control',
+        details: 'Light brightness change to $percent% blocked because master controller is OFF in room "${widget.room.name}"',
+        metadata: {
+          'roomId': widget.room.id,
+          'roomName': widget.room.name,
+          'requestedBrightness': percent,
+          'actualBrightness': 0,
+          'previousBrightness': previousBrightness,
+          'masterControllerState': false,
+          'actionType': 'brightness_change_blocked',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.info,
+      );
       return;
     }
 
@@ -1579,6 +1763,25 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
         fanSpeed: currentState?['fanSpeed'] ?? 0,
         ledBrightness: ((percent / 100) * 255).round(),
         securityEnabled: currentState?['securityEnabled'] ?? false,
+      );
+      
+      // Log the action (saved but not sent to device)
+      final loggingService = LoggingService();
+      await loggingService.logAction(
+        action: 'Light Brightness Changed (Offline)',
+        category: 'device_control',
+        details: 'Light brightness changed to $percent% in room "${widget.room.name}" (saved locally, device not connected)',
+        metadata: {
+          'roomId': widget.room.id,
+          'roomName': widget.room.name,
+          'previousBrightness': previousBrightness,
+          'newBrightness': percent,
+          'rawValue': ((percent / 100) * 255).round(),
+          'bleConnected': false,
+          'actionType': 'brightness_change_offline',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.info,
       );
 
       // Only show notification once, not repeatedly
@@ -1604,6 +1807,28 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
             onTimeout: () => false,
           );
 
+      // Log the action
+      final loggingService = LoggingService();
+      await loggingService.logAction(
+        action: success ? 'Light Brightness Changed' : 'Light Brightness Change Failed',
+        category: 'device_control',
+        details: success 
+            ? 'Light brightness changed from $previousBrightness% to $percent% in room "${widget.room.name}"'
+            : 'Failed to change light brightness to $percent% in room "${widget.room.name}"',
+        metadata: {
+          'roomId': widget.room.id,
+          'roomName': widget.room.name,
+          'previousBrightness': previousBrightness,
+          'newBrightness': percent,
+          'rawValue': brightness,
+          'bleConnected': true,
+          'success': success,
+          'actionType': 'brightness_change',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: success ? LogLevel.info : LogLevel.warning,
+      );
+
       if (!mounted) return;
 
       AppNotifications.showSnackBar(
@@ -1614,6 +1839,23 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
         type: success ? AppNotificationType.success : AppNotificationType.error,
       );
     } catch (e) {
+      // Log the error
+      final loggingService = LoggingService();
+      await loggingService.logAction(
+        action: 'Light Brightness Change Error',
+        category: 'device_control',
+        details: 'Error changing light brightness to $percent% in room "${widget.room.name}": ${e.toString()}',
+        metadata: {
+          'roomId': widget.room.id,
+          'roomName': widget.room.name,
+          'requestedBrightness': percent,
+          'error': e.toString(),
+          'actionType': 'brightness_change_error',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.error,
+      );
+      
       if (!mounted) return;
       AppNotifications.showSnackBar(
         context,

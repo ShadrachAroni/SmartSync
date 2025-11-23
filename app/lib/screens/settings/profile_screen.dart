@@ -1,10 +1,14 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../core/widgets/app_notifications.dart';
 import '../../core/widgets/lottie_loading.dart';
+import '../../services/firebase_service.dart';
+import '../../models/user_model.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -166,6 +170,90 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     }
   }
 
+  Future<void> _uploadProfilePicture(User user, UserModel userModel) async {
+    try {
+      final ImagePicker picker = ImagePicker();
+
+      // Show options: Camera or Gallery
+      final source = await showDialog<ImageSource>(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1F3A),
+          title: const Text(
+            'Select Image Source',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt, color: Colors.blue),
+                title: const Text('Camera', style: TextStyle(color: Colors.white)),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library, color: Colors.blue),
+                title: const Text('Gallery', style: TextStyle(color: Colors.white)),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      if (source == null) return;
+
+      final XFile? image = await picker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1920,
+        maxHeight: 1080,
+      );
+      if (image == null) return;
+
+      if (!mounted) return;
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Uploading image...',
+        type: AppNotificationType.info,
+      );
+
+      // Upload to Firebase Storage and update user profile
+      final firebaseService = FirebaseService();
+      final imageFile = File(image.path);
+
+      // Verify file exists before uploading
+      if (!await imageFile.exists()) {
+        throw Exception('Selected image file no longer exists');
+      }
+
+      final imageUrl = await firebaseService.uploadProfileImage(
+        userId: user.uid,
+        imageFile: imageFile,
+      );
+
+      // Update user profile with new image URL
+      final auth = ref.read(authServiceProvider);
+      await auth.updateUserData(user.uid, {
+        'profileImageUrl': imageUrl,
+      });
+
+      if (!mounted) return;
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Profile picture updated successfully',
+        type: AppNotificationType.success,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Failed to upload profile picture: $e',
+        type: AppNotificationType.error,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final userData = ref.watch(currentUserProvider);
@@ -260,36 +348,57 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
           AnimatedBuilder(
             animation: _glowAnimation,
             builder: (context, child) {
-              return Container(
-                width: 100,
-                height: 100,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.blue.withOpacity(_glowAnimation.value),
-                      Colors.cyan.withOpacity(_glowAnimation.value),
-                    ],
-                  ),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.blue.withOpacity(0.5 * _glowAnimation.value),
-                      blurRadius: 20,
-                      spreadRadius: 5,
-                    ),
-                  ],
-                ),
-                child: userModel.profileImageUrl != null
-                    ? ClipOval(
-                        child: Image.network(
-                          userModel.profileImageUrl!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Center(
+              return GestureDetector(
+                onTap: user?.email != null && user!.providerData.any((p) => p.providerId == 'password') 
+                    ? () => _uploadProfilePicture(user, userModel)
+                    : null,
+                child: Stack(
+                  children: [
+                    Container(
+                      width: 100,
+                      height: 100,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.blue.withOpacity(_glowAnimation.value),
+                            Colors.cyan.withOpacity(_glowAnimation.value),
+                          ],
+                        ),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.blue.withOpacity(0.5 * _glowAnimation.value),
+                            blurRadius: 20,
+                            spreadRadius: 5,
+                          ),
+                        ],
+                      ),
+                      child: userModel.profileImageUrl != null
+                          ? ClipOval(
+                              child: Image.network(
+                                userModel.profileImageUrl!,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Center(
+                                    child: Text(
+                                      (userModel.name.isNotEmpty
+                                              ? userModel.name
+                                              : 'U')
+                                          .substring(0, 1)
+                                          .toUpperCase(),
+                                      style: const TextStyle(
+                                        fontSize: 40,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            )
+                          : Center(
                               child: Text(
-                                (userModel.name.isNotEmpty
-                                        ? userModel.name
-                                        : 'U')
+                                (userModel.name.isNotEmpty ? userModel.name : 'U')
                                     .substring(0, 1)
                                     .toUpperCase(),
                                 style: const TextStyle(
@@ -298,33 +407,75 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                                   color: Colors.white,
                                 ),
                               ),
-                            );
-                          },
-                        ),
-                      )
-                    : Center(
-                        child: Text(
-                          (userModel.name.isNotEmpty ? userModel.name : 'U')
-                              .substring(0, 1)
-                              .toUpperCase(),
-                          style: const TextStyle(
-                            fontSize: 40,
-                            fontWeight: FontWeight.bold,
+                            ),
+                    ),
+                    if (user?.email != null && user!.providerData.any((p) => p.providerId == 'password'))
+                      Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.blue,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                          child: const Icon(
+                            Icons.camera_alt,
                             color: Colors.white,
+                            size: 16,
                           ),
                         ),
                       ),
+                  ],
+                ),
               );
             },
           ),
           const SizedBox(height: 16),
-          Text(
-            userModel.name,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // Calculate adaptive font size based on name length and available width
+              final nameLength = userModel.name.length;
+              final availableWidth = constraints.maxWidth;
+              double fontSize = 24.0;
+              int maxLines = 1;
+              
+              // Adjust font size based on name length
+              if (nameLength > 30) {
+                fontSize = 18.0;
+                maxLines = 2;
+              } else if (nameLength > 20) {
+                fontSize = 20.0;
+                maxLines = 2;
+              } else if (nameLength > 15) {
+                fontSize = 22.0;
+                maxLines = 1;
+              }
+              
+              // Further adjust based on available width
+              final estimatedWidth = nameLength * (fontSize * 0.6);
+              if (estimatedWidth > availableWidth * 0.9) {
+                fontSize = (availableWidth / nameLength) * 1.2;
+                fontSize = fontSize.clamp(16.0, 24.0);
+                if (fontSize < 20) {
+                  maxLines = 2;
+                }
+              }
+              
+              return Text(
+                userModel.name,
+                style: TextStyle(
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+                maxLines: maxLines,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                softWrap: true,
+              );
+            },
           ),
           if (user?.email != null) ...[
             const SizedBox(height: 4),

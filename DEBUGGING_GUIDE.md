@@ -64,6 +64,40 @@ adb logcat > app_logs.txt
 adb logcat *:E > app_errors.txt
 ```
 
+### Option 6: Filter Out BLASTBufferQueue Logs
+```powershell
+# Windows PowerShell - Exclude BLASTBufferQueue verbose logs
+adb logcat | Select-String -Pattern "flutter|smartsync|error|exception" -CaseSensitive:$false | Where-Object { $_ -notmatch "BLASTBufferQueue" }
+
+# Linux/Mac - Exclude BLASTBufferQueue verbose logs
+adb logcat | grep -iE "flutter|smartsync|error|exception" | grep -v "BLASTBufferQueue"
+```
+
+## BLASTBufferQueue Logging (Known Issue)
+
+You may see excessive logging from `BLASTBufferQueue` like:
+```
+D/BLASTBufferQueue: [SurfaceView[...] Can not acquire next buffer (WTC=false), ret=2
+```
+
+**This is NOT an error** - it's a verbose Android system log related to surface buffer management. It doesn't affect app functionality.
+
+### Solutions:
+
+1. **Programmatic Suppression** (already implemented):
+   - `MainActivity` attempts to suppress these logs at runtime
+   - Works on rooted devices or emulators with system permissions
+   - On regular devices, logs may still appear but are harmless
+
+2. **Filter Logs When Viewing**:
+   - Use the updated `check_logcat.ps1` or `check_logcat.sh` scripts (they now exclude BLASTBufferQueue)
+   - Or manually filter: `adb logcat | grep -v "BLASTBufferQueue"`
+
+3. **Set Log Level via ADB** (temporary, requires device connection):
+   ```bash
+   adb shell setprop log.tag.BLASTBufferQueue ASSERT
+   ```
+
 ## Common Issues to Check
 
 ### 1. App Not Starting After Installation

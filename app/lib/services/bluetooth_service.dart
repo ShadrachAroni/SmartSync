@@ -4,12 +4,14 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart' as flutter_blue;
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/sensor_data.dart';
 import '../models/schedule_model.dart';
+import '../models/log_entry.dart';
 import '../core/constants/ble_constants.dart';
 import '../core/utils/logger.dart';
 import 'appliance_state_service.dart';
 import 'firebase_service.dart';
 import 'monitoring_service.dart';
 import 'notification_service.dart';
+import 'logging_service.dart';
 
 class BluetoothService {
   static final BluetoothService _instance = BluetoothService._internal();
@@ -284,16 +286,43 @@ class BluetoothService {
   // Control methods
   Future<bool> setFanSpeed(int speed) async {
     int value = ((speed / 100) * 255).round().clamp(0, 255);
+    
+    // Get previous state for logging
+    final stateService = ApplianceStateService();
+    final currentState = await stateService.loadApplianceState();
+    final previousSpeed = currentState?['fanSpeed'] ?? 0;
+    final previousSpeedPercent = ((previousSpeed / 255) * 100).round();
+    
     final success = await sendCommand(BLEConstants.cmdSetFan, value);
     if (success) {
       // Save state to Firebase
-      final stateService = ApplianceStateService();
-      final currentState = await stateService.loadApplianceState();
       await stateService.saveApplianceState(
         fanSpeed: value,
         ledBrightness: currentState?['ledBrightness'] ?? 0,
         securityEnabled: currentState?['securityEnabled'] ?? false,
         autoMode: currentState?['autoMode'],
+      );
+      
+      // Log detailed action
+      final loggingService = LoggingService();
+      await loggingService.logAction(
+        action: 'Fan Speed Changed',
+        category: 'device_control',
+        details: 'Fan speed changed from $previousSpeedPercent% to $speed% (raw: $previousSpeed → $value)',
+        metadata: {
+          'deviceType': 'fan',
+          'previousSpeed': previousSpeed,
+          'previousSpeedPercent': previousSpeedPercent,
+          'newSpeed': value,
+          'newSpeedPercent': speed,
+          'rawValue': value,
+          'percentageValue': speed,
+          'bleConnected': isConnected,
+          'deviceId': connectedDeviceId,
+          'actionType': 'fan_speed_change',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.info,
       );
       
       // Send notification for manual device change
@@ -318,16 +347,43 @@ class BluetoothService {
 
   Future<bool> setLEDBrightness(int brightness) async {
     int value = ((brightness / 100) * 255).round().clamp(0, 255);
+    
+    // Get previous state for logging
+    final stateService = ApplianceStateService();
+    final currentState = await stateService.loadApplianceState();
+    final previousBrightness = currentState?['ledBrightness'] ?? 0;
+    final previousBrightnessPercent = ((previousBrightness / 255) * 100).round();
+    
     final success = await sendCommand(BLEConstants.cmdSetLED, value);
     if (success) {
       // Save state to Firebase
-      final stateService = ApplianceStateService();
-      final currentState = await stateService.loadApplianceState();
       await stateService.saveApplianceState(
         fanSpeed: currentState?['fanSpeed'] ?? 0,
         ledBrightness: value,
         securityEnabled: currentState?['securityEnabled'] ?? false,
         autoMode: currentState?['autoMode'],
+      );
+      
+      // Log detailed action
+      final loggingService = LoggingService();
+      await loggingService.logAction(
+        action: 'LED Brightness Changed',
+        category: 'device_control',
+        details: 'LED brightness changed from $previousBrightnessPercent% to $brightness% (raw: $previousBrightness → $value)',
+        metadata: {
+          'deviceType': 'light',
+          'previousBrightness': previousBrightness,
+          'previousBrightnessPercent': previousBrightnessPercent,
+          'newBrightness': value,
+          'newBrightnessPercent': brightness,
+          'rawValue': value,
+          'percentageValue': brightness,
+          'bleConnected': isConnected,
+          'deviceId': connectedDeviceId,
+          'actionType': 'led_brightness_change',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.info,
       );
       
       // Send notification for manual device change
@@ -351,33 +407,75 @@ class BluetoothService {
   }
 
   Future<bool> setAutoMode(bool enabled) async {
+    // Get previous state for logging
+    final stateService = ApplianceStateService();
+    final currentState = await stateService.loadApplianceState();
+    final previousAutoMode = currentState?['autoMode'] ?? false;
+    
     final success = await sendCommand(BLEConstants.cmdSetAutoMode, enabled);
     if (success) {
       // Save state to Firebase
-      final stateService = ApplianceStateService();
-      final currentState = await stateService.loadApplianceState();
       await stateService.saveApplianceState(
         fanSpeed: currentState?['fanSpeed'] ?? 0,
         ledBrightness: currentState?['ledBrightness'] ?? 0,
         securityEnabled: currentState?['securityEnabled'] ?? false,
         autoMode: enabled,
       );
+      
+      // Log detailed action
+      final loggingService = LoggingService();
+      await loggingService.logAction(
+        action: enabled ? 'Auto Mode ENABLED' : 'Auto Mode DISABLED',
+        category: 'settings',
+        details: 'Auto Mode ${enabled ? "enabled" : "disabled"} (previous state: ${previousAutoMode ? "enabled" : "disabled"})',
+        metadata: {
+          'feature': 'auto_mode',
+          'previousState': previousAutoMode,
+          'newState': enabled,
+          'bleConnected': isConnected,
+          'deviceId': connectedDeviceId,
+          'actionType': 'auto_mode_toggle',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.info,
+      );
     }
     return success;
   }
 
   Future<bool> setSecurityEnabled(bool enabled) async {
+    // Get previous state for logging
+    final stateService = ApplianceStateService();
+    final currentState = await stateService.loadApplianceState();
+    final previousSecurityState = currentState?['securityEnabled'] ?? false;
+    
     final payload = {'enabled': enabled};
     final success = await sendCommand(BLEConstants.cmdSetSecurity, payload);
     if (success) {
       // Save state to Firebase
-      final stateService = ApplianceStateService();
-      final currentState = await stateService.loadApplianceState();
       await stateService.saveApplianceState(
         fanSpeed: currentState?['fanSpeed'] ?? 0,
         ledBrightness: currentState?['ledBrightness'] ?? 0,
         securityEnabled: enabled,
         autoMode: currentState?['autoMode'],
+      );
+      
+      // Log detailed action
+      final loggingService = LoggingService();
+      await loggingService.logAction(
+        action: enabled ? 'Security System ARMED' : 'Security System DISARMED',
+        category: 'security',
+        details: 'Security system ${enabled ? "armed" : "disarmed"} (previous state: ${previousSecurityState ? "armed" : "disarmed"})',
+        metadata: {
+          'feature': 'security_system',
+          'previousState': previousSecurityState,
+          'newState': enabled,
+          'bleConnected': isConnected,
+          'deviceId': connectedDeviceId,
+          'actionType': 'security_toggle',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.info,
       );
     }
     return success;

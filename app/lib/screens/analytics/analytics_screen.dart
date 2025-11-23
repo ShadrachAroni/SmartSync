@@ -332,7 +332,6 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen>
                           // Invalidate all providers when time range changes
                           if (oldDays != days) {
                             final oldParams = AnalyticsParams(userId: userId, days: oldDays);
-                            final newParams = AnalyticsParams(userId: userId, days: days);
                             
                             // Invalidate old providers
                             ref.invalidate(analyticsInsightsProvider(oldParams));
@@ -474,7 +473,7 @@ class _OverviewTabState extends ConsumerState<_OverviewTab> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _AnalyticsTabHelpers.buildSummaryCards(insights, previousInsights),
+                              _AnalyticsTabHelpers.buildSummaryCards(insights, previousInsights, context),
                               const SizedBox(height: 24),
                               _AnalyticsTabHelpers.buildSectionHeader(
                                   'Environmental Trends'),
@@ -507,7 +506,7 @@ class _OverviewTabState extends ConsumerState<_OverviewTab> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _AnalyticsTabHelpers.buildSummaryCards(insights, null),
+                              _AnalyticsTabHelpers.buildSummaryCards(insights, null, context),
                               const SizedBox(height: 24),
                               _AnalyticsTabHelpers.buildSectionHeader(
                                   'Environmental Trends'),
@@ -540,7 +539,7 @@ class _OverviewTabState extends ConsumerState<_OverviewTab> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _AnalyticsTabHelpers.buildSummaryCards(insights, null),
+                              _AnalyticsTabHelpers.buildSummaryCards(insights, null, context),
                               const SizedBox(height: 24),
                               _AnalyticsTabHelpers.buildSectionHeader(
                                   'Environmental Trends'),
@@ -1009,7 +1008,13 @@ class _PredictionsTabState extends ConsumerState<_PredictionsTab> {
       child: predictionsAsync.when(
         data: (predictions) {
           if (predictions.isEmpty) {
-            return _AnalyticsTabHelpers.buildEmptyPredictions();
+            return SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: SizedBox(
+                height: MediaQuery.of(context).size.height * 0.7,
+                child: _AnalyticsTabHelpers.buildEmptyPredictions(),
+              ),
+            );
           }
 
           return ListView.builder(
@@ -1074,16 +1079,27 @@ class _AnalyticsTabHelpers {
     
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: const Color(0xFF1A1F3A),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: SingleChildScrollView(
+          child: Container(
+            padding: EdgeInsets.only(
+              left: 24,
+              right: 24,
+              top: 24,
+              bottom: 24 + MediaQuery.of(context).padding.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
             Row(
               children: [
                 Container(
@@ -1202,7 +1218,9 @@ class _AnalyticsTabHelpers {
               ),
             ),
             const SizedBox(height: 16),
-          ],
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1415,7 +1433,7 @@ class _AnalyticsTabHelpers {
     );
   }
 
-  static Widget buildSummaryCards(AnalyticsInsights insights, AnalyticsInsights? previousInsights) {
+  static Widget buildSummaryCards(AnalyticsInsights insights, AnalyticsInsights? previousInsights, BuildContext context) {
     final hasData = insights.totalLogs > 0;
 
     return Column(
@@ -1433,6 +1451,7 @@ class _AnalyticsTabHelpers {
                 trend: hasData && insights.avgTemperature > 0
                     ? _getTemperatureTrend(insights.avgTemperature, previousInsights?.avgTemperature)
                     : null,
+                context: context,
               ),
             ),
             const SizedBox(width: 12),
@@ -1447,6 +1466,7 @@ class _AnalyticsTabHelpers {
                 trend: hasData && insights.avgHumidity > 0
                     ? _getHumidityTrend(insights.avgHumidity, previousInsights?.avgHumidity)
                     : null,
+                context: context,
               ),
             ),
           ],
@@ -1461,6 +1481,7 @@ class _AnalyticsTabHelpers {
                 value: hasData ? insights.motionEvents.toString() : 'N/A',
                 color: const Color(0xFFFFE66D),
                 subtitle: 'Daily average',
+                context: context,
               ),
             ),
             const SizedBox(width: 12),
@@ -1473,6 +1494,7 @@ class _AnalyticsTabHelpers {
                     : 'N/A',
                 color: const Color(0xFFA8E6CF),
                 subtitle: 'This period',
+                context: context,
               ),
             ),
           ],
@@ -1488,29 +1510,32 @@ class _AnalyticsTabHelpers {
     required Color color,
     String? trend,
     String? subtitle,
+    BuildContext? context,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            const Color(0xFF1A1F3A),
-            const Color(0xFF0F1419),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.3)),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.2),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
+    return GestureDetector(
+      onTap: context != null ? () => _showStatCardExplanation(context, label, icon, color) : null,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              const Color(0xFF1A1F3A),
+              const Color(0xFF0F1419),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-        ],
-      ),
-      child: Column(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.3)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.2),
+              blurRadius: 15,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -1584,12 +1609,83 @@ class _AnalyticsTabHelpers {
           ],
         ],
       ),
+      ),
     );
   }
 
-  static String _getTemperatureTrend(double currentTemp, double? previousTemp) {
+  static void _showStatCardExplanation(
+    BuildContext context,
+    String label,
+    IconData icon,
+    Color color,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1F3A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: color, size: 28),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'This metric shows ${label.toLowerCase()} information for your room.',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.white70,
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () => Navigator.pop(context),
+                style: TextButton.styleFrom(
+                  backgroundColor: color.withOpacity(0.2),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                child: const Text(
+                  'Close',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String? _getTemperatureTrend(double currentTemp, double? previousTemp) {
     if (previousTemp == null || previousTemp == 0) {
-      return 'no data';
+      return null; // Return null instead of 'no data' to hide the badge
     }
     
     final change = currentTemp - previousTemp;
@@ -1604,9 +1700,9 @@ class _AnalyticsTabHelpers {
     }
   }
 
-  static String _getHumidityTrend(double currentHumidity, double? previousHumidity) {
+  static String? _getHumidityTrend(double currentHumidity, double? previousHumidity) {
     if (previousHumidity == null || previousHumidity == 0) {
-      return 'no data';
+      return null; // Return null instead of 'no data' to hide the badge
     }
     
     final change = currentHumidity - previousHumidity;

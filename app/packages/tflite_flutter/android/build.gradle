@@ -61,7 +61,8 @@ android {
 
 
 dependencies {
-    // Updated to 2.15.0 to support CAST op version 5 (compatible with TensorFlow 2.15.1)
+    // Using 2.15.0 - latest stable version that supports Select TF Ops
+    // Note: CAST v5 support may require model reconversion or newer TFLite runtime
     def tflite_version = "2.15.0"
     
     implementation("org.tensorflow:tensorflow-lite:${tflite_version}")

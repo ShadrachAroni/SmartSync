@@ -25,5 +25,6 @@ Write-Host "Press Ctrl+C to stop" -ForegroundColor Yellow
 Write-Host ""
 
 # Filter for Flutter, SmartSync, and error messages
-adb logcat -s Flutter:V flutter:V AndroidRuntime:E *:S | Select-String -Pattern "flutter|smartsync|error|exception|crash|fatal" -CaseSensitive:$false
+# Exclude BLASTBufferQueue verbose logs (known Android system log, not an error)
+adb logcat -s Flutter:V flutter:V AndroidRuntime:E *:S | Select-String -Pattern "flutter|smartsync|error|exception|crash|fatal" -CaseSensitive:$false | Where-Object { $_ -notmatch "BLASTBufferQueue" }
 

@@ -65,35 +65,53 @@ class SettingsController extends StateNotifier<SettingsState> {
   }
 
   Future<void> toggleNotifications(String userId, bool enabled) async {
+    final previousState = state.notificationsEnabled;
     state = state.copyWith(notificationsEnabled: enabled);
     await _storage.saveBool(_notifKey, enabled);
     if (enabled) {
       await _notifications.initialize(userId);
     }
-    // Log the change
+    // Log the change with detailed information
     final loggingService = LoggingService();
     await loggingService.logAction(
-      action: 'Push Notifications ${enabled ? "enabled" : "disabled"}',
+      action: 'Push Notifications ${enabled ? "ENABLED" : "DISABLED"}',
       category: 'settings',
-      details: 'User ${enabled ? "turned on" : "turned off"} push notifications',
+      details: 'Push notifications ${enabled ? "enabled" : "disabled"} (previous state: ${previousState ? "enabled" : "disabled"})',
+      metadata: {
+        'setting': 'push_notifications',
+        'previousState': previousState,
+        'newState': enabled,
+        'userId': userId,
+        'actionType': 'notification_toggle',
+        'timestamp': DateTime.now().toIso8601String(),
+      },
       level: LogLevel.info,
     );
   }
 
   Future<void> toggleCaregiverAlerts(bool enabled) async {
+    final previousState = state.caregiverAlerts;
     state = state.copyWith(caregiverAlerts: enabled);
     await _storage.saveBool(_caregiverKey, enabled);
-    // Log the change
+    // Log the change with detailed information
     final loggingService = LoggingService();
     await loggingService.logAction(
-      action: 'Caregiver Alerts ${enabled ? "enabled" : "disabled"}',
+      action: 'Caregiver Alerts ${enabled ? "ENABLED" : "DISABLED"}',
       category: 'settings',
-      details: 'User ${enabled ? "turned on" : "turned off"} caregiver alerts',
+      details: 'Caregiver alerts ${enabled ? "enabled" : "disabled"} (previous state: ${previousState ? "enabled" : "disabled"})',
+      metadata: {
+        'setting': 'caregiver_alerts',
+        'previousState': previousState,
+        'newState': enabled,
+        'actionType': 'caregiver_alerts_toggle',
+        'timestamp': DateTime.now().toIso8601String(),
+      },
       level: LogLevel.info,
     );
   }
 
   Future<void> setAutoMode(bool enabled) async {
+    final previousState = state.autoMode;
     state = state.copyWith(autoMode: enabled);
     await _storage.saveBool(_autoModeKey, enabled);
     Logger.info('Auto mode preference updated: $enabled');
@@ -102,9 +120,10 @@ class SettingsController extends StateNotifier<SettingsState> {
     await _adaptiveAuto.setEnabled(enabled);
     
     // Also send command to BLE device for firmware auto mode (as fallback)
+    bool bleCommandSuccess = false;
     if (_bluetooth.isConnected) {
       try {
-        await _bluetooth.setAutoMode(enabled).timeout(
+        bleCommandSuccess = await _bluetooth.setAutoMode(enabled).timeout(
           const Duration(seconds: 5),
           onTimeout: () {
             Logger.warning('Auto mode BLE command timeout');
@@ -119,12 +138,21 @@ class SettingsController extends StateNotifier<SettingsState> {
       Logger.warning('BLE not connected, auto mode preference saved but not sent to device');
     }
     
-    // Log the change
+    // Log the change with detailed information
     final loggingService = LoggingService();
     await loggingService.logAction(
-      action: 'Adaptive Auto Mode ${enabled ? "enabled" : "disabled"}',
+      action: 'Adaptive Auto Mode ${enabled ? "ENABLED" : "DISABLED"}',
       category: 'settings',
-      details: 'User ${enabled ? "turned on" : "turned off"} AI-powered adaptive auto mode',
+      details: 'AI-powered adaptive auto mode ${enabled ? "enabled" : "disabled"} (previous state: ${previousState ? "enabled" : "disabled"})',
+      metadata: {
+        'setting': 'adaptive_auto_mode',
+        'previousState': previousState,
+        'newState': enabled,
+        'bleConnected': _bluetooth.isConnected,
+        'bleCommandSuccess': bleCommandSuccess,
+        'actionType': 'auto_mode_toggle',
+        'timestamp': DateTime.now().toIso8601String(),
+      },
       level: LogLevel.info,
     );
   }

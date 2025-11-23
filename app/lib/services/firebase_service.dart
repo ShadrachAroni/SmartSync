@@ -12,7 +12,10 @@ import '../models/daily_analytics.dart';
 
 class FirebaseService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseStorage _storage = FirebaseStorage.instance;
+  // Use instanceFor to ensure correct bucket configuration
+  final FirebaseStorage _storage = FirebaseStorage.instanceFor(
+    bucket: 'smartsync-cf370.firebasestorage.app',
+  );
 
   // ==================== DEVICES ====================
 
@@ -183,7 +186,8 @@ class FirebaseService {
             .toList());
   }
 
-  Future<List<DailyAnalytics>> getDailyAnalytics(String userId, int days) async {
+  Future<List<DailyAnalytics>> getDailyAnalytics(
+      String userId, int days) async {
     final cutoff = DateTime.now().subtract(Duration(days: days));
     final snapshot = await _firestore
         .collection('daily_analytics')
@@ -207,8 +211,8 @@ class FirebaseService {
         .map((snapshot) => snapshot.docs.map(DailyAnalytics.fromDoc).toList());
   }
 
-  Future<List<SensorData>> getUserSensorHistory(
-      String userId, int days, {int limit = 2000}) async {
+  Future<List<SensorData>> getUserSensorHistory(String userId, int days,
+      {int limit = 2000}) async {
     final cutoff = DateTime.now().subtract(Duration(days: days));
     final snapshot = await _firestore
         .collection('sensor_logs')
@@ -218,14 +222,12 @@ class FirebaseService {
         .limit(limit)
         .get();
 
-    return snapshot.docs
-        .map((doc) => SensorData.fromJson(doc.data()))
-        .toList();
+    return snapshot.docs.map((doc) => SensorData.fromJson(doc.data())).toList();
   }
 
   /// Stream sensor history for real-time updates
-  Stream<List<SensorData>> watchUserSensorHistory(
-      String userId, int days, {int limit = 2000}) {
+  Stream<List<SensorData>> watchUserSensorHistory(String userId, int days,
+      {int limit = 2000}) {
     final cutoff = DateTime.now().subtract(Duration(days: days));
     return _firestore
         .collection('sensor_logs')
@@ -327,61 +329,67 @@ class FirebaseService {
       // Energy (kWh) = Power (kW) × Time (hours)
       // We need to account for time duration between logs
       double totalEnergy = 0.0;
-      
+
       if (logs.docs.isEmpty) {
         return 0.0;
       }
-      
+
       // Sort logs by timestamp
       final sortedLogs = logs.docs.toList()
         ..sort((a, b) {
-          final aTime = (a.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
-          final bTime = (b.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+          final aTime =
+              (a.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+          final bTime =
+              (b.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
           return aTime.compareTo(bTime);
         });
-      
+
       // Calculate power consumption for each time interval
       for (int i = 0; i < sortedLogs.length; i++) {
         final data = sortedLogs[i].data();
         final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
-        
+
         if (timestamp == null) continue;
-        
+
         // Calculate power in kW from device speeds
         // Fan: 0-50W (0.05kW max) based on speed (0-255)
         // LED: 0-10W (0.01kW max) based on brightness (0-255)
         final fanSpeed = (data['fanSpeed'] as num?)?.toInt() ?? 0;
         final ledBrightness = (data['ledBrightness'] as num?)?.toInt() ?? 0;
-        
+
         final fanPowerKw = (fanSpeed / 255.0) * 0.05; // 0-0.05 kW
         final ledPowerKw = (ledBrightness / 255.0) * 0.01; // 0-0.01 kW
         final totalPowerKw = fanPowerKw + ledPowerKw;
-        
+
         // Calculate time duration for this log entry
         // If this is the last log, use time until now, otherwise use time until next log
         Duration duration;
         if (i < sortedLogs.length - 1) {
-          final nextTimestamp = (sortedLogs[i + 1].data()['timestamp'] as Timestamp?)?.toDate();
+          final nextTimestamp =
+              (sortedLogs[i + 1].data()['timestamp'] as Timestamp?)?.toDate();
           if (nextTimestamp != null) {
             duration = nextTimestamp.difference(timestamp);
           } else {
-            duration = const Duration(minutes: 5); // Default 5 minutes if next timestamp missing
+            duration = const Duration(
+                minutes: 5); // Default 5 minutes if next timestamp missing
           }
         } else {
           // Last log: use time until now or default 5 minutes
           duration = DateTime.now().difference(timestamp);
           if (duration.isNegative || duration.inMinutes > 60) {
-            duration = const Duration(minutes: 5); // Cap at 5 minutes for last entry
+            duration =
+                const Duration(minutes: 5); // Cap at 5 minutes for last entry
           }
         }
-        
+
         // Ensure minimum duration of 1 minute to avoid division issues
-        final hours = duration.inSeconds.clamp(60, 3600) / 3600.0; // Convert to hours (min 1 min, max 1 hour)
-        
+        final hours = duration.inSeconds.clamp(60, 3600) /
+            3600.0; // Convert to hours (min 1 min, max 1 hour)
+
         // Energy = Power × Time
         totalEnergy += totalPowerKw * hours;
       }
-      
+
       return totalEnergy;
     } catch (e) {
       // Return 0 on error instead of throwing
@@ -416,8 +424,10 @@ class FirebaseService {
         // Sort logs by timestamp
         final sortedLogs = logs.docs.toList()
           ..sort((a, b) {
-            final aTime = (a.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
-            final bTime = (b.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+            final aTime = (a.data()['timestamp'] as Timestamp?)?.toDate() ??
+                DateTime.now();
+            final bTime = (b.data()['timestamp'] as Timestamp?)?.toDate() ??
+                DateTime.now();
             return aTime.compareTo(bTime);
           });
 
@@ -425,13 +435,13 @@ class FirebaseService {
         for (int i = 0; i < sortedLogs.length; i++) {
           final data = sortedLogs[i].data();
           final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
-          
+
           if (timestamp == null) continue;
 
           // Calculate power in kW
           final fanSpeed = (data['fanSpeed'] as num?)?.toInt() ?? 0;
           final ledBrightness = (data['ledBrightness'] as num?)?.toInt() ?? 0;
-          
+
           final fanPowerKw = (fanSpeed / 255.0) * 0.05; // 0-0.05 kW
           final ledPowerKw = (ledBrightness / 255.0) * 0.01; // 0-0.01 kW
           final totalPowerKw = fanPowerKw + ledPowerKw;
@@ -439,7 +449,8 @@ class FirebaseService {
           // Calculate time duration
           Duration duration;
           if (i < sortedLogs.length - 1) {
-            final nextTimestamp = (sortedLogs[i + 1].data()['timestamp'] as Timestamp?)?.toDate();
+            final nextTimestamp =
+                (sortedLogs[i + 1].data()['timestamp'] as Timestamp?)?.toDate();
             if (nextTimestamp != null) {
               duration = nextTimestamp.difference(timestamp);
             } else {
@@ -491,29 +502,27 @@ class FirebaseService {
           .where('userId', isEqualTo: userId)
           .snapshots()
           .timeout(
-            const Duration(seconds: 30),
-            onTimeout: (sink) {
-              sink.addError('Request timed out. Please check your connection.');
-            },
-          )
-          .map(
-            (snapshot) {
-              final alerts = snapshot.docs
-                  .map((doc) => AlertModel.fromFirestore(doc))
-                  .toList();
-              // Sort by timestamp descending in memory to avoid index requirement
-              alerts.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-              return alerts;
-            },
-          )
-          .handleError((error) {
-            // Handle Firestore errors gracefully
-            if (error.toString().contains('index')) {
-              throw Exception(
-                  'Database index required. Please contact support or wait a few minutes for the index to be created automatically.');
-            }
-            throw error;
-          });
+        const Duration(seconds: 30),
+        onTimeout: (sink) {
+          sink.addError('Request timed out. Please check your connection.');
+        },
+      ).map(
+        (snapshot) {
+          final alerts = snapshot.docs
+              .map((doc) => AlertModel.fromFirestore(doc))
+              .toList();
+          // Sort by timestamp descending in memory to avoid index requirement
+          alerts.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+          return alerts;
+        },
+      ).handleError((error) {
+        // Handle Firestore errors gracefully
+        if (error.toString().contains('index')) {
+          throw Exception(
+              'Database index required. Please contact support or wait a few minutes for the index to be created automatically.');
+        }
+        throw error;
+      });
     } catch (e) {
       return Stream.value(<AlertModel>[]);
     }
@@ -639,6 +648,19 @@ class FirebaseService {
             .toList());
   }
 
+  Stream<List<Map<String, dynamic>>> getUserAutomations(String userId) {
+    return _firestore
+        .collection('automations')
+        .where('userId', isEqualTo: userId)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => {
+                  'id': doc.id,
+                  ...doc.data(),
+                })
+            .toList());
+  }
+
   Future<void> toggleAutomation(String automationId, bool enabled) async {
     await _firestore.collection('automations').doc(automationId).update({
       'enabled': enabled,
@@ -693,6 +715,8 @@ class FirebaseService {
     for (var doc in devicesSnapshot.docs) {
       batch.update(doc.reference, {
         'isOn': enabled,
+        // When disabling, set value to 0 for adjustable appliances
+        'value': enabled ? (doc.data()['value'] ?? 0) : 0,
         'updatedAt': FieldValue.serverTimestamp(),
       });
     }
@@ -733,10 +757,10 @@ class FirebaseService {
       );
 
       final uploadTask = ref.putFile(imageFile, metadata);
-      
+
       // Wait for upload to complete and check state
       final snapshot = await uploadTask;
-      
+
       // Verify upload completed successfully
       if (snapshot.state != TaskState.success) {
         throw Exception('Upload failed with state: ${snapshot.state}');
@@ -760,10 +784,12 @@ class FirebaseService {
       String errorMessage = 'Failed to upload room image';
       switch (e.code) {
         case 'object-not-found':
-          errorMessage = 'Storage bucket not found. Please check Firebase Storage configuration.';
+          errorMessage =
+              'Storage bucket not found. Please check Firebase Storage configuration.';
           break;
         case 'unauthorized':
-          errorMessage = 'Permission denied. Please check Firebase Storage rules.';
+          errorMessage =
+              'Permission denied. Please check Firebase Storage rules.';
           break;
         case 'canceled':
           errorMessage = 'Upload was canceled.';
@@ -777,6 +803,86 @@ class FirebaseService {
       throw Exception('$errorMessage (Code: ${e.code})');
     } catch (e) {
       throw Exception('Failed to upload room image: $e');
+    }
+  }
+
+  // ==================== PROFILE IMAGE UPLOAD ====================
+
+  Future<String> uploadProfileImage({
+    required String userId,
+    required File imageFile,
+  }) async {
+    try {
+      // Check if file exists and is readable
+      if (!await imageFile.exists()) {
+        throw Exception('Image file does not exist');
+      }
+
+      // Create storage reference
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = '$timestamp.jpg';
+      final ref = _storage
+          .ref()
+          .child('profiles')
+          .child(userId)
+          .child(fileName);
+
+      // Upload file with metadata
+      final metadata = SettableMetadata(
+        contentType: 'image/jpeg',
+        customMetadata: {
+          'uploadedAt': DateTime.now().toIso8601String(),
+          'userId': userId,
+        },
+      );
+
+      final uploadTask = ref.putFile(imageFile, metadata);
+
+      // Wait for upload to complete and check state
+      final snapshot = await uploadTask;
+
+      // Verify upload completed successfully
+      if (snapshot.state != TaskState.success) {
+        throw Exception('Upload failed with state: ${snapshot.state}');
+      }
+
+      // Wait a brief moment to ensure the file is fully processed
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Get download URL
+      try {
+        final downloadUrl = await snapshot.ref.getDownloadURL();
+        return downloadUrl;
+      } catch (urlError) {
+        // If getting URL fails, try again after a short delay
+        await Future.delayed(const Duration(seconds: 1));
+        final downloadUrl = await snapshot.ref.getDownloadURL();
+        return downloadUrl;
+      }
+    } on FirebaseException catch (e) {
+      // Handle Firebase-specific errors
+      String errorMessage = 'Failed to upload profile image';
+      switch (e.code) {
+        case 'object-not-found':
+          errorMessage =
+              'Storage bucket not found. Please check Firebase Storage configuration.';
+          break;
+        case 'unauthorized':
+          errorMessage =
+              'Permission denied. Please check Firebase Storage rules.';
+          break;
+        case 'canceled':
+          errorMessage = 'Upload was canceled.';
+          break;
+        case 'unknown':
+          errorMessage = 'Unknown error occurred during upload.';
+          break;
+        default:
+          errorMessage = 'Firebase Storage error: ${e.message}';
+      }
+      throw Exception('$errorMessage (Code: ${e.code})');
+    } catch (e) {
+      throw Exception('Failed to upload profile image: $e');
     }
   }
 }

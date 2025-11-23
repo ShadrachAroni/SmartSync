@@ -252,7 +252,7 @@
   },
   "model_name": "schedule_predictor",
   "model_version": "1.0.0",
-  "tflite_model_path": "models/tflite/schedule_predictor.tflite",
+  "tflite_model_path": "models\\tflite\\schedule_predictor.tflite",
   "tflite_model_size_mb": 0.03395843505859375,
   "input_shape": [
     null,
@@ -265,8 +265,8 @@
   ],
   "quantized": false,
   "quantization_type": "float32",
-  "conversion_date": "1763917983.011519",
-  "tensorflow_version": "2.15.1",
+  "conversion_date": "1763934826.259397",
+  "tensorflow_version": "2.15.0",
   "framework": "TensorFlow Lite",
   "inference_type": "float32"
 }

@@ -4,17 +4,158 @@ service cloud.firestore {
     // User data
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // User subcollections
+      match /rooms/{roomId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      match /appliance_states/{stateId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      match /schedules/{scheduleId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
     }
     
     // Device data
     match /devices/{deviceId} {
-      allow read, write: if request.auth != null;
+      // Users can read devices where they are the owner (userId matches auth.uid)
+      // This works for both direct document access and queries
+      allow read: if request.auth != null && 
+                   resource.data.userId == request.auth.uid;
+      // Users can create devices for themselves
+      allow create: if request.auth != null && 
+                     request.resource.data.userId == request.auth.uid;
+      // Users can update/delete their own devices
+      allow update, delete: if request.auth != null && 
+                             resource.data.userId == request.auth.uid;
     }
     
-    // Sensor data
+    // Sensor data (legacy - keeping for backward compatibility)
     match /sensorData/{dataId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null;
+    }
+    
+    // Sensor logs
+    match /sensor_logs/{logId} {
+      // Users can read sensor logs where they are the owner (userId matches auth.uid)
+      // This works for both direct document access and queries
+      allow read: if request.auth != null && 
+                   resource.data.userId == request.auth.uid;
+      // Users can create sensor logs for themselves
+      allow create: if request.auth != null && 
+                     request.resource.data.userId == request.auth.uid;
+      // Users can update/delete their own sensor logs
+      allow update, delete: if request.auth != null && 
+                             resource.data.userId == request.auth.uid;
+    }
+    
+    // System configuration (read-only for authenticated users)
+    match /system_config/{configId} {
+      allow read: if request.auth != null;
+      // Write access should be restricted to admin/backend only
+      // For now, allowing write for authenticated users (can be restricted later)
+      allow write: if request.auth != null;
+    }
+    
+    // Alerts
+    match /alerts/{alertId} {
+      // Users can read alerts where they are the owner (userId matches auth.uid)
+      // This works for both direct document access and queries
+      allow read: if request.auth != null && 
+                   resource.data.userId == request.auth.uid;
+      // Users can create alerts for themselves
+      allow create: if request.auth != null && 
+                     request.resource.data.userId == request.auth.uid;
+      // Users can update/delete their own alerts
+      allow update, delete: if request.auth != null && 
+                             resource.data.userId == request.auth.uid;
+    }
+    
+    // Schedules (top-level collection - for backward compatibility)
+    // Note: Primary schedules are stored in users/{userId}/schedules subcollection
+    match /schedules/{scheduleId} {
+      // Users can read schedules where they are the owner (userId matches auth.uid)
+      allow read: if request.auth != null && 
+                   resource.data.userId == request.auth.uid;
+      // Users can create schedules for themselves
+      allow create: if request.auth != null && 
+                     request.resource.data.userId == request.auth.uid;
+      // Users can update/delete their own schedules
+      allow update, delete: if request.auth != null && 
+                             resource.data.userId == request.auth.uid;
+    }
+    
+    // Rooms (top-level collection - for backward compatibility)
+    // Note: Primary rooms are stored in users/{userId}/rooms subcollection
+    match /rooms/{roomId} {
+      // Users can read rooms where they are the owner (userId matches auth.uid)
+      // This works for both direct document access and queries
+      allow read: if request.auth != null && 
+                   resource.data.userId == request.auth.uid;
+      // Users can create rooms for themselves
+      allow create: if request.auth != null && 
+                     request.resource.data.userId == request.auth.uid;
+      // Users can update/delete their own rooms
+      allow update, delete: if request.auth != null && 
+                             resource.data.userId == request.auth.uid;
+    }
+    
+    // Caregiver relationships
+    match /caregiver_relationships/{relationshipId} {
+      // Users can read relationships where they are the user (userId) or the caregiver (caregiverId)
+      allow read: if request.auth != null && 
+                   (resource.data.userId == request.auth.uid ||
+                    resource.data.caregiverId == request.auth.uid);
+      // Users can create relationships where they are the user (userId)
+      allow create: if request.auth != null && 
+                     request.resource.data.userId == request.auth.uid;
+      // Users can update/delete relationships where they are the user (userId) or caregiver (caregiverId)
+      allow update, delete: if request.auth != null && 
+                             (resource.data.userId == request.auth.uid ||
+                              resource.data.caregiverId == request.auth.uid);
+    }
+    
+    // Activity logs
+    match /activity_logs/{logId} {
+      // Users can read activity logs where they are the owner (userId matches auth.uid)
+      // This works for both direct document access and queries
+      allow read: if request.auth != null && 
+                   resource.data.userId == request.auth.uid;
+      // Users can create activity logs for themselves
+      allow create: if request.auth != null && 
+                     request.resource.data.userId == request.auth.uid;
+      // Users can update/delete their own activity logs
+      allow update, delete: if request.auth != null && 
+                             resource.data.userId == request.auth.uid;
+    }
+    
+    // Daily analytics
+    match /daily_analytics/{analyticsId} {
+      // Users can only read their own analytics
+      // This works for both direct document access and queries
+      allow read: if request.auth != null && 
+                   resource.data.userId == request.auth.uid;
+      // Write access should be restricted to backend/cloud functions only
+      // For now, allowing write for authenticated users (can be restricted later)
+      allow write: if request.auth != null;
+    }
+    
+    // Automations
+    match /automations/{automationId} {
+      // Users can read automations where they are the owner (userId matches auth.uid)
+      // This works for both direct document access and queries
+      allow read: if request.auth != null && 
+                   resource.data.userId == request.auth.uid;
+      // Users can create automations for themselves
+      allow create: if request.auth != null && 
+                     request.resource.data.userId == request.auth.uid;
+      // Users can update/delete their own automations
+      allow update, delete: if request.auth != null && 
+                             resource.data.userId == request.auth.uid;
     }
   }
 }

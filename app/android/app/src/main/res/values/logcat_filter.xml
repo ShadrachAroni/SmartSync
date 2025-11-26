@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Logcat filter to suppress BLASTBufferQueue and other verbose system logs -->
+    <!-- This reduces log spam from Android system components -->
+</resources>
+

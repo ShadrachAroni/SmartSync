@@ -262,7 +262,7 @@ class AdaptiveAutoService {
       hour: hour,
     );
 
-    // LED brightness calculation (AI-enhanced)
+    // Ambient light calculation (AI-enhanced)
     int ledBrightness = _calculateLedBrightness(
       motion: motion,
       hour: hour,
@@ -315,7 +315,7 @@ class AdaptiveAutoService {
     return baseSpeed.round();
   }
 
-  /// Calculate optimal LED brightness using AI + motion
+  /// Calculate optimal ambient light level using AI + motion
   int _calculateLedBrightness({
     required bool motion,
     required int hour,

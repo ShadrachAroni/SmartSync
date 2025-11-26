@@ -97,3 +97,56 @@ bool DeviceStorage::loadSchedules(std::vector<ScheduleEntry>& entries) {
     return true;
 }
 
+bool DeviceStorage::saveRoomName(const char* roomName) {
+    if (!_ready || roomName == nullptr) return false;
+    return _prefs.putString("room_name", roomName) > 0;
+}
+
+String DeviceStorage::loadRoomName(const char* fallback) {
+    if (!_ready) return String(fallback);
+    return _prefs.getString("room_name", fallback);
+}
+
+bool DeviceStorage::saveIsPrimaryHub(bool isPrimary) {
+    if (!_ready) return false;
+    return _prefs.putBool("is_primary_hub", isPrimary);
+}
+
+bool DeviceStorage::loadIsPrimaryHub(bool fallback) {
+    if (!_ready) return fallback;
+    return _prefs.getBool("is_primary_hub", fallback);
+}
+
+bool DeviceStorage::factoryReset() {
+    if (!_ready) return false;
+    
+    // Clear all preferences by removing the entire namespace
+    _prefs.end();
+    
+    // Reopen and clear all keys
+    if (_prefs.begin(PREF_NAMESPACE, false)) {
+        // Remove all known keys
+        _prefs.remove(PREF_FAN_SPEED);
+        _prefs.remove(PREF_LED_BRIGHTNESS);
+        _prefs.remove(PREF_AUTO_MODE);
+        _prefs.remove(PREF_SECURITY_ENABLED);
+        _prefs.remove("schedules");
+        _prefs.remove("room_name");
+        _prefs.remove("is_primary_hub");
+        _prefs.remove(PREF_DEVICE_ID);
+        _prefs.remove(PREF_DEVICE_PIN);
+        
+        // Clear the entire namespace (more thorough)
+        _prefs.clear();
+        
+        _prefs.end();
+        
+        // Reinitialize
+        _prefs.begin(PREF_NAMESPACE, false);
+        
+        return true;
+    }
+    
+    return false;
+}
+

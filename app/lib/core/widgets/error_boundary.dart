@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/foundation.dart';
 import '../utils/logger.dart';
+import '../utils/error_diagnostics.dart';
+import '../utils/black_screen_diagnostic.dart';
 
 /// Error boundary widget that catches errors during widget building
 class ErrorBoundary extends StatefulWidget {
@@ -27,6 +30,25 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
 
   void _handleError(Object error, StackTrace? stackTrace) {
     if (!mounted) return;
+    
+    // Track error for black screen diagnostics
+    BlackScreenDiagnostic.logWidgetBuild(
+      widget.context ?? 'unknown',
+      success: false,
+      error: error,
+    );
+    
+    // Track error for diagnostics
+    ErrorDiagnostics.captureError(
+      category: 'widget_build',
+      message: 'ErrorBoundary caught widget build error${widget.context != null ? " (${widget.context})" : ""}',
+      error: error,
+      stackTrace: stackTrace,
+      context: {
+        'context': widget.context ?? 'unknown',
+        'widgetType': widget.child.runtimeType.toString(),
+      },
+    );
     
     // Always defer setState to after the current build phase
     // This prevents "setState() called during build" errors
@@ -86,6 +108,8 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
                       color: Colors.white70,
                       fontSize: 14,
                     ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton(
@@ -108,23 +132,134 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
           );
     }
 
+    // Enhanced error catching: Wrap in multiple layers to catch all build errors
     return Builder(
       builder: (context) {
         try {
-          return widget.child;
+          // Log successful widget build
+          BlackScreenDiagnostic.logWidgetBuild(
+            widget.context ?? widget.child.runtimeType.toString(),
+            success: true,
+          );
+          
+          // Wrap child in additional error boundary for nested widget errors
+          return _SafeWidgetBuilder(
+            context: widget.context,
+            onError: (error, stackTrace) {
+              Future.microtask(() {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _handleError(error, stackTrace);
+                });
+              });
+            },
+            child: widget.child,
+          );
         } catch (e, stackTrace) {
+          // Log failed widget build
+          BlackScreenDiagnostic.logWidgetBuild(
+            widget.context ?? widget.child.runtimeType.toString(),
+            success: false,
+            error: e,
+          );
           // Defer error handling to avoid calling setState during build
-          // Use microtask + postFrameCallback for extra safety
           Future.microtask(() {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               _handleError(e, stackTrace);
             });
           });
+          // Return a visible placeholder instead of empty widget to prevent black screen
           return widget.fallback ??
-              const SizedBox.shrink();
+              Container(
+                color: const Color(0xFF0A0E27),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const CircularProgressIndicator(
+                        color: Color(0xFF00BFA5),
+                      ),
+                      const SizedBox(height: 16),
+                      if (kDebugMode)
+                        Text(
+                          'Widget Error: ${widget.context ?? "unknown"}',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
         }
       },
     );
+  }
+}
+
+/// Internal widget builder that catches errors during widget construction
+/// This provides an additional layer of error catching for nested widgets
+class _SafeWidgetBuilder extends StatelessWidget {
+  final String? context;
+  final void Function(Object error, StackTrace stackTrace) onError;
+  final Widget child;
+
+  const _SafeWidgetBuilder({
+    this.context,
+    required this.onError,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    try {
+      return child;
+    } catch (e, stackTrace) {
+      // Catch errors during build and report them
+      BlackScreenDiagnostic.logWidgetBuild(
+        this.context ?? child.runtimeType.toString(),
+        success: false,
+        error: e,
+      );
+      
+      ErrorDiagnostics.captureError(
+        category: 'widget_build_nested',
+        message: 'Error in nested widget build${this.context != null ? " (${this.context})" : ""}',
+        error: e,
+        stackTrace: stackTrace,
+        context: {
+          'context': this.context ?? 'unknown',
+          'widgetType': child.runtimeType.toString(),
+        },
+      );
+      
+      // Notify parent error boundary
+      onError(e, stackTrace);
+      
+      // Return a safe fallback widget
+      return Container(
+        color: const Color(0xFF0A0E27),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(
+                color: Color(0xFF00BFA5),
+              ),
+              const SizedBox(height: 16),
+              if (kDebugMode)
+                Text(
+                  'Nested Widget Error: ${this.context ?? "unknown"}',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
   }
 }
 

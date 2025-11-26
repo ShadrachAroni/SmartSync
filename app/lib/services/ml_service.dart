@@ -1,5 +1,7 @@
-// import 'package:cloud_functions/cloud_functions.dart'; // Unused - Cloud Functions disabled for Spark plan
+import 'dart:async';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../core/utils/logger.dart';
 import '../models/sensor_data.dart';
 import '../models/ml_prediction.dart';
@@ -14,7 +16,11 @@ class MLService {
   factory MLService() => _instance;
   MLService._internal();
 
-  // final FirebaseFunctions _functions = FirebaseFunctions.instance; // Unused - Cloud Functions disabled for Spark plan
+  static const bool _enableLocalInference = false;
+
+  // Use default region (us-central1) - change if your functions are deployed to a different region
+  // Example: FirebaseFunctions.instanceFor(region: 'us-east1')
+  final FirebaseFunctions _functions = FirebaseFunctions.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final TFLiteService _tfliteService = TFLiteService();
 
@@ -29,13 +35,20 @@ class MLService {
     try {
       Logger.info('Initializing ML Service...');
 
-      // Initialize local TFLite service (primary)
-      final tfliteReady = await _tfliteService.initialize();
-      if (tfliteReady) {
-        Logger.success('Local TFLite models loaded');
+      // Initialize local TFLite service (primary) when enabled
+      if (_enableLocalInference) {
+        final tfliteReady = await _tfliteService.initialize();
+        if (tfliteReady) {
+          Logger.success('Local TFLite models loaded');
+        } else {
+          Logger.warning('Local TFLite models not available, will use server-side');
+        }
       } else {
-        Logger.warning('Local TFLite models not available, will use server-side');
+        Logger.info('Local TFLite inference disabled. Using server-side predictions.');
       }
+
+      // Note: Cloud Function verification happens on first call
+      // See CLOUD_FUNCTION_TROUBLESHOOTING.md if you get "not-found" errors
 
       // Check if server-side models are deployed (fallback)
       // Use timeout to prevent hanging if Firestore is slow
@@ -86,7 +99,7 @@ class MLService {
       }
 
       // ========== PRIMARY: Try local TFLite inference first ==========
-      if (_tfliteService.isReady) {
+      if (_enableLocalInference && _tfliteService.isReady) {
         try {
 
           // Fetch sensor logs for local inference
@@ -134,7 +147,9 @@ class MLService {
           Logger.warning('⚠️  Local inference failed: $e, falling back to server');
         }
       } else {
-        Logger.warning('⚠️  Local TFLite models not ready, using server-side inference (fallback)');
+        // Local TFLite inference is disabled or models not ready
+        // This is expected behavior - the app is configured to use server-side inference
+        Logger.info('ℹ️  Local TFLite inference disabled. Using server-side inference (if available).');
       }
 
       // ========== FALLBACK: Server-side inference only if local fails ==========
@@ -205,20 +220,34 @@ class MLService {
     String userId,
     String deviceId,
   ) async {
-    // Cloud Functions are not available on Spark plan
-    // Return empty list - local TFLite inference should have been used instead
-    // Server-side inference skipped
-    return [];
-    
-    // Original Cloud Function code (disabled for Spark plan compatibility):
-    /*
     try {
-      // Call Cloud Function
-      final callable = _functions.httpsCallable('predictSchedule');
+      Logger.info('🔮 Calling Cloud Function predictSchedule for userId: $userId, deviceId: $deviceId');
+      
+      // Verify user is authenticated
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        Logger.error('❌ User not authenticated. Cloud Functions require authentication.');
+        return [];
+      }
+      Logger.debug('✅ User authenticated: ${user.uid}');
+      
+      final callable = _functions.httpsCallable(
+        'predictSchedule',
+        options: HttpsCallableOptions(
+          timeout: const Duration(seconds: 60),
+        ),
+      );
+      
+      Logger.debug('📞 Invoking Cloud Function predictSchedule...');
+      Logger.debug('   Region: default (us-central1) - change if your functions are in a different region');
+      Logger.debug('   Project: ${FirebaseFirestore.instance.app.options.projectId}');
+      
       final result = await callable.call<Map<String, dynamic>>({
         'userId': userId,
         'deviceId': deviceId,
       });
+      
+      Logger.info('✅ Cloud Function responded successfully');
 
       if (result.data['success'] == true) {
         final schedulesRaw = result.data['schedules'];
@@ -243,60 +272,97 @@ class MLService {
         final message = result.data['message'] ?? 'Unknown ML response error';
         Logger.warning('ML prediction unsuccessful: $message');
       }
-
-      return [];
     } on FirebaseFunctionsException catch (e) {
-      // Handle NOT_FOUND gracefully - function may not be deployed
+      Logger.error(
+          '❌ Cloud Function error: code=${e.code}, message=${e.message}, details=${e.details}');
+      
       if (e.code == 'not-found') {
-        Logger.warning('⚠️  Cloud Function "predictSchedule" not found. It may not be deployed yet. Returning empty predictions.');
+        Logger.error(
+            '❌ Cloud Function "predictSchedule" not found. Possible causes:');
+        Logger.error('   1. Function not deployed: Run "firebase deploy --only functions:predictSchedule"');
+        Logger.error('   2. Wrong region: Function might be in a different region (check Firebase Console)');
+        Logger.error('   3. Wrong project: App might be connected to different Firebase project');
+        Logger.error('   4. Function name mismatch: Check function name in Firebase Console');
+        Logger.error('   5. App Check blocking: If you see "App attestation failed", App Check might be blocking the call');
+        Logger.error('   💡 To verify: Go to Firebase Console → Functions and check if predictSchedule exists');
+        Logger.error('   💡 Current project: ${FirebaseFirestore.instance.app.options.projectId}');
+        Logger.error('   💡 See CLOUD_FUNCTION_TROUBLESHOOTING.md for detailed steps');
+        return [];
+      } else if (e.code == 'unavailable' || e.code == 'deadline-exceeded') {
+        Logger.warning(
+            '⚠️  Cloud Function temporarily unavailable. This may be due to cold start or network issues.');
+        Logger.warning('   💡 Try again in a few seconds - first invocation can take 30-60 seconds');
+        return [];
+      } else if (e.code == 'unauthenticated') {
+        Logger.error('❌ Authentication failed. User must be logged in to call Cloud Functions.');
+        return [];
+      } else if (e.code == 'permission-denied') {
+        Logger.error('❌ Permission denied. Check Firestore security rules and user permissions.');
+        return [];
+      } else if (e.code == 'failed-precondition') {
+        Logger.warning('⚠️  Function precondition failed: ${e.message}');
+        Logger.warning('   💡 This usually means insufficient data or validation failed');
+        return [];
+      } else if (e.code == 'internal') {
+        Logger.error('❌ Internal server error in Cloud Function. Check function logs in Firebase Console.');
+        Logger.error('   💡 View logs: Firebase Console → Functions → predictSchedule → Logs');
         return [];
       }
-      // Handle other Firebase function errors gracefully
-      Logger.error('Server-side schedule prediction failed: ${e.code} - ${e.message}');
+      Logger.error(
+          '❌ Server-side schedule prediction failed: ${e.code} - ${e.message}');
+      Logger.error('   Details: ${e.details}');
+    } on TimeoutException catch (e) {
+      Logger.error('⏱️  Cloud Function call timed out: $e');
+      Logger.error('   💡 The function might be taking too long. Check function logs for errors.');
       return [];
-    } catch (e) {
-      Logger.error('Server-side schedule prediction failed with unexpected error: $e');
-      return [];
+    } catch (e, stackTrace) {
+      // Handle any other errors gracefully
+      Logger.error('❌ Unexpected error calling Cloud Function: $e');
+      Logger.error('   Stack trace: $stackTrace');
+      if (e.toString().contains('not found') || e.toString().contains('not-found')) {
+        Logger.error('   💡 Function not found. Verify deployment: firebase functions:list');
+        return [];
+      }
     }
-    */
+
+    return [];
   }
 
-  // Unused - Only needed when Cloud Functions are enabled (Blaze plan)
-  // SchedulePrediction? _parseSchedulePrediction(
-  //     Map<String, dynamic> payload) {
-  //   try {
-  //     final hour = payload['hour'];
-  //     final minute = payload['minute'];
-  //     final deviceType = payload['deviceType'];
-  //     final value = payload['value'];
-  //     final confidence = payload['confidence'];
-  //
-  //     if (hour is! int ||
-  //         minute is! int ||
-  //         deviceType is! String ||
-  //         value is! int ||
-  //         confidence is! num) {
-  //       throw FormatException('Missing schedule fields: $payload');
-  //     }
-  //
-  //     return SchedulePrediction(
-  //       dayOfWeek: payload['dayOfWeek'] as int? ?? (hour ~/ 24 % 7) + 1,
-  //       hour: hour,
-  //       minute: minute,
-  //       deviceType: deviceType,
-  //       value: value,
-  //       confidence: confidence.toDouble(),
-  //       reason: payload['reason'] as String? ??
-  //           'AI predicted based on your usage patterns',
-  //       deviceId: payload['deviceId'] as String?,
-  //       deviceName: payload['deviceName'] as String?,
-  //       roomId: payload['roomId'] as String?,
-  //     );
-  //   } catch (e) {
-  //     Logger.error('Failed to parse schedule prediction: $e');
-  //     return null;
-  //   }
-  // }
+  SchedulePrediction? _parseSchedulePrediction(
+      Map<String, dynamic> payload) {
+    try {
+      final hour = payload['hour'];
+      final minute = payload['minute'];
+      final deviceType = payload['deviceType'];
+      final value = payload['value'];
+      final confidence = payload['confidence'];
+
+      if (hour is! int ||
+          minute is! int ||
+          deviceType is! String ||
+          value is! int ||
+          confidence is! num) {
+        throw FormatException('Missing schedule fields: $payload');
+      }
+
+      return SchedulePrediction(
+        dayOfWeek: payload['dayOfWeek'] as int? ?? (hour ~/ 24 % 7) + 1,
+        hour: hour,
+        minute: minute,
+        deviceType: deviceType,
+        value: value,
+        confidence: confidence.toDouble(),
+        reason: payload['reason'] as String? ??
+            'AI predicted based on your usage patterns',
+        deviceId: payload['deviceId'] as String?,
+        deviceName: payload['deviceName'] as String?,
+        roomId: payload['roomId'] as String?,
+      );
+    } catch (e) {
+      Logger.error('Failed to parse schedule prediction: $e');
+      return null;
+    }
+  }
 
   /// Detect anomalies in user activity
   ///
@@ -783,5 +849,9 @@ class MLService {
 
   void dispose() {
     _tfliteService.dispose();
+  }
+
+  void clearPredictionCache() {
+    _tfliteService.clearCache();
   }
 }

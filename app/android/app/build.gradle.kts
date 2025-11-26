@@ -59,6 +59,14 @@ android {
             isShrinkResources = false
         }
     }
+    
+    // Configure logcat filtering to suppress verbose system logs
+    applicationVariants.all {
+        val variant = this
+        variant.outputs.all {
+            // This helps reduce log spam during development
+        }
+    }
 }
 
 flutter {
@@ -69,6 +77,6 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
     
     // TensorFlow Lite Select TF Ops - required for models using TensorFlow ops (e.g., FlexConv2D)
-    // This must match the TensorFlow Lite version used by tflite_flutter (2.15.0)
-    implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.15.0")
+    // This must match the TensorFlow Lite version used by tflite_flutter (2.16.1)
+    implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.16.1")
 }

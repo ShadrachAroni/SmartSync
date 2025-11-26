@@ -3,11 +3,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../models/user_model.dart';
+import '../services/logging_service.dart';
+import '../models/log_entry.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final LoggingService _loggingService = LoggingService();
 
   // Get current user
   User? get currentUser => _auth.currentUser;
@@ -93,10 +96,22 @@ class AuthService {
     String password,
   ) async {
     try {
-      return await _auth.signInWithEmailAndPassword(
+      final credential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
+      await _loggingService.logAction(
+        action: 'User Login',
+        category: 'auth',
+        details: 'Signed in with email & password',
+        metadata: {
+          'method': 'email',
+          'email': email,
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.info,
+      );
+      return credential;
     } on FirebaseAuthException catch (e) {
       throw FirebaseAuthException(
         code: e.code,
@@ -140,6 +155,19 @@ class AuthService {
         }
       }
 
+      await _loggingService.logAction(
+        action: 'User Login',
+        category: 'auth',
+        details: 'Signed in with Google',
+        metadata: {
+          'method': 'google',
+          'email': user?.email,
+          'userId': user?.uid,
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.info,
+      );
+
       return userCredential;
     } on FirebaseAuthException catch (e) {
       throw FirebaseAuthException(
@@ -155,6 +183,24 @@ class AuthService {
   }
 
   Future<void> signOut() async {
+    final user = _auth.currentUser;
+    if (user != null) {
+      final providers =
+          user.providerData.map((info) => info.providerId).toList();
+      final provider = providers.contains('google.com') ? 'google' : 'email';
+      await _loggingService.logAction(
+        action: 'User Logout',
+        category: 'auth',
+        details: 'Signed out',
+        metadata: {
+          'method': provider,
+          'email': user.email,
+          'userId': user.uid,
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+        level: LogLevel.info,
+      );
+    }
     await _auth.signOut();
     if (await _googleSignIn.isSignedIn()) {
       await _googleSignIn.signOut();
@@ -163,11 +209,7 @@ class AuthService {
 
   /// Stream user data for real-time updates
   Stream<UserModel?> watchUserData(String uid) {
-    return _firestore
-        .collection('users')
-        .doc(uid)
-        .snapshots()
-        .map((doc) {
+    return _firestore.collection('users').doc(uid).snapshots().map((doc) {
       if (!doc.exists || doc.data() == null) {
         return null;
       }
@@ -211,8 +253,8 @@ class AuthService {
       );
 
       await user.reauthenticateWithCredential(credential).timeout(
-        const Duration(seconds: 10),
-      );
+            const Duration(seconds: 10),
+          );
 
       await _firestore.collection('users').doc(user.uid).delete();
       await user.delete();

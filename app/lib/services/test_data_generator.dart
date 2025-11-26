@@ -301,7 +301,7 @@ class TestDataGenerator {
       deviceState['lastFanSpeed'] = fanSpeed;
     }
 
-    // ========== LED BRIGHTNESS ==========
+    // ========== AMBIENT LIGHT LEVEL ==========
     // More realistic lighting patterns
     int ledBrightness = 0;
     

@@ -11,10 +11,14 @@ import 'core/theme/app_theme.dart';
 import 'core/constants/routes.dart';
 import 'core/widgets/lottie_loading.dart';
 import 'core/widgets/app_error_handler.dart';
+import 'core/utils/ui_thread_monitor.dart';
+import 'core/utils/black_screen_diagnostic.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'providers/auth_provider.dart';
 import 'services/ml_service.dart';
+import 'services/hub_reconnection_service.dart';
+import 'services/unregistered_hub_scanner.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 
 Future<void> main() async {
@@ -29,6 +33,24 @@ Future<void> main() async {
     debugPrint('📱 Step 1: Ensuring Flutter binding initialized...');
     WidgetsFlutterBinding.ensureInitialized();
     debugPrint('✅ Step 1: Flutter binding initialized');
+    
+    // Start UI thread monitoring AFTER binding is initialized
+    try {
+      UIThreadMonitor.startMonitoring();
+      debugPrint('✅ UI Thread Monitor: Started');
+    } catch (e) {
+      debugPrint('⚠️ UI Thread Monitor: Failed to start: $e');
+      // Continue without monitoring - not critical
+    }
+    
+    // Start black screen diagnostic monitoring
+    try {
+      BlackScreenDiagnostic.startMonitoring();
+      debugPrint('✅ Black Screen Diagnostic: Started');
+    } catch (e) {
+      debugPrint('⚠️ Black Screen Diagnostic: Failed to start: $e');
+      // Continue without monitoring - not critical
+    }
 
     // Load environment variables (optional - app can work without .env)
     debugPrint('📱 Step 2: Loading environment variables...');
@@ -183,13 +205,61 @@ class SmartSyncApp extends ConsumerStatefulWidget {
   ConsumerState<SmartSyncApp> createState() => _SmartSyncAppState();
 }
 
-class _SmartSyncAppState extends ConsumerState<SmartSyncApp> {
+class _SmartSyncAppState extends ConsumerState<SmartSyncApp> with WidgetsBindingObserver {
+  // Hub reconnection service enabled for Bluetooth stability (simplified - no primary hub logic)
+  final HubReconnectionService _hubReconnectionService = HubReconnectionService();
+  final UnregisteredHubScanner _unregisteredHubScanner = UnregisteredHubScanner();
+
   @override
   void initState() {
     debugPrint('📱 SmartSyncApp: initState called');
     super.initState();
+    // Listen to app lifecycle changes first
+    WidgetsBinding.instance.addObserver(this);
+    
+    // Defer service initialization until after first frame to avoid blocking startup
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      debugPrint('📱 SmartSyncApp: First frame rendered, initializing services...');
+      // Initialize hub reconnection service for Bluetooth stability
+      try {
+        _hubReconnectionService.initialize();
+        debugPrint('✅ SmartSyncApp: Hub reconnection service initialized');
+      } catch (e, stackTrace) {
+        debugPrint('⚠️ SmartSyncApp: Failed to initialize hub reconnection service: $e');
+        debugPrint('⚠️ Stack: $stackTrace');
+      }
+      
+      // Start scanning for unregistered hubs (deferred to avoid blocking)
+      Future.delayed(const Duration(seconds: 2), () {
+        try {
+          _unregisteredHubScanner.startPeriodicScan();
+          debugPrint('✅ SmartSyncApp: Unregistered hub scanner started');
+        } catch (e, stackTrace) {
+          debugPrint('⚠️ SmartSyncApp: Failed to start unregistered hub scanner: $e');
+          debugPrint('⚠️ Stack: $stackTrace');
+        }
+      });
+    });
     // Removed unnecessary auth state invalidation to prevent rebuild loops
     // Auth state is already refreshed in main() before runApp
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _hubReconnectionService.dispose();
+    _unregisteredHubScanner.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Trigger hub reconnection when app comes to foreground for Bluetooth stability
+    if (state == AppLifecycleState.resumed) {
+      debugPrint('📱 SmartSyncApp: App resumed, triggering hub reconnection...');
+      _hubReconnectionService.onAppResumed();
+    }
   }
 
   @override

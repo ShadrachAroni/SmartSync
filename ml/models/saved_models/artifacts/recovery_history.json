@@ -1,0 +1,122 @@
+{
+  "recovery_attempts": 5,
+  "history": [
+    {
+      "attempt": 1,
+      "timestamp": "2025-11-25T00:44:41.989041",
+      "error_type": "cuda",
+      "error_message": "in user code:\n\n    File \"/mnt/c/Users/USER/Documents/Course work/year 4 sem 2/ICS Project II/Final Project/SmartSync/ml/tf-gpu/lib/python3.10/site-packages/keras/src/engine/training.py\", line 1401, in",
+      "strategy": "cuda_recovery",
+      "success": false,
+      "config": {
+        "batch_size": 12,
+        "conv_filters": [
+          64,
+          32
+        ]
+      }
+    },
+    {
+      "attempt": 2,
+      "timestamp": "2025-11-25T00:44:56.673932",
+      "error_type": "cuda",
+      "error_message": "in user code:\n\n    File \"/mnt/c/Users/USER/Documents/Course work/year 4 sem 2/ICS Project II/Final Project/SmartSync/ml/tf-gpu/lib/python3.10/site-packages/keras/src/engine/training.py\", line 1401, in",
+      "strategy": "cuda_recovery",
+      "success": false,
+      "config": {
+        "batch_size": 9,
+        "conv_filters": [
+          64,
+          32
+        ]
+      }
+    },
+    {
+      "attempt": 3,
+      "timestamp": "2025-11-25T00:45:18.814220",
+      "error_type": "cuda",
+      "error_message": "in user code:\n\n    File \"/mnt/c/Users/USER/Documents/Course work/year 4 sem 2/ICS Project II/Final Project/SmartSync/ml/tf-gpu/lib/python3.10/site-packages/keras/src/engine/training.py\", line 1401, in",
+      "strategy": "cuda_recovery",
+      "success": false,
+      "config": {
+        "batch_size": 8,
+        "conv_filters": [
+          64,
+          32
+        ]
+      }
+    },
+    {
+      "attempt": 4,
+      "timestamp": "2025-11-25T00:45:52.738823",
+      "error_type": "cuda",
+      "error_message": "in user code:\n\n    File \"/mnt/c/Users/USER/Documents/Course work/year 4 sem 2/ICS Project II/Final Project/SmartSync/ml/tf-gpu/lib/python3.10/site-packages/keras/src/engine/training.py\", line 1401, in",
+      "strategy": "cuda_recovery",
+      "success": false,
+      "config": {
+        "batch_size": 8,
+        "conv_filters": [
+          64,
+          32
+        ]
+      }
+    },
+    {
+      "attempt": 5,
+      "timestamp": "2025-11-25T00:46:26.403371",
+      "error_type": "cuda",
+      "error_message": "in user code:\n\n    File \"/mnt/c/Users/USER/Documents/Course work/year 4 sem 2/ICS Project II/Final Project/SmartSync/ml/tf-gpu/lib/python3.10/site-packages/keras/src/engine/training.py\", line 1401, in",
+      "strategy": "cuda_recovery",
+      "success": false,
+      "config": {
+        "batch_size": 8,
+        "conv_filters": [
+          64,
+          32
+        ]
+      }
+    }
+  ],
+  "current_config": {
+    "seed": 42,
+    "sequence_length": 24,
+    "prediction_horizon": 1,
+    "batch_size": 8,
+    "epochs": 200,
+    "learning_rate": 0.002,
+    "validation_split": 0.2,
+    "test_split": 0.15,
+    "datasets": [
+      "HomeC.csv",
+      "aruba.csv",
+      "tulum.csv",
+      "electricity_cleaned.csv",
+      "smart_home_dataset.csv"
+    ],
+    "conv_filters": [
+      64,
+      32
+    ],
+    "kernel_size": 3,
+    "dropout": 0.2,
+    "l2_regularization": 0.0001,
+    "gradient_clip_norm": 1.0,
+    "use_lr_schedule": true,
+    "lr_patience": 10,
+    "lr_factor": 0.5,
+    "lr_min": 1e-06,
+    "early_stopping_patience": 20,
+    "use_data_augmentation": false,
+    "input_noise_std": 0.0,
+    "targets": [
+      "fan_speed",
+      "led_brightness"
+    ],
+    "max_target_value": 255,
+    "normalize_targets_per_dataset": true,
+    "use_temporal_split": true,
+    "validate_no_leakage": false,
+    "auto_recover": true,
+    "max_recovery_attempts": 5
+  }
+}

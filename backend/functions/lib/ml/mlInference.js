@@ -25,24 +25,50 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.detectAnomalies = exports.predictSchedule = void 0;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
-const tf = __importStar(require("@tensorflow/tfjs"));
+const tf = __importStar(require("@tensorflow/tfjs-node"));
+const path = __importStar(require("path"));
+const fs = __importStar(require("fs"));
 const db = admin.firestore();
+const MODEL_BASE_PATH = path.join(__dirname, '../../models');
+const SCHEDULE_MODEL_DIR = path.join(MODEL_BASE_PATH, 'schedule_predictor_v1');
+const SCALER_FILE = path.join(SCHEDULE_MODEL_DIR, 'scaler_params.json');
+const INPUT_FEATURES = [
+    'temperature_mean',
+    'temperature_max',
+    'temperature_min',
+    'humidity_mean',
+    'motionDetected_sum',
+    'hour_sin',
+    'hour_cos',
+    'is_weekend',
+];
+const NUM_FEATURES = INPUT_FEATURES.length;
 // ==================== CONFIGURATION ====================
 const MODEL_CACHE = {};
 const CACHE_TTL_MS = 3600000; // 1 hour
-const REQUIRED_HOURS = 168; // 7 days
-const MAX_DATA_SPAN_DAYS = 10;
+const REQUIRED_HOURS = 24; // 1 day - matches converted TFLite model sequence_length from train_smart_home.py
+const MAX_DATA_SPAN_DAYS = 2; // Reduced to match 24-hour requirement
 const MAX_GAP_HOURS = 2;
 // ==================== MODEL MANAGEMENT ====================
 /**
@@ -50,7 +76,6 @@ const MAX_GAP_HOURS = 2;
  * Uses caching to avoid repeated downloads
  */
 async function loadModel(modelName) {
-    var _a;
     console.log(`📥 Loading model: ${modelName}`);
     // Check cache
     const cached = MODEL_CACHE[modelName];
@@ -60,32 +85,25 @@ async function loadModel(modelName) {
         return cached.model;
     }
     try {
-        // Get model URL from Firestore configuration
-        const configDoc = await db.collection('system_config').doc('ml_models').get();
-        if (!configDoc.exists) {
-            throw new Error('ML models configuration not found in Firestore');
-        }
-        const config = configDoc.data();
-        const modelConfig = (_a = config === null || config === void 0 ? void 0 : config.models) === null || _a === void 0 ? void 0 : _a[modelName];
-        if (!(modelConfig === null || modelConfig === void 0 ? void 0 : modelConfig.modelUrl)) {
-            throw new Error(`Model URL not found for ${modelName}`);
-        }
-        console.log(`Loading from: ${modelConfig.modelUrl}`);
-        // Load TFJS model (automatically handles model.json + weight shards)
-        const model = await tf.loadLayersModel(modelConfig.modelUrl);
-        // Warmup: Run dummy prediction to initialize internal state
+        const modelPath = SCHEDULE_MODEL_DIR;
+        console.log(`Loading SavedModel from ${modelPath}`);
+        const model = await tf.node.loadSavedModel(modelPath);
         console.log('🔥 Warming up model...');
-        const dummyInput = tf.zeros([1, 168, 13]);
-        const warmupPred = model.predict(dummyInput);
-        warmupPred.dispose();
+        const dummyInput = tf.zeros([1, REQUIRED_HOURS, NUM_FEATURES]);
+        const warmup = model.predict(dummyInput);
+        if (Array.isArray(warmup)) {
+            warmup.forEach((tensor) => tensor.dispose());
+        }
+        else if (warmup && typeof warmup['dispose'] === 'function') {
+            warmup.dispose();
+        }
         dummyInput.dispose();
-        // Cache the model
         if (!MODEL_CACHE[modelName]) {
             MODEL_CACHE[modelName] = { model: null, scaler: null, loadedAt: 0 };
         }
         MODEL_CACHE[modelName].model = model;
         MODEL_CACHE[modelName].loadedAt = now;
-        console.log('✅ Model loaded and warmed up successfully');
+        console.log('✅ Model loaded from local filesystem');
         return model;
     }
     catch (error) {
@@ -98,7 +116,7 @@ async function loadModel(modelName) {
  * These are used to normalize input features the same way as during training
  */
 async function loadScaler(modelName) {
-    var _a, _b, _c;
+    var _a;
     console.log(`📥 Loading scaler for ${modelName}`);
     // Check cache
     const cached = (_a = MODEL_CACHE[modelName]) === null || _a === void 0 ? void 0 : _a.scaler;
@@ -107,30 +125,28 @@ async function loadScaler(modelName) {
         return cached;
     }
     try {
-        // Get scaler URL from Firestore
-        const configDoc = await db.collection('system_config').doc('ml_models').get();
-        const config = configDoc.data();
-        const scalerUrl = (_c = (_b = config === null || config === void 0 ? void 0 : config.models) === null || _b === void 0 ? void 0 : _b[modelName]) === null || _c === void 0 ? void 0 : _c.scalerUrl;
-        if (!scalerUrl) {
-            throw new Error(`Scaler URL not found for ${modelName}`);
+        if (!fs.existsSync(SCALER_FILE)) {
+            console.warn('⚠️  Scaler file not found. Using identity scaling.');
+            const identityScaler = {
+                mean: Array(NUM_FEATURES).fill(0),
+                scale: Array(NUM_FEATURES).fill(1),
+            };
+            if (!MODEL_CACHE[modelName]) {
+                MODEL_CACHE[modelName] = { model: null, scaler: null, loadedAt: 0 };
+            }
+            MODEL_CACHE[modelName].scaler = identityScaler;
+            return identityScaler;
         }
-        console.log(`Loading scaler from: ${scalerUrl}`);
-        // Fetch scaler JSON
-        const response = await fetch(scalerUrl);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch scaler: ${response.statusText}`);
+        const scalerRaw = fs.readFileSync(SCALER_FILE, 'utf-8');
+        const scalerData = JSON.parse(scalerRaw);
+        if (!scalerData.mean) {
+            throw new Error('Invalid scaler data: missing mean array');
         }
-        const scalerData = await response.json();
-        // Validate scaler data
-        if (!scalerData.mean || !scalerData.scale) {
-            throw new Error('Invalid scaler data: missing mean or scale');
-        }
-        // Cache the scaler
         if (!MODEL_CACHE[modelName]) {
             MODEL_CACHE[modelName] = { model: null, scaler: null, loadedAt: 0 };
         }
         MODEL_CACHE[modelName].scaler = scalerData;
-        console.log('✅ Scaler loaded successfully');
+        console.log('✅ Scaler loaded from local file');
         return scalerData;
     }
     catch (error) {
@@ -151,7 +167,7 @@ function validateSensorData(logs) {
             reason: `Insufficient data: ${logs.length} records (need ${REQUIRED_HOURS})`
         };
     }
-    // Check time span (should be around 7 days, not spread over months)
+    // Check time span (should be around 1 day, not spread over weeks)
     const timestamps = logs.map(l => l.timestamp.toDate());
     const timeSpanMs = timestamps[timestamps.length - 1].getTime() - timestamps[0].getTime();
     const days = timeSpanMs / (1000 * 60 * 60 * 24);
@@ -213,33 +229,47 @@ function validateSensorData(logs) {
  * - Normalizes using StandardScaler parameters
  */
 function preprocessScheduleInput(logs, scaler) {
+    var _a, _b, _c;
     console.log('🔧 Preprocessing input data...');
     const features = logs.map(log => {
         const timestamp = log.timestamp.toDate();
         const hour = timestamp.getHours();
         const day = timestamp.getDay();
-        // Extract 13 features matching training
         return [
-            log.temperature,
-            log.temperature,
-            log.temperature,
-            log.humidity,
-            log.motionDetected ? 1 : 0,
-            log.distance || 200,
-            Math.sin(2 * Math.PI * hour / 24),
-            Math.cos(2 * Math.PI * hour / 24),
-            Math.sin(2 * Math.PI * day / 7),
-            Math.cos(2 * Math.PI * day / 7),
-            day >= 5 ? 1 : 0,
-            (hour >= 22 || hour <= 6) ? 1 : 0,
-            0 // manual_actions (placeholder)
+            log.temperature, // temperature_mean
+            log.temperature, // temperature_max (approximate)
+            log.temperature, // temperature_min (approximate)
+            log.humidity, // humidity_mean
+            log.motionDetected ? 1 : 0, // motionDetected_sum
+            Math.sin((2 * Math.PI * hour) / 24), // hour_sin
+            Math.cos((2 * Math.PI * hour) / 24), // hour_cos
+            day >= 5 ? 1 : 0, // is_weekend
         ];
     });
     // Normalize features using scaler parameters
-    const normalizedFeatures = features.map(row => row.map((val, idx) => (val - scaler.mean[idx]) / scaler.scale[idx]));
-    // Convert to tensor with shape [1, 168, 13]
-    // Batch size = 1, Timesteps = 168, Features = 13
-    const tensor = tf.tensor3d([normalizedFeatures], [1, 168, 13]);
+    const divisors = (_b = (_a = scaler.scale) !== null && _a !== void 0 ? _a : scaler.std) !== null && _b !== void 0 ? _b : Array(NUM_FEATURES).fill(1);
+    const normalizedFeatures = features.map(row => row.map((val, idx) => {
+        var _a, _b;
+        const mean = (_a = scaler.mean[idx]) !== null && _a !== void 0 ? _a : 0;
+        const divisor = (_b = divisors[idx]) !== null && _b !== void 0 ? _b : 1;
+        return (val - mean) / divisor;
+    }));
+    // Convert to tensor with shape [1, 24, N] where N is the number of features
+    // Batch size = 1, Timesteps = 24 (1 day), Features = N
+    // Ensure we have exactly 24 timesteps (pad or truncate if needed)
+    let featuresToUse = normalizedFeatures;
+    if (featuresToUse.length > 24) {
+        // Take last 24 hours
+        featuresToUse = featuresToUse.slice(-24);
+    }
+    else if (featuresToUse.length < 24) {
+        // Pad with last hour's data
+        const lastHour = featuresToUse[featuresToUse.length - 1] || new Array(((_c = normalizedFeatures[0]) === null || _c === void 0 ? void 0 : _c.length) || 8).fill(0);
+        while (featuresToUse.length < 24) {
+            featuresToUse.unshift([...lastHour]);
+        }
+    }
+    const tensor = tf.tensor3d([featuresToUse], [1, REQUIRED_HOURS, NUM_FEATURES]);
     console.log(`✅ Preprocessed tensor shape: ${tensor.shape}`);
     return tensor;
 }
@@ -281,7 +311,7 @@ async function buildScheduleSuggestions(userId, prediction) {
             enabled: false,
             mode: 'suggested',
             confidence: 0.85,
-            reason: 'Based on last 7 days of fan usage',
+            reason: 'Based on last 24 hours of fan usage patterns',
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
     }
@@ -299,7 +329,7 @@ async function buildScheduleSuggestions(userId, prediction) {
             enabled: false,
             mode: 'suggested',
             confidence: 0.82,
-            reason: 'Based on last 7 days of lighting patterns',
+            reason: 'Based on last 24 hours of lighting patterns',
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
     }
@@ -318,7 +348,7 @@ async function buildScheduleSuggestions(userId, prediction) {
  */
 exports.predictSchedule = functions
     .runWith({
-    timeoutSeconds: 300,
+    timeoutSeconds: 300, // 5 minutes
     memory: '1GB' // Enough for TensorFlow.js
 })
     .https.onCall(async (data, context) => {
@@ -330,7 +360,7 @@ exports.predictSchedule = functions
     const userId = data.userId || context.auth.uid;
     console.log(`User: ${userId}`);
     try {
-        // 2. Fetch sensor logs (last 168 hours)
+        // 2. Fetch sensor logs (last 24 hours - matches converted TFLite model)
         const cutoffDate = new Date();
         cutoffDate.setHours(cutoffDate.getHours() - REQUIRED_HOURS);
         const logsSnapshot = await db.collection('sensor_logs')

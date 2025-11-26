@@ -11,9 +11,25 @@
 
 import * as functions from 'firebase-functions/v1';
 import * as admin from 'firebase-admin';
-import * as tf from '@tensorflow/tfjs';
+import * as tf from '@tensorflow/tfjs-node';
+import * as path from 'path';
+import * as fs from 'fs';
 
 const db = admin.firestore();
+const MODEL_BASE_PATH = path.join(__dirname, '../../models');
+const SCHEDULE_MODEL_DIR = path.join(MODEL_BASE_PATH, 'schedule_predictor_v1');
+const SCALER_FILE = path.join(SCHEDULE_MODEL_DIR, 'scaler_params.json');
+const INPUT_FEATURES = [
+  'temperature_mean',
+  'temperature_max',
+  'temperature_min',
+  'humidity_mean',
+  'motionDetected_sum',
+  'hour_sin',
+  'hour_cos',
+  'is_weekend',
+];
+const NUM_FEATURES = INPUT_FEATURES.length;
 
 // ==================== TYPE DEFINITIONS ====================
 
@@ -31,12 +47,13 @@ interface SensorLog {
 
 interface ScalerParams {
   mean: number[];
-  scale: number[];
-  featureNames: string[];
+  scale?: number[];
+  std?: number[];
+  featureNames?: string[];
 }
 
 interface ModelCache {
-  model: tf.LayersModel | null;
+  model: any;
   scaler: ScalerParams | null;
   loadedAt: number;
 }
@@ -77,7 +94,7 @@ const MAX_GAP_HOURS = 2;
  * Load TensorFlow.js model from Firebase Storage
  * Uses caching to avoid repeated downloads
  */
-async function loadModel(modelName: string): Promise<tf.LayersModel> {
+async function loadModel(modelName: string): Promise<any> {
   console.log(`📥 Loading model: ${modelName}`);
 
   // Check cache
@@ -90,49 +107,30 @@ async function loadModel(modelName: string): Promise<tf.LayersModel> {
   }
 
   try {
-    // Get model URL from Firestore configuration
-    const configDoc = await db.collection('system_config').doc('ml_models').get();
-    
-    if (!configDoc.exists) {
-      throw new Error('ML models configuration not found in Firestore');
-    }
+    const modelPath = SCHEDULE_MODEL_DIR;
+    console.log(`Loading SavedModel from ${modelPath}`);
 
-    const config = configDoc.data();
-    const modelConfig = config?.models?.[modelName];
+    const model = await tf.node.loadSavedModel(modelPath);
 
-    if (!modelConfig?.modelUrl) {
-      throw new Error(`Model URL not found for ${modelName}`);
-    }
-
-    console.log(`Loading from: ${modelConfig.modelUrl}`);
-
-    // Load TFJS model (automatically handles model.json + weight shards)
-    const model = await tf.loadLayersModel(modelConfig.modelUrl);
-
-    // Warmup: Run dummy prediction to initialize internal state
-    // Note: Model expects [1, 24, N] where N is the number of features
-    // The actual feature count will be determined by the model's input shape
     console.log('🔥 Warming up model...');
-    // Get actual input shape from model
-    const inputShape = model.inputs[0].shape as number[];
-    const batchSize = inputShape[0] || 1;
-    const sequenceLength = inputShape[1] || 24;
-    const numFeatures = inputShape[2] || 8; // Default to 8 if unknown
-    const dummyInput = tf.zeros([batchSize, sequenceLength, numFeatures]);
-    const warmupPred = model.predict(dummyInput) as tf.Tensor;
-    warmupPred.dispose();
+    const dummyInput = tf.zeros([1, REQUIRED_HOURS, NUM_FEATURES]);
+    const warmup = model.predict(dummyInput);
+
+    if (Array.isArray(warmup)) {
+      warmup.forEach((tensor) => tensor.dispose());
+    } else if (warmup && typeof warmup['dispose'] === 'function') {
+      (warmup as tf.Tensor).dispose();
+    }
     dummyInput.dispose();
 
-    // Cache the model
     if (!MODEL_CACHE[modelName]) {
       MODEL_CACHE[modelName] = { model: null, scaler: null, loadedAt: 0 };
     }
     MODEL_CACHE[modelName].model = model;
     MODEL_CACHE[modelName].loadedAt = now;
 
-    console.log('✅ Model loaded and warmed up successfully');
+    console.log('✅ Model loaded from local filesystem');
     return model;
-
   } catch (error) {
     console.error('❌ Model loading failed:', error);
     throw new functions.https.HttpsError(
@@ -157,39 +155,33 @@ async function loadScaler(modelName: string): Promise<ScalerParams> {
   }
 
   try {
-    // Get scaler URL from Firestore
-    const configDoc = await db.collection('system_config').doc('ml_models').get();
-    const config = configDoc.data();
-    const scalerUrl = config?.models?.[modelName]?.scalerUrl;
-
-    if (!scalerUrl) {
-      throw new Error(`Scaler URL not found for ${modelName}`);
+    if (!fs.existsSync(SCALER_FILE)) {
+      console.warn('⚠️  Scaler file not found. Using identity scaling.');
+      const identityScaler: ScalerParams = {
+        mean: Array(NUM_FEATURES).fill(0),
+        scale: Array(NUM_FEATURES).fill(1),
+      };
+      if (!MODEL_CACHE[modelName]) {
+        MODEL_CACHE[modelName] = { model: null, scaler: null, loadedAt: 0 };
+      }
+      MODEL_CACHE[modelName].scaler = identityScaler;
+      return identityScaler;
     }
 
-    console.log(`Loading scaler from: ${scalerUrl}`);
+    const scalerRaw = fs.readFileSync(SCALER_FILE, 'utf-8');
+    const scalerData = JSON.parse(scalerRaw) as ScalerParams;
 
-    // Fetch scaler JSON
-    const response = await fetch(scalerUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch scaler: ${response.statusText}`);
+    if (!scalerData.mean) {
+      throw new Error('Invalid scaler data: missing mean array');
     }
 
-    const scalerData = await response.json() as ScalerParams;
-
-    // Validate scaler data
-    if (!scalerData.mean || !scalerData.scale) {
-      throw new Error('Invalid scaler data: missing mean or scale');
-    }
-
-    // Cache the scaler
     if (!MODEL_CACHE[modelName]) {
       MODEL_CACHE[modelName] = { model: null, scaler: null, loadedAt: 0 };
     }
     MODEL_CACHE[modelName].scaler = scalerData;
 
-    console.log('✅ Scaler loaded successfully');
+    console.log('✅ Scaler loaded from local file');
     return scalerData;
-
   } catch (error) {
     console.error('❌ Scaler loading failed:', error);
     throw new functions.https.HttpsError(
@@ -298,27 +290,26 @@ function preprocessScheduleInput(logs: SensorLog[], scaler: ScalerParams): tf.Te
     const hour = timestamp.getHours();
     const day = timestamp.getDay();
 
-    // Extract 13 features matching training
     return [
       log.temperature,                          // temperature_mean
-      log.temperature,                          // temperature_max (simplified)
-      log.temperature,                          // temperature_min (simplified)
+      log.temperature,                          // temperature_max (approximate)
+      log.temperature,                          // temperature_min (approximate)
       log.humidity,                             // humidity_mean
-      log.motionDetected ? 1 : 0,              // motionDetected_sum
-      log.distance || 200,                     // distance_mean (default if missing)
-      Math.sin(2 * Math.PI * hour / 24),      // hour_sin
-      Math.cos(2 * Math.PI * hour / 24),      // hour_cos
-      Math.sin(2 * Math.PI * day / 7),        // day_sin
-      Math.cos(2 * Math.PI * day / 7),        // day_cos
-      day >= 5 ? 1 : 0,                        // is_weekend
-      (hour >= 22 || hour <= 6) ? 1 : 0,      // is_night
-      0                                         // manual_actions (placeholder)
+      log.motionDetected ? 1 : 0,               // motionDetected_sum
+      Math.sin((2 * Math.PI * hour) / 24),      // hour_sin
+      Math.cos((2 * Math.PI * hour) / 24),      // hour_cos
+      day >= 5 ? 1 : 0,                         // is_weekend
     ];
   });
 
   // Normalize features using scaler parameters
+  const divisors = scaler.scale ?? scaler.std ?? Array(NUM_FEATURES).fill(1);
   const normalizedFeatures = features.map(row =>
-    row.map((val, idx) => (val - scaler.mean[idx]) / scaler.scale[idx])
+    row.map((val, idx) => {
+      const mean = scaler.mean[idx] ?? 0;
+      const divisor = divisors[idx] ?? 1;
+      return (val - mean) / divisor;
+    })
   );
 
   // Convert to tensor with shape [1, 24, N] where N is the number of features
@@ -336,8 +327,7 @@ function preprocessScheduleInput(logs: SensorLog[], scaler: ScalerParams): tf.Te
     }
   }
   
-  const numFeatures = featuresToUse[0]?.length || 8;
-  const tensor = tf.tensor3d([featuresToUse], [1, 24, numFeatures]);
+  const tensor = tf.tensor3d([featuresToUse], [1, REQUIRED_HOURS, NUM_FEATURES]);
 
   console.log(`✅ Preprocessed tensor shape: ${tensor.shape}`);
   return tensor;

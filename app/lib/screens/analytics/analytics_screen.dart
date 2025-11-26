@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:intl/intl.dart';
 import '../../services/ml_service.dart';
@@ -155,10 +156,22 @@ final schedulePredictionsProvider = FutureProvider
           .predictSchedules(params.userId, params.deviceId)
           .timeout(
         const Duration(seconds: 15),
-        onTimeout: () => <SchedulePrediction>[],
+        onTimeout: () {
+          Logger.info('schedulePredictionsProvider: Request timed out, returning empty predictions');
+          return <SchedulePrediction>[];
+        },
       );
+    } on FirebaseFunctionsException catch (e) {
+      // Cloud Function errors are expected if functions aren't deployed
+      if (e.code == 'not-found' || e.code == 'unavailable') {
+        Logger.info('schedulePredictionsProvider: Cloud Function not available (expected if not deployed)');
+      } else {
+        Logger.warning('schedulePredictionsProvider: Cloud Function error: ${e.code}');
+      }
+      return <SchedulePrediction>[];
     } catch (e, stackTrace) {
-      Logger.error('schedulePredictionsProvider: Error', e, stackTrace);
+      // Other errors - log but don't crash
+      Logger.warning('schedulePredictionsProvider: Error getting predictions: $e');
       return <SchedulePrediction>[];
     }
   },

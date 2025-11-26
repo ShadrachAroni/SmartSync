@@ -6,6 +6,7 @@ import '../../models/room_model.dart';
 import '../../models/device_model.dart';
 import '../../services/firebase_service.dart';
 import '../../providers/device_provider.dart';
+import '../../providers/sensor_provider.dart';
 import '../../core/widgets/lottie_loading.dart';
 import 'add_room_screen.dart';
 import '../../core/constants/routes.dart';
@@ -263,8 +264,24 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
   }
 
   Widget _buildRoomCard(RoomModel room, List<DeviceModel> devices) {
-    final activeCount =
-        devices.where((d) => d.roomId == room.id && d.isOn).length;
+    // Use sensor data to determine active devices instead of Firestore isOn
+    // This ensures we show the actual device state from sensor readings
+    final sensorDataAsync = ref.watch(sensorStreamProvider);
+    final activeCount = sensorDataAsync.when(
+      data: (data) {
+        if (data == null) {
+          // Fallback to Firestore device state if sensor data unavailable
+          return devices.where((d) => d.roomId == room.id && d.isOn).length;
+        }
+        // Count active appliances: fan (fanSpeed > 0) and light (ledBrightness > 0)
+        final fanActive = data.fanSpeed > 0 ? 1 : 0;
+        final lightActive = data.ledBrightness > 0 ? 1 : 0;
+        return fanActive + lightActive;
+      },
+      loading: () => devices.where((d) => d.roomId == room.id && d.isOn).length,
+      error: (_, __) => devices.where((d) => d.roomId == room.id && d.isOn).length,
+    );
+    final imagePath = _getRoomImagePath(room.icon);
     return GestureDetector(
       onTap: () {
         Navigator.pushNamed(
@@ -287,94 +304,81 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize: MainAxisSize.max,
           children: [
             // Room Image/Icon
-            Container(
-              height: 120,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    _getRoomColor(room.icon).withOpacity(0.7),
-                    _getRoomColor(room.icon),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+            Expanded(
+              child: ClipRRect(
                 borderRadius: const BorderRadius.only(
                   topLeft: Radius.circular(20),
                   topRight: Radius.circular(20),
                 ),
-              ),
-              child: Stack(
-                children: [
-                  // Background pattern
-                  Positioned.fill(
-                    child: _getRoomImagePath(room.icon) != null
-                        ? Opacity(
-                            opacity: 0.15,
-                            child: Image.asset(
-                              _getRoomImagePath(room.icon)!,
-                              fit: BoxFit.cover,
-                            ),
-                          )
-                        : Opacity(
-                            opacity: 0.1,
-                            child: Icon(
-                              _getRoomIcon(room.icon),
-                              size: 100,
-                              color: Colors.white,
-                            ),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (imagePath != null)
+                      Image.asset(
+                        imagePath,
+                        fit: BoxFit.cover,
+                      )
+                    else
+                      Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              _getRoomColor(room.icon).withOpacity(0.7),
+                              _getRoomColor(room.icon),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
                           ),
-                  ),
-
-                  // Room icon
-                  Center(
-                    child: _getRoomImagePath(room.icon) != null
-                        ? Image.asset(
-                            _getRoomImagePath(room.icon)!,
-                            width: 50,
-                            height: 50,
-                            color: Colors.white,
-                            colorBlendMode: BlendMode.srcIn,
-                          )
-                        : Icon(
-                            _getRoomIcon(room.icon),
-                            size: 50,
-                            color: Colors.white,
+                        ),
+                        child: Icon(
+                          _getRoomIcon(room.icon),
+                          size: 80,
+                          color: Colors.white.withOpacity(0.9),
+                        ),
+                      ),
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.black.withOpacity(0.05),
+                              Colors.black.withOpacity(0.35),
+                            ],
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
                           ),
-                  ),
-
-                  // Device count badge
-                  Positioned(
-                    top: 12,
-                    right: 12,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        '${room.deviceIds.length} devices',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
-                  ),
-                ],
+                    Align(
+                      alignment: Alignment.center,
+                      child: imagePath != null
+                          ? Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.25),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Image.asset(
+                                imagePath,
+                                width: 56,
+                                height: 56,
+                                fit: BoxFit.cover,
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ),
               ),
             ),
 
             // Room info
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,

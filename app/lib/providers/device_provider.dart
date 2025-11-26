@@ -99,7 +99,7 @@ class DeviceController extends StateNotifier<AsyncValue<List<DeviceModel>>> {
         Logger.info('DeviceController: Fan speed set to $newValue');
       } else if (device.type == DeviceType.light) {
         await _bluetooth.setLEDBrightness(newValue);
-        Logger.info('DeviceController: LED brightness set to $newValue');
+        Logger.info('DeviceController: Ambient lights set to $newValue');
       }
     } else {
       Logger.warning('DeviceController: BLE not connected, device state only updated in Firebase');

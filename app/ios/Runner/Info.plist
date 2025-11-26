@@ -170,6 +170,8 @@
     <array>
         <string>remote-notification</string>
     </array>
+    <key>NSUserNotificationUsageDescription</key>
+    <string>SmartSync sends caregiver alerts, device warnings, and safety updates. Notifications let you know when something requires attention.</string>
 
     <!-- ==================== ADDITIONAL iOS 14+ PRIVACY ==================== -->
     <!-- User tracking (for analytics - optional) -->

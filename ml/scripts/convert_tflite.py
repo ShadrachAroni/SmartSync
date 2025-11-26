@@ -26,6 +26,31 @@ import joblib
 import warnings
 warnings.filterwarnings('ignore')
 
+
+class VariancePenaltyLoss(tf.keras.losses.Loss):
+    """Replica of the custom loss used during training (MSE + variance term)."""
+    def __init__(self, variance_weight=0.1, name="variance_penalty_mse", reduction=tf.keras.losses.Reduction.AUTO, **kwargs):
+        super().__init__(reduction=reduction, name=name)
+        self.variance_weight = variance_weight
+        self._reduction = reduction
+        self.mse = tf.keras.losses.MeanSquaredError()
+
+    def call(self, y_true, y_pred):
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+        mse_loss = self.mse(y_true, y_pred)
+        pred_var = tf.reduce_mean(tf.math.reduce_variance(y_pred, axis=0))
+        true_var = tf.reduce_mean(tf.math.reduce_variance(y_true, axis=0))
+        pred_var = tf.cast(pred_var, tf.float32)
+        true_var = tf.cast(true_var, tf.float32)
+        variance_penalty = self.variance_weight * tf.maximum(0.0, true_var - pred_var) / (true_var + 1e-6)
+        return mse_loss + variance_penalty
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"variance_weight": self.variance_weight, "reduction": self._reduction})
+        return config
+
 # ==================== CONFIGURATION ====================
 PROJECT_ROOT = Path(__file__).parent.parent
 MODELS_DIR = PROJECT_ROOT / "models" / "saved_models"
@@ -191,13 +216,33 @@ def convert_schedule_predictor():
     # Load Keras model
     print(f"\n📥 Loading Keras model from {model_path.name}...")
     try:
+        custom_objects = {"VariancePenaltyLoss": VariancePenaltyLoss}
         # Try different loading methods for compatibility
         try:
-            model = tf.keras.models.load_model(model_path)
+            model = tf.keras.models.load_model(model_path, custom_objects=custom_objects)
         except AttributeError:
             # Fallback for some TensorFlow installations
             import keras
-            model = keras.models.load_model(model_path)
+            model = keras.models.load_model(model_path, custom_objects=custom_objects)
+
+        # If model was trained with mixed precision, force float32 weights
+        try:
+            policy_name = getattr(model, "dtype_policy", None)
+            policy_name = policy_name.name if policy_name else ""
+        except Exception:
+            policy_name = ""
+
+        if policy_name == "mixed_float16" or any(
+            getattr(layer, "dtype", "") in ("float16", "mixed_float16")
+            for layer in model.layers
+        ):
+            print("   ⚙️  Converting model weights to float32 for TFLite compatibility...")
+            float32_model = tf.keras.models.clone_model(model)
+            float32_model.build(model.input_shape)
+            float32_model.set_weights(
+                [np.asarray(w, dtype=np.float32) for w in model.get_weights()]
+            )
+            model = float32_model
     except Exception as e:
         print(f"   ❌ Failed to load model: {e}")
         return False

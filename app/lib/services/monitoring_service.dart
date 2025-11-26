@@ -39,6 +39,13 @@ class MonitoringService {
   
   SensorData? get latestReading => _latestReading;
 
+  /// Clear the latest reading to prevent stale data from being displayed
+  /// This is called when switching to a new device
+  void clearLatestReading() {
+    _latestReading = null;
+    Logger.info('MonitoringService: Latest reading cleared');
+  }
+
   Future<void> initialize(String userId) async {
     // If already initialized for this user, return immediately
     if (_initialized && _userId == userId) {

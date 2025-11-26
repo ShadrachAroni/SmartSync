@@ -164,21 +164,47 @@ class _DeviceRegistrationDialogState
         },
       );
 
-      // Add device to Firebase
+      // Add device to Firebase first (device must exist before room assignment)
       await firebaseService.addDevice(user.uid, device);
+      Logger.info(
+          'DeviceRegistrationDialog: Device ${widget.deviceId} added to Firebase');
 
       // If room is selected, assign device to room
+      // This updates both the room's deviceIds array and ensures the device's roomId is set
       if (_selectedRoomId != null && _selectedRoomId!.isNotEmpty) {
-        await firebaseService.addDeviceToRoom(
-          user.uid,
-          _selectedRoomId!,
-          widget.deviceId,
-        );
+        try {
+          await firebaseService.addDeviceToRoom(
+            user.uid,
+            _selectedRoomId!,
+            widget.deviceId,
+          );
+          Logger.info(
+              'DeviceRegistrationDialog: Device ${widget.deviceId} successfully assigned to room $_selectedRoomId');
+        } catch (e, stackTrace) {
+          Logger.error(
+              'DeviceRegistrationDialog: Error assigning device to room: $e',
+              e,
+              stackTrace);
+          // Show error but don't fail the entire registration
+          // The device is already registered with the roomId set
+          if (mounted) {
+            AppNotifications.showSnackBar(
+              context,
+              message:
+                  'Device registered, but room assignment failed. You can assign it manually later.',
+              type: AppNotificationType.warning,
+            );
+          }
+        }
+      } else {
         Logger.info(
-            'DeviceRegistrationDialog: Device ${widget.deviceId} assigned to room $_selectedRoomId');
+            'DeviceRegistrationDialog: No room selected for device ${widget.deviceId}');
       }
 
       if (mounted) {
+        // Invalidate providers to refresh UI
+        ref.invalidate(userRoomsProvider);
+
         AppNotifications.showSnackBar(
           context,
           message: 'Device registered successfully!',
@@ -212,7 +238,10 @@ class _DeviceRegistrationDialogState
         borderRadius: BorderRadius.circular(20),
       ),
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 500, maxHeight: 600),
+        constraints: BoxConstraints(
+          maxWidth: 500,
+          maxHeight: MediaQuery.of(context).size.height * 0.8,
+        ),
         child: SingleChildScrollView(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -220,18 +249,21 @@ class _DeviceRegistrationDialogState
               key: _formKey,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // Header
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Register Device',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                      Expanded(
+                        child: Text(
+                          'Register Device',
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       IconButton(
@@ -358,11 +390,14 @@ class _DeviceRegistrationDialogState
                               ),
                             ),
                             const SizedBox(width: 4),
-                            Text(
-                              'Detecting...',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.white.withOpacity(0.7),
+                            Flexible(
+                              child: Text(
+                                'Detecting...',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white.withOpacity(0.7),
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ] else if (_detectionConfidence > 0.5) ...[
@@ -373,12 +408,15 @@ class _DeviceRegistrationDialogState
                               color: Color(0xFF00BFA5),
                             ),
                             const SizedBox(width: 4),
-                            Text(
-                              'Auto-detected (${(_detectionConfidence * 100).toStringAsFixed(0)}%)',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF00BFA5),
-                                fontWeight: FontWeight.w500,
+                            Flexible(
+                              child: Text(
+                                'Auto-detected (${(_detectionConfidence * 100).toStringAsFixed(0)}%)',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF00BFA5),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             if (_detectionMethod != null) ...[
@@ -457,6 +495,7 @@ class _DeviceRegistrationDialogState
                           return DropdownMenuItem(
                             value: type,
                             child: Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
                                   _getDeviceIcon(type),
@@ -468,14 +507,17 @@ class _DeviceRegistrationDialogState
                                   child: Text(
                                     type.name.toUpperCase(),
                                     style: const TextStyle(color: Colors.white),
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                                if (isDetected)
+                                if (isDetected) ...[
+                                  const SizedBox(width: 8),
                                   Icon(
                                     Icons.check_circle,
                                     size: 16,
                                     color: Color(0xFF00BFA5),
                                   ),
+                                ],
                               ],
                             ),
                           );
@@ -610,10 +652,13 @@ class _DeviceRegistrationDialogState
                                               size: 20,
                                             ),
                                       const SizedBox(width: 12),
-                                      Text(
-                                        room.name,
-                                        style: const TextStyle(
-                                            color: Colors.white),
+                                      Expanded(
+                                        child: Text(
+                                          room.name,
+                                          style: const TextStyle(
+                                              color: Colors.white),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -658,9 +703,10 @@ class _DeviceRegistrationDialogState
                   ),
                   const SizedBox(height: 32),
 
-                  // Action Buttons
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
+                  // Action Buttons - Using Wrap for flexible constraint handling
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 12,
                     children: [
                       TextButton(
                         onPressed: _isSaving
@@ -673,7 +719,6 @@ class _DeviceRegistrationDialogState
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
                       ElevatedButton(
                         onPressed: _isSaving ? null : _saveDevice,
                         style: ElevatedButton.styleFrom(
@@ -718,6 +763,8 @@ class _DeviceRegistrationDialogState
         return Icons.cleaning_services;
       case DeviceType.sensor:
         return Icons.sensors;
+      case DeviceType.hub:
+        return Icons.router;
     }
   }
 

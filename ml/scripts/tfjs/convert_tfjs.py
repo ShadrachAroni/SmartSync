@@ -8,18 +8,18 @@ import tensorflow as tf
 from pathlib import Path
 import json
 
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MODELS_DIR = PROJECT_ROOT / "models" / "saved_models"
 TFJS_DIR = PROJECT_ROOT / "models" / "tfjs"
 
 TFJS_DIR.mkdir(parents=True, exist_ok=True)
 
-def convert_to_tfjs(model_name):
+def convert_to_tfjs(model_name, version="v2"):
     """Convert Keras model to TFJS format"""
     print(f"\n🔄 Converting {model_name} to TFJS format...")
     
-    model_path = MODELS_DIR / f"{model_name}_v1"
-    output_path = TFJS_DIR / f"{model_name}_v1"
+    model_path = MODELS_DIR / f"{model_name}_{version}"
+    output_path = TFJS_DIR / f"{model_name}_{version}"
     
     if not model_path.exists():
         print(f"   ❌ Model not found: {model_path}")
@@ -65,7 +65,7 @@ def main():
         return
     
     # Convert schedule predictor
-    success = convert_to_tfjs("schedule_predictor")
+    success = convert_to_tfjs("schedule_predictor", "v2")
     
     if success:
         print("\n" + "=" * 70)

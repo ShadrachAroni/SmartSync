@@ -183,7 +183,7 @@ class EnergyCard extends StatelessWidget {
               const SizedBox(height: 12),
               const Text(
                 'The system calculates energy consumption by:\n\n'
-                '• Tracking device usage (fan speed, LED brightness)\n'
+                '• Tracking device usage (fan speed, ambient light level)\n'
                 '• Measuring operating hours and power levels\n'
                 '• Using device power ratings to estimate kWh\n'
                 '• Aggregating data over the selected time period\n\n'

@@ -43,6 +43,46 @@ class WeatherService {
 
   // Using a free weather API (Open-Meteo) that doesn't require API key
   static const String _baseUrl = 'https://api.open-meteo.com/v1/forecast';
+  
+  // Timeout and retry configuration
+  static const Duration _apiTimeout = Duration(seconds: 15);
+  static const int _maxRetries = 2;
+  static const Duration _retryDelay = Duration(seconds: 1);
+
+  /// Helper method to fetch weather from API with retry logic
+  Future<http.Response?> _fetchWeatherWithRetry(Uri url) async {
+    for (int attempt = 0; attempt <= _maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          Logger.info('WeatherService: Retrying API request (attempt ${attempt + 1}/${_maxRetries + 1})');
+          await Future.delayed(_retryDelay * attempt); // Exponential backoff
+        }
+        
+        final response = await http.get(url).timeout(
+          _apiTimeout,
+          onTimeout: () => throw TimeoutException('Weather API timeout after ${_apiTimeout.inSeconds}s'),
+        );
+        
+        return response;
+      } on TimeoutException catch (e) {
+        Logger.warning('WeatherService: API request timed out (attempt ${attempt + 1}/${_maxRetries + 1}): $e');
+        if (attempt == _maxRetries) {
+          rethrow;
+        }
+      } on http.ClientException catch (e) {
+        Logger.warning('WeatherService: Network error (attempt ${attempt + 1}/${_maxRetries + 1}): $e');
+        if (attempt == _maxRetries) {
+          rethrow;
+        }
+      } catch (e) {
+        Logger.warning('WeatherService: Unexpected error (attempt ${attempt + 1}/${_maxRetries + 1}): $e');
+        if (attempt == _maxRetries) {
+          rethrow;
+        }
+      }
+    }
+    return null;
+  }
 
   /// Get current weather from public weather API based on local area
   /// Only uses sensor data as absolute last resort if weather API completely fails
@@ -51,6 +91,9 @@ class WeatherService {
     double? longitude,
     double? fallbackTemperature,
     double? fallbackHumidity,
+    double? sensorTemperature,
+    double? sensorHumidity,
+    bool preferSensorReadings = false,
   }) async {
     try {
       // Get location if not provided
@@ -145,12 +188,9 @@ class WeatherService {
         );
 
         try {
-          final response = await http.get(url).timeout(
-            const Duration(seconds: 5),
-            onTimeout: () => throw TimeoutException('Weather API timeout'),
-          );
+          final response = await _fetchWeatherWithRetry(url);
 
-          if (response.statusCode == 200) {
+          if (response != null && response.statusCode == 200) {
             final data = jsonDecode(response.body);
             final current = data['current'];
             
@@ -162,13 +202,24 @@ class WeatherService {
 
               // Only use API data if valid
               if (temp != null && hum != null) {
-                Logger.info('WeatherService: Successfully fetched weather from API - Temp: ${temp}°C, Humidity: ${hum}%, Location: lat=$lat, lon=$lon');
+                final useSensorValues =
+                    preferSensorReadings &&
+                        sensorTemperature != null &&
+                        sensorHumidity != null;
+                final resolvedTemperature =
+                    useSensorValues ? sensorTemperature : temp;
+                final resolvedHumidity =
+                    useSensorValues ? sensorHumidity : hum;
+
+                Logger.info(
+                    'WeatherService: Successfully fetched weather from API - Temp: ${temp}°C, Humidity: ${hum}%, Location: lat=$lat, lon=$lon. Using ${useSensorValues ? "sensor" : "API"} readings for display.');
+
                 return WeatherData(
-                  temperature: temp,
-                  humidity: hum,
+                  temperature: resolvedTemperature,
+                  humidity: resolvedHumidity,
                   description: _getWeatherDescription(weatherCode),
                   condition: _getWeatherCondition(weatherCode),
-                  location: 'Current Location',
+                  location: useSensorValues ? 'SmartSync Sensor' : 'Current Location',
                 );
               } else {
                 Logger.warning('WeatherService: API returned invalid temperature/humidity data - temp: $temp, hum: $hum');
@@ -176,11 +227,15 @@ class WeatherService {
             } else {
               Logger.warning('WeatherService: API response missing current weather data');
             }
-          } else {
+          } else if (response != null) {
             Logger.warning('WeatherService: API returned status code ${response.statusCode}');
+          } else {
+            Logger.warning('WeatherService: API request failed - no response received');
           }
         } on TimeoutException catch (e) {
-          Logger.warning('WeatherService: API request timed out: $e');
+          Logger.warning('WeatherService: API request timed out after retries: $e');
+        } on http.ClientException catch (e) {
+          Logger.warning('WeatherService: Network error: $e');
         } catch (e) {
           Logger.warning('WeatherService: API request failed: $e');
         }
@@ -190,13 +245,15 @@ class WeatherService {
 
       // Only use sensor data as absolute last resort if weather API completely failed
       // and we couldn't get location or API returned invalid data
-      if (fallbackTemperature != null && fallbackHumidity != null) {
+      final localTemp = sensorTemperature ?? fallbackTemperature;
+      final localHum = sensorHumidity ?? fallbackHumidity;
+      if (localTemp != null && localHum != null) {
         Logger.info('WeatherService: Using sensor data as fallback (weather API unavailable)');
         return WeatherData(
-          temperature: fallbackTemperature,
-          humidity: fallbackHumidity,
-          description: _getWeatherDescriptionFromTemp(fallbackTemperature),
-          condition: _getWeatherConditionFromTemp(fallbackTemperature),
+          temperature: localTemp,
+          humidity: localHum,
+          description: _getWeatherDescriptionFromTemp(localTemp),
+          condition: _getWeatherConditionFromTemp(localTemp),
           location: 'Local (Sensor)',
         );
       }
@@ -214,12 +271,9 @@ class WeatherService {
             '$_baseUrl?latitude=$defaultLat&longitude=$defaultLon&current=temperature_2m,relative_humidity_2m,weather_code&timezone=auto',
           );
 
-          final response = await http.get(url).timeout(
-            const Duration(seconds: 5),
-            onTimeout: () => throw TimeoutException('Weather API timeout'),
-          );
+          final response = await _fetchWeatherWithRetry(url);
 
-          if (response.statusCode == 200) {
+          if (response != null && response.statusCode == 200) {
             final data = jsonDecode(response.body);
             final current = data['current'];
             
@@ -238,8 +292,16 @@ class WeatherService {
                   location: 'Sample Location',
                 );
               }
+            } else {
+              Logger.warning('WeatherService: Default location API returned status code ${response.statusCode}');
             }
+          } else {
+            Logger.warning('WeatherService: Default location API request failed - no response');
           }
+        } on TimeoutException catch (e) {
+          Logger.warning('WeatherService: Failed to fetch default location weather: $e');
+        } on http.ClientException catch (e) {
+          Logger.warning('WeatherService: Network error fetching default location weather: $e');
         } catch (e) {
           Logger.warning('WeatherService: Failed to fetch default location weather: $e');
         }
@@ -257,13 +319,15 @@ class WeatherService {
       Logger.warning('WeatherService: Stack trace: $stackTrace');
       
       // Only use sensor data as last resort if available
-      if (fallbackTemperature != null && fallbackHumidity != null) {
+      final localTemp = sensorTemperature ?? fallbackTemperature;
+      final localHum = sensorHumidity ?? fallbackHumidity;
+      if (localTemp != null && localHum != null) {
         Logger.info('WeatherService: Using sensor data as fallback after error');
         return WeatherData(
-          temperature: fallbackTemperature,
-          humidity: fallbackHumidity,
-          description: _getWeatherDescriptionFromTemp(fallbackTemperature),
-          condition: _getWeatherConditionFromTemp(fallbackTemperature),
+          temperature: localTemp,
+          humidity: localHum,
+          description: _getWeatherDescriptionFromTemp(localTemp),
+          condition: _getWeatherConditionFromTemp(localTemp),
           location: 'Local (Sensor)',
         );
       }

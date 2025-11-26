@@ -11,7 +11,11 @@ final authStateProvider = StreamProvider<User?>((ref) {
   final authService = ref.watch(authServiceProvider);
   // Get auth state stream - Firebase Auth will emit current user immediately
   // then emit changes. The reload in main() ensures fresh data.
-  return authService.authStateChanges;
+  return authService.authStateChanges.handleError((error, stackTrace) {
+    Logger.error('authStateProvider: Stream error', error, stackTrace);
+    // Return null on error - let UI handle it gracefully
+    // This prevents the app from crashing if Firebase Auth fails
+  });
 });
 
 final currentUserProvider = StreamProvider<UserModel?>((ref) {

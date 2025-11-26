@@ -1,31 +1,108 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'dart:async';
 import 'dart:ui' show PlatformDispatcher;
 import '../utils/logger.dart';
+import '../utils/error_diagnostics.dart';
 import 'error_boundary.dart';
 
-/// Global error handler for the app
+/// Global error handler for the app with improved error filtering
 class AppErrorHandler {
+  static String? _lastErrorSignature;
+  static DateTime? _lastErrorTime;
+  static int _cascadingErrorCount = 0;
+  static const int _maxCascadingErrors = 5;
+  static const Duration _cascadingErrorWindow = Duration(seconds: 2);
+
   static void initialize() {
-    // Handle Flutter framework errors
+    // Handle Flutter framework errors with filtering
     FlutterError.onError = (FlutterErrorDetails details) {
-      final message = 'Flutter Framework Error: ${details.exception}';
-      if (details.stack != null) {
-        print('❌ ERROR: $message');
-        print('   Error: ${details.exception}');
-        print('   StackTrace: ${details.stack}');
-      } else {
-        Logger.error(message);
+      final exception = details.exception.toString();
+      final errorSignature = _createErrorSignature(exception, details.stack);
+      
+      // Capture error for diagnostics
+      // Extract widget info from context if available
+      String? widgetInfo;
+      if (details.context != null) {
+        try {
+          // Get widget information from diagnostics node
+          widgetInfo = details.context!.toStringDeep();
+        } catch (e) {
+          widgetInfo = 'Error extracting widget info: $e';
+        }
       }
-      FlutterError.presentError(details);
+      
+      ErrorDiagnostics.captureError(
+        category: 'layout',
+        message: _getMainError(exception),
+        error: details.exception,
+        stackTrace: details.stack,
+        context: {
+          'library': details.library,
+          'informationCollector': details.informationCollector != null ? 'present' : 'absent',
+          if (widgetInfo != null) 'widgetDiagnostics': widgetInfo,
+        },
+      );
+      
+      // Check if this is a cascading error (same error repeating rapidly)
+      if (_isCascadingError(errorSignature)) {
+        _cascadingErrorCount++;
+        if (_cascadingErrorCount <= _maxCascadingErrors) {
+          // Log first few, then suppress
+          Logger.error(
+            'Flutter Framework Error: ${_getMainError(exception)}',
+            details.exception,
+            details.stack,
+          );
+        } else if (_cascadingErrorCount == _maxCascadingErrors + 1) {
+          // Log a summary message
+          print('❌ ERROR: [Suppressing ${_maxCascadingErrors}+ cascading framework errors]');
+          print('   Main error: ${_getMainError(exception)}');
+        }
+        return;
+      } else {
+        // Reset counter for new error type
+        _cascadingErrorCount = 0;
+        _lastErrorSignature = errorSignature;
+        _lastErrorTime = DateTime.now();
+      }
+
+      // Filter out known framework internal errors
+      if (_shouldFilterError(exception)) {
+        // Only log once with a note
+        if (_cascadingErrorCount == 0) {
+          Logger.error(
+            'Flutter Framework Error: ${_getMainError(exception)}',
+            details.exception,
+            details.stack,
+          );
+        }
+        return;
+      }
+
+      // Log important errors normally
+      Logger.error(
+        'Flutter Framework Error: ${_getMainError(exception)}',
+        details.exception,
+        details.stack,
+      );
+      
+      // Still present error to user in debug mode
+      if (kDebugMode) {
+        FlutterError.presentError(details);
+      }
     };
 
     // Handle async errors
     PlatformDispatcher.instance.onError = (error, stack) {
-      print('❌ ERROR: Platform Error: $error');
-      print('   Error: $error');
-      print('   StackTrace: $stack');
+      final errorStr = error.toString();
+      
+      // Filter platform errors too
+      if (!_shouldFilterError(errorStr)) {
+        Logger.error('Platform Error: ${_getMainError(errorStr)}', error, stack);
+      }
+      
       return true; // Handled
     };
   }
@@ -45,6 +122,68 @@ class AppErrorHandler {
       fallback: fallback,
       child: child,
     );
+  }
+
+  // Private helper methods
+
+  static String _createErrorSignature(String exception, StackTrace? stack) {
+    // Create signature from exception type and first stack frame
+    final exceptionType = exception.split(':').first;
+    if (stack != null) {
+      final stackLines = stack.toString().split('\n');
+      if (stackLines.isNotEmpty) {
+        final firstFrame = stackLines.first;
+        return '$exceptionType|${firstFrame.substring(0, firstFrame.length.clamp(0, 50))}';
+      }
+    }
+    return exceptionType;
+  }
+
+  static bool _isCascadingError(String signature) {
+    if (_lastErrorSignature == signature && _lastErrorTime != null) {
+      final timeSince = DateTime.now().difference(_lastErrorTime!);
+      return timeSince < _cascadingErrorWindow;
+    }
+    return false;
+  }
+
+  static bool _shouldFilterError(String error) {
+    // Filter patterns for framework internal errors
+    final filterPatterns = [
+      'RenderBox',
+      'BoxConstraints',
+      'hasSize',
+      'relayoutBoundary',
+      'Another exception was thrown',
+      'package:flutter/src/rendering',
+      'RenderFlex',
+      'RenderPositionedBox',
+      'RenderPadding',
+      'RenderProxyBox',
+      'RenderConstrainedBox',
+    ];
+    
+    return filterPatterns.any((pattern) => 
+        error.contains(pattern));
+  }
+
+  static String _getMainError(String error) {
+    // Extract the main error message (first line or before first colon)
+    final lines = error.split('\n');
+    final firstLine = lines.first;
+    
+    // Try to extract meaningful part
+    if (firstLine.contains(':')) {
+      final parts = firstLine.split(':');
+      if (parts.length > 1) {
+        return parts.sublist(1).join(':').trim();
+      }
+    }
+    
+    // Limit length
+    return firstLine.length > 150 
+        ? '${firstLine.substring(0, 150)}...' 
+        : firstLine;
   }
 }
 

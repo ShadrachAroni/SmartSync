@@ -9,12 +9,14 @@ import '../../core/widgets/lottie_loading.dart';
 import '../../services/logging_service.dart';
 import '../../services/test_data_generator.dart';
 import '../../services/debug_service.dart';
+import '../../services/ml_service.dart';
 import '../../models/log_entry.dart';
 import '../../screens/analytics/analytics_screen.dart';
 import 'notifications_settings.dart';
 import 'privacy_settings.dart';
 import 'about_screen.dart';
 import 'caregiver_screen.dart';
+import 'hub_management_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -114,6 +116,19 @@ class SettingsScreen extends ConsumerWidget {
               context,
               MaterialPageRoute(
                   builder: (_) => const NotificationSettingsScreen()),
+            ),
+          ),
+          const SizedBox(height: 24),
+          _buildSectionHeader('Hubs & Rooms'),
+          _buildNavTile(
+            context,
+            icon: Icons.router_outlined,
+            title: 'Hub Management',
+            subtitle: 'Manage hubs, assign to rooms, set primary hub',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => const HubManagementScreen()),
             ),
           ),
           const SizedBox(height: 24),
@@ -386,6 +401,7 @@ class SettingsScreen extends ConsumerWidget {
                           ref.invalidate(previousPeriodInsightsProvider);
                           ref.invalidate(schedulePredictionsProvider);
                         }
+                        MLService().clearPredictionCache();
                         
                         if (context.mounted) {
                           timeUnitController.dispose();
@@ -473,6 +489,7 @@ class SettingsScreen extends ConsumerWidget {
                           ref.invalidate(previousPeriodInsightsProvider);
                           ref.invalidate(schedulePredictionsProvider);
                         }
+                        MLService().clearPredictionCache();
                         
                         if (context.mounted) {
                           Navigator.pop(context);

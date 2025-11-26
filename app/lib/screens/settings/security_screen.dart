@@ -73,13 +73,18 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
     return sensorData.when(
       data: (reading) {
         final bool isArmed = reading?.securityEnabled ?? false;
+        final bool motionDetected = reading?.motionDetected ?? false;
+        final double distance = reading?.distance ?? 0.0;
+        final bool proximityAlert = isArmed && motionDetected && distance > 0 && distance < 20;
 
         return Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: isArmed
-                  ? [Colors.green.shade700, Colors.green.shade900]
+                  ? (proximityAlert
+                      ? [Colors.red.shade700, Colors.red.shade900]
+                      : [Colors.green.shade700, Colors.green.shade900])
                   : [Colors.orange.shade700, Colors.orange.shade900],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -87,7 +92,9 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: (isArmed ? Colors.green : Colors.orange)
+                color: (isArmed 
+                    ? (proximityAlert ? Colors.red : Colors.green)
+                    : Colors.orange)
                     .withOpacity(0.4),
                 blurRadius: 20,
                 offset: const Offset(0, 10),
@@ -112,9 +119,52 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
                 ),
               ),
               const SizedBox(height: 8),
+              if (isArmed && motionDetected) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: proximityAlert 
+                        ? Colors.red.withOpacity(0.3)
+                        : Colors.orange.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: proximityAlert 
+                          ? Colors.red.shade300
+                          : Colors.orange.shade300,
+                      width: 2,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        proximityAlert ? Icons.warning_rounded : Icons.motion_photos_on_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        proximityAlert 
+                            ? 'MOTION DETECTED AT ${distance.toStringAsFixed(0)} CM - ALARM TRIGGERED!'
+                            : 'Motion Detected',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               Text(
                 isArmed
-                    ? 'Your security protocols are active'
+                    ? (motionDetected 
+                        ? (proximityAlert 
+                            ? 'Alarm active - Object detected within 20cm range'
+                            : 'Motion detected - Monitoring proximity')
+                        : 'Your security protocols are active')
                     : 'Security automations are paused',
                 style: TextStyle(
                   fontSize: 14,
@@ -343,14 +393,18 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
   Widget _buildSensorCards(AsyncValue sensorData) {
     return sensorData.when(
       data: (reading) {
+        final bool isArmed = reading?.securityEnabled ?? false;
         final motionDetected = reading?.motionDetected ?? false;
         final lastMotion = reading?.timestamp ?? DateTime.now();
         final distance = reading?.distance ?? 0.0;
-        final proximityStatus = distance < 50 
-            ? 'Very Close' 
-            : distance < 150 
+        final bool proximityAlert = isArmed && motionDetected && distance > 0 && distance < 20;
+        final proximityStatus = distance < 20 
+            ? 'Very Close (Alarm Range)' 
+            : distance < 50 
                 ? 'Close' 
-                : 'Far';
+                : distance < 150 
+                    ? 'Moderate'
+                    : 'Far';
 
         return Column(
           children: [
@@ -359,25 +413,39 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [
-                    const Color(0xFF1A1F3A),
-                    const Color(0xFF0F1419),
-                  ],
+                  colors: proximityAlert
+                      ? [Colors.red.shade900, Colors.red.shade700]
+                      : motionDetected && isArmed
+                          ? [Colors.orange.shade900, Colors.orange.shade700]
+                          : [
+                              const Color(0xFF1A1F3A),
+                              const Color(0xFF0F1419),
+                            ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                  color: motionDetected 
-                      ? Colors.orange.withOpacity(0.5) 
-                      : Colors.white.withOpacity(0.1),
+                  color: proximityAlert
+                      ? Colors.red.withOpacity(0.8)
+                      : motionDetected && isArmed
+                          ? Colors.orange.withOpacity(0.6)
+                          : motionDetected
+                              ? Colors.orange.withOpacity(0.5)
+                              : Colors.white.withOpacity(0.1),
+                  width: proximityAlert ? 3 : 1,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: motionDetected 
-                        ? Colors.orange.withOpacity(0.3) 
-                        : Colors.black.withOpacity(0.2),
-                    blurRadius: 15,
+                    color: proximityAlert
+                        ? Colors.red.withOpacity(0.5)
+                        : motionDetected && isArmed
+                            ? Colors.orange.withOpacity(0.4)
+                            : motionDetected
+                                ? Colors.orange.withOpacity(0.3)
+                                : Colors.black.withOpacity(0.2),
+                    blurRadius: proximityAlert ? 20 : 15,
+                    spreadRadius: proximityAlert ? 2 : 0,
                     offset: const Offset(0, 8),
                   ),
                 ],
@@ -387,15 +455,25 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: motionDetected 
-                          ? Colors.orange.withOpacity(0.2) 
-                          : Colors.grey.withOpacity(0.2),
+                      color: proximityAlert
+                          ? Colors.red.withOpacity(0.3)
+                          : motionDetected && isArmed
+                              ? Colors.orange.withOpacity(0.3)
+                              : motionDetected
+                                  ? Colors.orange.withOpacity(0.2)
+                                  : Colors.grey.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: LottieMotionIndicator(
-                      motionDetected: motionDetected,
-                      size: 32,
-                    ),
+                    child: proximityAlert
+                        ? const Icon(
+                            Icons.warning_rounded,
+                            color: Colors.white,
+                            size: 32,
+                          )
+                        : LottieMotionIndicator(
+                            motionDetected: motionDetected,
+                            size: 32,
+                          ),
                   ),
                   const SizedBox(width: 20),
                   Expanded(
@@ -403,21 +481,46 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          motionDetected ? 'Motion Detected' : 'No Motion',
+                          proximityAlert
+                              ? '⚠️ ALARM: Motion at ${distance.toStringAsFixed(0)}cm'
+                              : motionDetected && isArmed
+                                  ? 'Motion Detected (Armed)'
+                                  : motionDetected
+                                      ? 'Motion Detected'
+                                      : 'No Motion',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: motionDetected ? Colors.orange : Colors.white,
+                            color: proximityAlert
+                                ? Colors.white
+                                : motionDetected && isArmed
+                                    ? Colors.white
+                                    : motionDetected
+                                        ? Colors.orange
+                                        : Colors.white,
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Text(
-                          'Last detected: ${_formatTime(lastMotion)}',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.white.withOpacity(0.7),
+                        if (isArmed && motionDetected) ...[
+                          Text(
+                            proximityAlert
+                                ? 'Buzzer active - Object within 20cm range!'
+                                : 'Monitoring proximity - Distance: ${distance.toStringAsFixed(0)} cm',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.white.withOpacity(0.9),
+                              fontWeight: proximityAlert ? FontWeight.bold : FontWeight.normal,
+                            ),
                           ),
-                        ),
+                        ] else ...[
+                          Text(
+                            'Last detected: ${_formatTime(lastMotion)}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.white.withOpacity(0.7),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -425,13 +528,20 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
                     width: 16,
                     height: 16,
                     decoration: BoxDecoration(
-                      color: motionDetected ? Colors.green : Colors.grey,
+                      color: proximityAlert
+                          ? Colors.red
+                          : motionDetected && isArmed
+                              ? Colors.orange
+                              : motionDetected
+                                  ? Colors.green
+                                  : Colors.grey,
                       shape: BoxShape.circle,
-                      boxShadow: motionDetected ? [
+                      boxShadow: (proximityAlert || motionDetected) ? [
                         BoxShadow(
-                          color: Colors.green.withOpacity(0.5),
+                          color: (proximityAlert ? Colors.red : Colors.orange)
+                              .withOpacity(0.5),
                           blurRadius: 8,
-                          spreadRadius: 2,
+                          spreadRadius: proximityAlert ? 3 : 2,
                         ),
                       ] : null,
                     ),
@@ -485,18 +595,25 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
                       children: [
                         Text(
                           'Proximity: $proximityStatus',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: isArmed && distance > 0 && distance < 20
+                                ? Colors.red
+                                : Colors.white,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Distance: ${distance.toStringAsFixed(0)} cm',
+                          'Distance: ${distance.toStringAsFixed(0)} cm${isArmed ? " (Alarm threshold: 20cm)" : ""}',
                           style: TextStyle(
                             fontSize: 13,
-                            color: Colors.white.withOpacity(0.7),
+                            color: isArmed && distance > 0 && distance < 20
+                                ? Colors.red.shade300
+                                : Colors.white.withOpacity(0.7),
+                            fontWeight: isArmed && distance > 0 && distance < 20
+                                ? FontWeight.bold
+                                : FontWeight.normal,
                           ),
                         ),
                       ],

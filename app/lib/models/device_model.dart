@@ -9,6 +9,7 @@ enum DeviceType {
   tv,
   vacuum,
   sensor,
+  hub, // ESP32 hub that controls multiple appliances
 }
 
 class DeviceModel {
@@ -21,6 +22,8 @@ class DeviceModel {
   final bool isOnline;
   final DateTime lastSeen;
   final Map<String, dynamic> metadata;
+  final bool isHub; // True if this device is an ESP32 hub
+  final String? hubId; // If this is an appliance, the hubId it belongs to
 
   DeviceModel({
     required this.id,
@@ -32,6 +35,8 @@ class DeviceModel {
     this.isOnline = false,
     required this.lastSeen,
     this.metadata = const {},
+    this.isHub = false,
+    this.hubId,
   });
 
   factory DeviceModel.fromFirestore(DocumentSnapshot doc) {
@@ -51,6 +56,8 @@ class DeviceModel {
           ? (data['lastSeen'] as Timestamp).toDate()
           : DateTime.now(),
       metadata: data['metadata'] ?? {},
+      isHub: data['isHub'] ?? false,
+      hubId: data['hubId'],
     );
   }
 
@@ -64,6 +71,8 @@ class DeviceModel {
       'isOnline': isOnline,
       'lastSeen': Timestamp.fromDate(lastSeen),
       'metadata': metadata,
+      'isHub': isHub,
+      if (hubId != null) 'hubId': hubId,
     };
   }
 
@@ -77,6 +86,8 @@ class DeviceModel {
     bool? isOnline,
     DateTime? lastSeen,
     Map<String, dynamic>? metadata,
+    bool? isHub,
+    String? hubId,
   }) {
     return DeviceModel(
       id: id ?? this.id,
@@ -88,6 +99,8 @@ class DeviceModel {
       isOnline: isOnline ?? this.isOnline,
       lastSeen: lastSeen ?? this.lastSeen,
       metadata: metadata ?? this.metadata,
+      isHub: isHub ?? this.isHub,
+      hubId: hubId ?? this.hubId,
     );
   }
 
@@ -107,6 +120,8 @@ class DeviceModel {
         return Icons.cleaning_services;
       case DeviceType.sensor:
         return Icons.sensors;
+      case DeviceType.hub:
+        return Icons.router;
     }
   }
 }

@@ -7,38 +7,63 @@
 // DEVICE INFORMATION
 // ============================================================================
 #define DEVICE_NAME "SmartSync"
-#define FIRMWARE_VERSION "1.0.0"
-#define HARDWARE_VERSION "1.0"
+#define FIRMWARE_VERSION "1.1.0"
+#define HARDWARE_VERSION "1.1"
 
 // ============================================================================
 // PIN DEFINITIONS
+// Updated to match wiring diagram (without buck converter)
 // ============================================================================
 
 // DHT22 Temperature & Humidity Sensor
-#define DHT_PIN 27
+// VCC: 3.3V rail, DAT: GPIO4 (with 10kΩ pull-up to 3.3V)
+#define DHT_PIN 4
 #define DHT_TYPE DHT22
 
 // PIR Motion Sensor
-#define PIR_PIN 25
+// VCC: 5V rail, OUT: GPIO19
+#define PIR_PIN 19
 
-// HC-SR04 Ultrasonic Sensor
-#define ULTRASONIC_TRIG_PIN 32
-#define ULTRASONIC_ECHO_PIN 33
+// HY-SRF05 Ultrasonic Sensor
+// VCC: 5V rail, TRIG: GPIO5, ECHO: GPIO18 (via voltage divider)
+#define ULTRASONIC_TRIG_PIN 5
+#define ULTRASONIC_ECHO_PIN 18
 
-// Fan Control (PWM)
-#define FAN_PIN 26
+// Fan Control (PWM via MOSFET IRFZ44N)
+// Gate: GPIO13 (with 330Ω resistor + 10kΩ pull-down)
+// Fan powered by 12V adapter directly
+#define FAN_PIN 13
 #define FAN_PWM_CHANNEL 0
 #define FAN_PWM_FREQ 25000
 #define FAN_PWM_RESOLUTION 8
 
-// LED Control (PWM)
-#define LED_PIN 14
-#define LED_PWM_CHANNEL 1
-#define LED_PWM_FREQ 5000
-#define LED_PWM_RESOLUTION 8
+// Green LED bank (3 individual LEDs, all controlled together)
+// Each LED: Anode → 5V rail via 330Ω, Cathode → GPIO pin
+// LED 1: GPIO25, LED 2: GPIO32, LED 3: GPIO33
+#define GREEN_LED_1_PIN 25
+#define GREEN_LED_2_PIN 32
+#define GREEN_LED_3_PIN 33
+#define GREEN_LED_PWM_CHANNEL_1 1
+#define GREEN_LED_PWM_CHANNEL_2 2
+#define GREEN_LED_PWM_CHANNEL_3 3
+#define GREEN_LED_PWM_FREQ 5000
+#define GREEN_LED_PWM_RESOLUTION 8
+
+// RGB status indicator (common cathode)
+// Cathode: Ground, Anodes: GPIO pins via 330Ω each
+// Red: GPIO14, Green: GPIO27, Blue: GPIO26
+#define RGB_LED_RED_PIN 14
+#define RGB_LED_GREEN_PIN 27
+#define RGB_LED_BLUE_PIN 26
+#define RGB_LED_RED_CHANNEL 4
+#define RGB_LED_GREEN_CHANNEL 5
+#define RGB_LED_BLUE_CHANNEL 6
+#define RGB_LED_PWM_FREQ 5000
+#define RGB_LED_PWM_RESOLUTION 8
 
 // Buzzer
-#define BUZZER_PIN 13
+// Positive: GPIO23, Negative: Ground (optional 330Ω resistor)
+#define BUZZER_PIN 23
 
 // RTC I2C (DS3231) - Shared I2C bus with LCD
 #define RTC_SDA_PIN 21
@@ -70,6 +95,8 @@
 #define CMD_DELETE_SCHEDULE "DEL_SCHEDULE"
 #define CMD_SOS             "SOS"
 #define CMD_SET_SECURITY    "SET_SECURITY"
+#define CMD_SET_HUB_CONFIG  "SET_HUB_CONFIG"
+#define CMD_FACTORY_RESET   "FACTORY_RESET"
 
 // ============================================================================
 // SENSOR THRESHOLDS
@@ -83,7 +110,7 @@
 #define MOTION_TIMEOUT 300000  // 5 minutes
 
 // Distance threshold for proximity alert (cm)
-#define PROXIMITY_THRESHOLD 50
+#define PROXIMITY_THRESHOLD 20
 
 // ============================================================================
 // AUTO MODE SETTINGS
@@ -99,8 +126,8 @@ struct AutoModeSettings {
 // ============================================================================
 // TIMING CONSTANTS
 // ============================================================================
-#define SENSOR_READ_INTERVAL 10000   // 10 seconds
-#define BLE_UPDATE_INTERVAL 5000     // 5 seconds
+#define SENSOR_READ_INTERVAL 2000    // 2 seconds for live data
+#define BLE_UPDATE_INTERVAL 1000     // 1 second for minimal delay
 #define SCHEDULE_CHECK_INTERVAL 60000 // 1 minute
 #define WATCHDOG_TIMEOUT 30000       // 30 seconds
 

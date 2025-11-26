@@ -15,68 +15,53 @@ final weatherDataProvider =
   
   // Helper function to fetch weather
   Future<WeatherData?> _fetchWeather() async {
-    try {
-      // Get sensor data ONLY as absolute last resort if weather API completely fails
-      double? sensorTemp;
-      double? sensorHum;
-      try {
-        final sensorData = ref.read(sensorStreamProvider);
-        sensorTemp = sensorData.asData?.value?.temperature;
-        sensorHum = sensorData.asData?.value?.humidity;
-      } catch (e) {
-        // Sensor data not available - that's okay, we'll use weather API
-      }
+    double? sensorTemp;
+    double? sensorHum;
 
-      // Weather service will automatically:
-      // 1. Get user's location (GPS)
-      // 2. Fetch public weather data from Open-Meteo API for that location
-      // 3. Only use sensor data if weather API completely fails
+    try {
+      final sensorData = ref.read(sensorStreamProvider);
+      sensorTemp = sensorData.asData?.value?.temperature;
+      sensorHum = sensorData.asData?.value?.humidity;
+    } catch (_) {
+      // Sensor stream not ready yet – we'll fall back to geo data.
+    }
+
+    try {
       final weather = await weatherService
           .getCurrentWeather(
         fallbackTemperature: sensorTemp,
         fallbackHumidity: sensorHum,
+        sensorTemperature: sensorTemp,
+        sensorHumidity: sensorHum,
+        preferSensorReadings: sensorTemp != null && sensorHum != null,
       )
           .timeout(
         const Duration(seconds: 10),
         onTimeout: () {
-          // On timeout, only use sensor data if available, otherwise return null
           if (sensorTemp != null && sensorHum != null) {
             return WeatherData(
               temperature: sensorTemp,
               humidity: sensorHum,
-              description: 'Partly Cloudy',
+              description: 'Local sensor data',
               condition: WeatherCondition.partlyCloudy,
-              location: 'Local (Sensor)',
+              location: 'SmartSync Sensor',
             );
           }
           return null;
         },
       );
-      
+
       return weather;
-    } catch (e) {
-      // On error, try sensor data as last resort
-      double? sensorTemp;
-      double? sensorHum;
-      try {
-        final sensorData = ref.read(sensorStreamProvider);
-        sensorTemp = sensorData.asData?.value?.temperature;
-        sensorHum = sensorData.asData?.value?.humidity;
-      } catch (e) {
-        // No sensor data available
-      }
-      
-      // Only return sensor data if available
+    } catch (_) {
       if (sensorTemp != null && sensorHum != null) {
         return WeatherData(
           temperature: sensorTemp,
           humidity: sensorHum,
-          description: 'Partly Cloudy',
+          description: 'Local sensor data',
           condition: WeatherCondition.partlyCloudy,
-          location: 'Local (Sensor)',
+          location: 'SmartSync Sensor',
         );
       }
-      
       return null;
     }
   }

@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../services/storage_service.dart';
 import '../services/notification_service.dart';
@@ -36,8 +37,8 @@ class SettingsState {
 class SettingsController extends StateNotifier<SettingsState> {
   SettingsController(this._ref)
       : super(const SettingsState(
-          notificationsEnabled: true,
-          caregiverAlerts: true,
+          notificationsEnabled: false,
+          caregiverAlerts: false,
           autoMode: false,
         )) {
     _load();
@@ -57,11 +58,32 @@ class SettingsController extends StateNotifier<SettingsState> {
   Future<void> _load() async {
     await _storage.initialize();
 
+    final localNotifications =
+        _storage.getBool(_notifKey, defaultValue: false);
+
     state = SettingsState(
-      notificationsEnabled: _storage.getBool(_notifKey, defaultValue: true),
-      caregiverAlerts: _storage.getBool(_caregiverKey, defaultValue: true),
+      notificationsEnabled: localNotifications,
+      caregiverAlerts: _storage.getBool(_caregiverKey, defaultValue: false),
       autoMode: _storage.getBool(_autoModeKey, defaultValue: false),
     );
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      try {
+        final remotePref =
+            await _notifications.getStoredPreference(user.uid);
+        final permissionGranted =
+            await _notifications.isSystemPermissionGranted();
+        final resolved =
+            permissionGranted && (remotePref ?? localNotifications);
+        if (resolved != state.notificationsEnabled) {
+          state = state.copyWith(notificationsEnabled: resolved);
+          await _storage.saveBool(_notifKey, resolved);
+        }
+      } catch (e) {
+        Logger.warning('SettingsController: Failed to sync notification preference: $e');
+      }
+    }
   }
 
   Future<void> toggleNotifications(String userId, bool enabled) async {
@@ -71,12 +93,14 @@ class SettingsController extends StateNotifier<SettingsState> {
     if (enabled) {
       await _notifications.initialize(userId);
     }
+    await _notifications.updateGlobalNotificationPreference(userId, enabled);
     // Log the change with detailed information
     final loggingService = LoggingService();
     await loggingService.logAction(
       action: 'Push Notifications ${enabled ? "ENABLED" : "DISABLED"}',
       category: 'settings',
-      details: 'Push notifications ${enabled ? "enabled" : "disabled"} (previous state: ${previousState ? "enabled" : "disabled"})',
+      details:
+          'Push notifications ${enabled ? "enabled" : "disabled"} (previous state: ${previousState ? "enabled" : "disabled"})',
       metadata: {
         'setting': 'push_notifications',
         'previousState': previousState,
@@ -98,7 +122,8 @@ class SettingsController extends StateNotifier<SettingsState> {
     await loggingService.logAction(
       action: 'Caregiver Alerts ${enabled ? "ENABLED" : "DISABLED"}',
       category: 'settings',
-      details: 'Caregiver alerts ${enabled ? "enabled" : "disabled"} (previous state: ${previousState ? "enabled" : "disabled"})',
+      details:
+          'Caregiver alerts ${enabled ? "enabled" : "disabled"} (previous state: ${previousState ? "enabled" : "disabled"})',
       metadata: {
         'setting': 'caregiver_alerts',
         'previousState': previousState,
@@ -115,10 +140,10 @@ class SettingsController extends StateNotifier<SettingsState> {
     state = state.copyWith(autoMode: enabled);
     await _storage.saveBool(_autoModeKey, enabled);
     Logger.info('Auto mode preference updated: $enabled');
-    
+
     // Enable/Disable AI-powered adaptive auto mode
     await _adaptiveAuto.setEnabled(enabled);
-    
+
     // Also send command to BLE device for firmware auto mode (as fallback)
     bool bleCommandSuccess = false;
     if (_bluetooth.isConnected) {
@@ -135,15 +160,17 @@ class SettingsController extends StateNotifier<SettingsState> {
         Logger.error('Failed to send auto mode command to BLE: $e');
       }
     } else {
-      Logger.warning('BLE not connected, auto mode preference saved but not sent to device');
+      Logger.warning(
+          'BLE not connected, auto mode preference saved but not sent to device');
     }
-    
+
     // Log the change with detailed information
     final loggingService = LoggingService();
     await loggingService.logAction(
       action: 'Adaptive Auto Mode ${enabled ? "ENABLED" : "DISABLED"}',
       category: 'settings',
-      details: 'AI-powered adaptive auto mode ${enabled ? "enabled" : "disabled"} (previous state: ${previousState ? "enabled" : "disabled"})',
+      details:
+          'AI-powered adaptive auto mode ${enabled ? "enabled" : "disabled"} (previous state: ${previousState ? "enabled" : "disabled"})',
       metadata: {
         'setting': 'adaptive_auto_mode',
         'previousState': previousState,

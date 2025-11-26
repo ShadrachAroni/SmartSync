@@ -14,6 +14,8 @@ public:
     void update();
     
     void setConnectionStatus(bool connected);
+    void setRoomName(const char* roomName);
+    void setIsPrimaryHub(bool isPrimary);
     void showWelcome();
     void showStatus(const char* line1, const char* line2 = "", const char* line3 = "", const char* line4 = "");
     void clear();
@@ -26,6 +28,9 @@ private:
     bool _lastConnectionStatus;
     unsigned long _lastUpdate;
     unsigned long _lastStatusChange;
+    String _roomName;
+    bool _isPrimaryHub;
+    bool _hubConfigChanged;
     
     void _updateConnectionDisplay();
     void _printCentered(uint8_t row, const char* text);

@@ -7,9 +7,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/bluetooth_service.dart';
 import '../../services/firebase_service.dart';
 import '../../models/sensor_data.dart';
+import '../../models/room_model.dart';
+import '../../models/device_model.dart';
 import '../../core/utils/logger.dart';
 import '../../core/widgets/app_notifications.dart';
 import '../../core/widgets/lottie_loading.dart';
+import '../../providers/device_provider.dart';
 import 'device_registration_dialog.dart';
 
 // Provider for BLE scanning state
@@ -50,21 +53,49 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
 
   Future<void> _startScan() async {
     try {
+      // CRITICAL: Ensure any previous scans are stopped before starting new scan
+      // This prevents "scan already in progress" errors
+      try {
+        await flutter_blue.FlutterBluePlus.stopScan();
+        await Future.delayed(const Duration(milliseconds: 200)); // Brief delay for cleanup
+      } catch (e) {
+        Logger.debug('Error stopping previous scan (may not be running): $e');
+      }
+      
+      // CRITICAL: Reset connection state if needed to allow scanning
+      // If connection state is confused (firmware thinks connected but app doesn't), reset it
+      if (!_bluetoothService.isConnected) {
+        try {
+          await _bluetoothService.resetConnectionState();
+        } catch (e) {
+          Logger.debug('Error resetting connection state: $e');
+        }
+      }
+      
       ref.read(isScanningProvider.notifier).state = true;
       ref.read(scannedDevicesProvider.notifier).state = [];
 
       Logger.info('Starting BLE scan...');
 
-      final devices = await _bluetoothService.scanForDevices(
+      // First try SmartSync-specific scan
+      var devices = await _bluetoothService.scanForDevices(
         timeout: const Duration(seconds: 15),
       );
+
+      // Enhanced: If no SmartSync devices found, scan for all devices
+      if (devices.isEmpty) {
+        Logger.info('No SmartSync devices found, scanning for all BLE devices...');
+        devices = await _bluetoothService.scanForAllDevices(
+          timeout: const Duration(seconds: 10),
+        );
+      }
 
       if (mounted) {
         ref.read(scannedDevicesProvider.notifier).state = devices;
         ref.read(isScanningProvider.notifier).state = false;
 
         if (devices.isEmpty) {
-          _showMessage('No SmartSync devices found nearby', isError: true);
+          _showMessage('No BLE devices found nearby', isError: true);
         } else {
           _showMessage('Found ${devices.length} device(s)');
         }
@@ -78,6 +109,17 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
         if (errorMessage.contains('bluetooth is turned off') || 
             errorMessage.contains('bluetooth is not ready')) {
           _showMessage('Turn on Bluetooth to scan', isError: true);
+        } else if (errorMessage.contains('scan already in progress') ||
+                   errorMessage.contains('already scanning')) {
+          // If scan is already in progress, try to stop and retry
+          try {
+            await flutter_blue.FlutterBluePlus.stopScan();
+            await Future.delayed(const Duration(milliseconds: 500));
+            // Retry scan after stopping
+            _startScan();
+          } catch (retryError) {
+            _showMessage('Failed to scan: ${e.toString()}', isError: true);
+          }
         } else {
           _showMessage('Failed to scan: ${e.toString()}', isError: true);
         }
@@ -86,74 +128,265 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
   }
 
   Future<void> _connectToDevice(flutter_blue.BluetoothDevice device) async {
+    // Prevent multiple simultaneous connection attempts
+    if (_isConnecting) {
+      Logger.warning('Connection already in progress, ignoring duplicate request');
+      return;
+    }
+
+    final deviceId = device.remoteId.toString();
+    
+    // Check if already connected to this device
+    if (_bluetoothService.isConnected && 
+        _bluetoothService.connectedDeviceId == deviceId) {
+      Logger.info('Already connected to ${device.advName}');
+      _showMessage('Already connected to ${device.advName}');
+      Navigator.of(context).pop();
+      return;
+    }
+
     setState(() {
       _isConnecting = true;
-      _connectingDeviceId = device.remoteId.toString();
+      _connectingDeviceId = deviceId;
     });
 
     try {
       Logger.info('Connecting to ${device.advName}...');
 
-      final success = await _bluetoothService.connectToDevice(device);
+      print('🔍 [DEBUG] Starting connection to device: ${device.advName}');
+      Logger.info('🔍 [DEBUG] Starting connection to device: ${device.advName}');
+      
+      bool success = false;
+      try {
+        // CRITICAL: Wrap connection in try-catch with timeout
+        success = await _bluetoothService.connectToDevice(device).timeout(
+          const Duration(seconds: 30),
+          onTimeout: () {
+            Logger.error('Connection timed out after 30 seconds');
+            print('🔍 [DEBUG] Connection timed out');
+            return false;
+          },
+        );
+      } catch (e, stackTrace) {
+        Logger.error('🔍 [DEBUG] Connection exception: $e', e, stackTrace);
+        print('🔍 [DEBUG] Connection exception: $e');
+        success = false;
+      }
+      
+      print('🔍 [DEBUG] Connection result: $success');
+      Logger.info('🔍 [DEBUG] Connection result: $success');
 
-      if (mounted) {
+      // CRITICAL: Check if widget is still mounted before any UI operations
+      if (!mounted) {
+        print('🔍 [DEBUG] Widget not mounted, aborting');
+        Logger.warning('🔍 [DEBUG] Widget not mounted after connection, aborting');
+        return;
+      }
+
+      print('🔍 [DEBUG] Widget still mounted, updating state');
+      try {
         setState(() {
           _isConnecting = false;
           _connectingDeviceId = null;
         });
+        print('🔍 [DEBUG] State updated');
+      } catch (e, stackTrace) {
+        Logger.error('🔍 [DEBUG] Error updating state: $e', e, stackTrace);
+        print('🔍 [DEBUG] State update exception: $e');
+      }
 
-        if (success) {
+      // Check if device is a hub
+      final deviceId = device.remoteId.toString();
+      final isHub = device.advName.contains('SmartSync') ||
+          device.advName.contains('ESP32') ||
+          device.advName.startsWith('SmartSync');
+      
+      final user = FirebaseAuth.instance.currentUser;
+      
+      if (success) {
+        print('🔍 [DEBUG] Connection successful, showing message');
+        try {
           _showMessage('Connected to ${device.advName}!');
-          
-          // Check if device is registered in Firebase
-          final user = FirebaseAuth.instance.currentUser;
-          if (user != null) {
-            final firebaseService = FirebaseService();
-            final deviceId = device.remoteId.toString();
-            final existingDevice = await firebaseService.getDeviceById(deviceId);
-            
-            if (existingDevice == null) {
-              // Device not registered, try to get initial sensor data for auto-detection
-              SensorData? initialSensorData;
-              try {
-                Logger.info('DeviceRegistration: Waiting for initial sensor data for auto-detection...');
-                initialSensorData = await _bluetoothService.getFirstSensorData(
-                  timeout: const Duration(seconds: 3),
+          print('🔍 [DEBUG] Message shown');
+        } catch (e) {
+          Logger.warning('🔍 [DEBUG] Error showing message: $e');
+        }
+        
+        // CRITICAL: Check if device is registered in Firebase
+        print('🔍 [DEBUG] Checking Firebase for device registration');
+        if (user != null) {
+          print('🔍 [DEBUG] User found: ${user.uid}');
+            try {
+              print('🔍 [DEBUG] Getting Firebase service');
+              final firebaseService = FirebaseService();
+              print('🔍 [DEBUG] Checking device in Firebase: $deviceId');
+              final existingDevice = await firebaseService.getDeviceById(deviceId);
+              print('🔍 [DEBUG] Firebase check result: ${existingDevice != null ? "Found" : "Not found"}');
+              
+              if (existingDevice == null) {
+              // Check if this is an ESP32 hub (SmartSync device)
+              // ESP32 hubs typically have "SmartSync" in their name or match the BLE prefix
+              
+              if (isHub) {
+                // Auto-register hub to first available room
+                Logger.info('Auto-registering hub $deviceId');
+                final registered = await _autoRegisterHub(
+                  deviceId,
+                  device.advName.isNotEmpty ? device.advName : 'SmartSync Hub',
                 );
                 
-                if (initialSensorData != null) {
-                  Logger.info('DeviceRegistration: Received initial sensor data for auto-detection');
+                if (registered) {
+                  _showMessage('Hub registered successfully!');
+                } else {
+                  _showMessage('Hub registration failed. Please try again.', isError: true);
                 }
-              } catch (e) {
-                Logger.warning('DeviceRegistration: Could not get initial sensor data: $e');
-              }
-              
-              // Show registration dialog with auto-detection
-              Logger.info('DeviceRegistration: Device $deviceId not found, showing registration dialog');
-              final registered = await showDialog<bool>(
-                context: context,
-                barrierDismissible: false,
-                builder: (context) => DeviceRegistrationDialog(
-                  deviceId: deviceId,
-                  deviceName: device.advName.isNotEmpty 
-                      ? device.advName 
-                      : 'SmartSync Device',
-                  initialSensorData: initialSensorData,
-                ),
-              );
-              
-              if (registered == true) {
-                _showMessage('Device registered successfully!');
+              } else {
+                // Regular device registration
+                SensorData? initialSensorData;
+                try {
+                  Logger.info('DeviceRegistration: Waiting for initial sensor data for auto-detection...');
+                  initialSensorData = await _bluetoothService.getFirstSensorData(
+                    timeout: const Duration(seconds: 3),
+                  );
+                  
+                  if (initialSensorData != null) {
+                    Logger.info('DeviceRegistration: Received initial sensor data for auto-detection');
+                  }
+                } catch (e) {
+                  Logger.warning('DeviceRegistration: Could not get initial sensor data: $e');
+                }
+                
+                // Show registration dialog with auto-detection
+                Logger.info('DeviceRegistration: Device $deviceId not found, showing registration dialog');
+                final registered = await showDialog<bool>(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) => DeviceRegistrationDialog(
+                    deviceId: deviceId,
+                    deviceName: device.advName.isNotEmpty 
+                        ? device.advName 
+                        : 'SmartSync Device',
+                    initialSensorData: initialSensorData,
+                  ),
+                );
+                
+                if (registered == true) {
+                  _showMessage('Device registered successfully!');
+                  // Invalidate device provider to refresh device list
+                  final user = FirebaseAuth.instance.currentUser;
+                  if (user != null) {
+                    ref.invalidate(deviceControllerProvider(user.uid));
+                  }
+                }
               }
             } else {
-              Logger.info('DeviceRegistration: Device $deviceId already registered in room ${existingDevice.roomId}');
+              // Device already exists in Firebase
+              // Check if it's a hub and if it needs re-registration
+              final isHubDevice = device.advName.contains('SmartSync') ||
+                  device.advName.contains('ESP32') ||
+                  device.advName.startsWith('SmartSync') ||
+                  existingDevice.isHub;
+              
+              if (isHubDevice && (!existingDevice.isHub || existingDevice.roomId.isEmpty)) {
+                // Hub exists but isn't properly registered as a hub or has no room
+                // Auto-register to fix this
+                Logger.info('Hub $deviceId exists but not properly registered, auto-registering');
+                final registered = await _autoRegisterHub(
+                  deviceId,
+                  device.advName.isNotEmpty 
+                      ? device.advName 
+                      : existingDevice.name.isNotEmpty
+                          ? existingDevice.name
+                          : 'SmartSync Hub',
+                );
+                
+                if (registered) {
+                  _showMessage('Hub registration updated!');
+                } else {
+                  _showMessage('Hub registration update failed.', isError: true);
+                }
+              } else if (existingDevice.isHub) {
+                Logger.info('Hub $deviceId already registered in room ${existingDevice.roomId}');
+              } else {
+                Logger.info('Device $deviceId already registered in room ${existingDevice.roomId}');
+              }
             }
+          } catch (e, stackTrace) {
+            Logger.error('🔍 [DEBUG] Firebase check error: $e', e, stackTrace);
+            print('🔍 [DEBUG] Firebase check exception: $e');
+            print('🔍 [DEBUG] Stack trace: $stackTrace');
           }
-          
-          // Navigate back to home screen
-          Navigator.of(context).pop();
         } else {
-          _showMessage('Failed to connect to ${device.advName}', isError: true);
+          print('🔍 [DEBUG] No user found');
+        }
+      } else {
+        // Connection failed
+        _showMessage('Connection failed. Please try again.', isError: true);
+      }
+      
+      // CRITICAL: Navigate back to home screen with proper error handling
+      print('🔍 [DEBUG] Preparing to navigate back to home screen');
+      Logger.info('🔍 [DEBUG] Preparing to navigate back to home screen');
+      
+      // CRITICAL: Delay ensures home screen is ready before navigation
+      // Also allows any pending operations to complete
+      await Future.delayed(const Duration(milliseconds: 500));
+      print('🔍 [DEBUG] Delay completed, checking if mounted');
+      
+      // CRITICAL: Multiple checks before navigation
+      if (!mounted) {
+        print('🔍 [DEBUG] Widget not mounted, skipping navigation');
+        Logger.warning('🔍 [DEBUG] Widget not mounted, skipping navigation');
+        return;
+      }
+      
+      // CRITICAL: Check if context is still valid
+      if (!context.mounted) {
+        print('🔍 [DEBUG] Context not mounted, skipping navigation');
+        Logger.warning('🔍 [DEBUG] Context not mounted, skipping navigation');
+        return;
+      }
+      
+      print('🔍 [DEBUG] Widget and context mounted, calling Navigator.pop()');
+      Logger.info('🔍 [DEBUG] Calling Navigator.pop()');
+      
+      try {
+        // CRITICAL: Use Navigator.maybePop for safer navigation
+        final navigator = Navigator.of(context);
+        final canPop = navigator.canPop();
+        
+        if (canPop) {
+          navigator.pop();
+          print('🔍 [DEBUG] Navigator.pop() completed');
+          Logger.info('🔍 [DEBUG] Navigator.pop() completed successfully');
+        } else {
+          print('🔍 [DEBUG] Cannot pop - no routes to pop');
+          Logger.warning('🔍 [DEBUG] Cannot pop - no routes to pop');
+          // CRITICAL: If can't pop, try pushing home route instead
+          try {
+            navigator.pushReplacementNamed('/home');
+            print('🔍 [DEBUG] Pushed home route as fallback');
+          } catch (e) {
+            Logger.error('🔍 [DEBUG] Failed to push home route: $e');
+          }
+        }
+      } catch (e, stackTrace) {
+        Logger.error('🔍 [DEBUG] Navigator.pop() error: $e', e, stackTrace);
+        print('🔍 [DEBUG] Navigator.pop() exception: $e');
+        print('🔍 [DEBUG] Stack trace: $stackTrace');
+        
+        // CRITICAL: Try alternative navigation method if pop fails
+        try {
+          if (mounted && context.mounted) {
+            Navigator.of(context).pushNamedAndRemoveUntil(
+              '/home',
+              (route) => false,
+            );
+            print('🔍 [DEBUG] Used pushNamedAndRemoveUntil as fallback');
+          }
+        } catch (fallbackError) {
+          Logger.error('🔍 [DEBUG] Fallback navigation also failed: $fallbackError');
+          print('🔍 [DEBUG] Fallback navigation exception: $fallbackError');
         }
       }
     } catch (e) {
@@ -174,6 +407,139 @@ class _DeviceScanScreenState extends ConsumerState<DeviceScanScreen> {
       message: message,
       type: isError ? AppNotificationType.error : AppNotificationType.success,
     );
+  }
+
+  /// Auto-register hub to first available room (or create default room)
+  /// This replaces the hub registration dialog for simplicity
+  Future<bool> _autoRegisterHub(String hubId, String hubName) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      Logger.warning('Cannot auto-register hub: No user logged in');
+      return false;
+    }
+
+    try {
+      final firebaseService = FirebaseService();
+      
+      // Get all rooms for the user
+      final rooms = await firebaseService.getUserRooms(user.uid).first;
+      
+      // Find first available room (room without a hub)
+      RoomModel? targetRoom;
+      for (var room in rooms) {
+        if (room.hubId == null || room.hubId!.isEmpty) {
+          targetRoom = room;
+          break;
+        }
+      }
+      
+      String roomId;
+      String roomName;
+      
+      // If no available room, create a default "Home" room
+      if (targetRoom == null) {
+        Logger.info('No available room found, creating default "Home" room');
+        final defaultRoom = RoomModel(
+          id: '', // Will be generated by Firestore
+          name: 'Home',
+          icon: 'home',
+          deviceIds: [],
+          hubId: hubId,
+          isPrimaryHub: false, // Disabled for simplicity
+        );
+        roomId = await firebaseService.addRoom(user.uid, defaultRoom);
+        roomName = 'Home';
+        
+        // Update the room with hubId after creation
+        await firebaseService.updateRoom(user.uid, roomId, {
+          'hubId': hubId,
+        });
+      } else {
+        // Use existing room
+        roomId = targetRoom.id;
+        roomName = targetRoom.name;
+        
+        // Update room with hubId
+        await firebaseService.updateRoom(user.uid, roomId, {
+          'hubId': hubId,
+        });
+      }
+      
+      // Primary hub logic disabled for simplicity - just basic connection
+      
+      // Register the hub as a device
+      final hubDevice = DeviceModel(
+        id: hubId,
+        name: hubName.isNotEmpty ? hubName : 'SmartSync Hub',
+        type: DeviceType.hub,
+        roomId: roomId,
+        isOn: false,
+        value: 0,
+        isOnline: true,
+        lastSeen: DateTime.now(),
+        metadata: {
+          'bleName': hubName,
+          'registeredAt': DateTime.now().toIso8601String(),
+          'isHub': true,
+          'autoRegistered': true,
+        },
+        isHub: true,
+      );
+      
+      await firebaseService.addDevice(user.uid, hubDevice);
+      Logger.info('Auto-registered hub: Hub device $hubId registered in Firebase');
+      
+      // Create virtual devices for fan and light that belong to this hub
+      final fanDevice = DeviceModel(
+        id: '${hubId}_fan',
+        name: '$roomName Fan',
+        type: DeviceType.fan,
+        roomId: roomId,
+        isOn: false,
+        value: 0,
+        isOnline: true,
+        lastSeen: DateTime.now(),
+        metadata: {
+          'hubId': hubId,
+          'isVirtual': true,
+        },
+        hubId: hubId,
+      );
+      
+      final lightDevice = DeviceModel(
+        id: '${hubId}_light',
+        name: '$roomName Light',
+        type: DeviceType.light,
+        roomId: roomId,
+        isOn: false,
+        value: 0,
+        isOnline: true,
+        lastSeen: DateTime.now(),
+        metadata: {
+          'hubId': hubId,
+          'isVirtual': true,
+        },
+        hubId: hubId,
+      );
+      
+      await firebaseService.addDevice(user.uid, fanDevice);
+      await firebaseService.addDevice(user.uid, lightDevice);
+      Logger.info('Auto-registered hub: Created virtual fan and light devices for hub $hubId');
+      
+      // Add all devices to room
+      await firebaseService.addDeviceToRoom(user.uid, roomId, hubId);
+      await firebaseService.addDeviceToRoom(user.uid, roomId, fanDevice.id);
+      await firebaseService.addDeviceToRoom(user.uid, roomId, lightDevice.id);
+      
+      // Invalidate device provider to refresh device list
+      ref.invalidate(deviceControllerProvider(user.uid));
+      
+      Logger.info('Auto-registered hub: Hub $hubId successfully registered to room $roomId ($roomName)');
+      return true;
+    } catch (e, stackTrace) {
+      Logger.error('Auto-register hub error: $e', e, stackTrace);
+      return false;
+    }
   }
 
   @override

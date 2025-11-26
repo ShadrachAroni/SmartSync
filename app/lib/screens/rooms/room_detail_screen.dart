@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
+import 'dart:async';
 import '../../models/room_model.dart';
 import '../../models/device_model.dart';
 import '../../services/firebase_service.dart';
@@ -16,6 +17,8 @@ import '../../providers/sensor_provider.dart';
 import '../../services/logging_service.dart';
 import '../../models/log_entry.dart';
 import '../automations/add_scheduled_automation_screen.dart';
+import '../../services/bluetooth_service.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart' as flutter_blue;
 
 import 'package:image_picker/image_picker.dart';
 
@@ -51,8 +54,12 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
   double _fanSpeed = 50;
   double _masterBrightness = 50;
   bool _notificationShown = false; // Prevent notification loop
+  bool _isReconnecting = false; // Track reconnection state
   late AnimationController _fanAnimationController;
   late AnimationController _bulbAnimationController;
+  
+  // Get BluetoothService instance
+  BluetoothService get _bluetoothService => ref.read(bluetoothServiceProvider);
 
   @override
   void initState() {
@@ -210,14 +217,6 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                             color: Colors.white,
                           ),
                         ),
-                        TextButton.icon(
-                          onPressed: _navigateToAddDevice,
-                          icon: const Icon(Icons.add, size: 18),
-                          label: const Text('Add'),
-                          style: TextButton.styleFrom(
-                            foregroundColor: Colors.blue,
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -226,10 +225,32 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                   // Device List
                   devicesAsync.when(
                     data: (devices) {
-                      if (devices.isEmpty) {
-                        return _buildEmptyDevices();
+                      // Find hub device (if exists)
+                      DeviceModel? hubDevice;
+                      try {
+                        hubDevice = devices.firstWhere((d) => d.isHub);
+                      } catch (e) {
+                        hubDevice = null;
                       }
-                      return _buildDevicesList(devices);
+                      
+                      // Filter out hub from device list (only show non-hub devices)
+                      final nonHubDevices = devices.where((d) => !d.isHub).toList();
+                      
+                      // Show reconnect hub card if hub exists, otherwise show empty state
+                      return Column(
+                        children: [
+                          // Reconnect Hub Card (always show if hub exists)
+                          if (hubDevice != null) ...[
+                            _buildReconnectHubCard(hubDevice),
+                            const SizedBox(height: 16),
+                          ],
+                          // Non-hub devices list
+                          if (nonHubDevices.isEmpty)
+                            _buildEmptyDevices()
+                          else
+                            _buildDevicesList(nonHubDevices),
+                        ],
+                      );
                     },
                     loading: () => const Center(
                       child: LottieLoading.medium(),
@@ -400,12 +421,28 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    '${widget.room.deviceIds.length} devices connected',
+                  Consumer(
+                    builder: (context, ref, child) {
+                      // Count active appliances (fan + light) from sensor data - same logic as active card
+                      final sensorData = ref.watch(sensorStreamProvider);
+                      final activeCount = sensorData.when(
+                        data: (data) {
+                          if (data == null) return 0;
+                          final fanActive = (data.fanSpeed > 0) ? 1 : 0;
+                          final lightActive = (data.ledBrightness > 0) ? 1 : 0;
+                          return fanActive + lightActive;
+                        },
+                        loading: () => 0,
+                        error: (_, __) => 0,
+                      );
+                      return Text(
+                        '$activeCount ${activeCount == 1 ? 'appliance' : 'appliances'} on',
                     style: TextStyle(
                       fontSize: 14,
                       color: Colors.white.withOpacity(0.9),
                     ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -419,17 +456,53 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
   Widget _buildQuickStats() {
     final devicesAsync = ref.watch(roomDevicesProvider(widget.room.id));
     final automationsAsync = ref.watch(roomAutomationsProvider(widget.room.id));
+    final sensorDataAsync = ref.watch(sensorStreamProvider);
     final user = FirebaseAuth.instance.currentUser;
     
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
-          // Active Devices
+          // Active Devices (count appliances from sensor data: fan + light)
           Expanded(
-            child: devicesAsync.when(
+            child: sensorDataAsync.when(
+              data: (sensorData) {
+                // Count active appliances from sensor data (fan and light separately)
+                // Fan is active if fanSpeed > 0, Light is active if ledBrightness > 0
+                // Use the same logic as hero section for consistency
+                if (sensorData == null) {
+                  return _buildStatCard(
+                    icon: Icons.power_settings_new_rounded,
+                    label: 'Active',
+                    value: '0',
+                    color: const Color(0xFF00BFA5),
+                    zeroReason: 'All devices off',
+                  );
+                }
+                final fanActive = sensorData.fanSpeed > 0 ? 1 : 0;
+                final lightActive = sensorData.ledBrightness > 0 ? 1 : 0;
+                final activeCount = fanActive + lightActive;
+                return _buildStatCard(
+                  icon: Icons.power_settings_new_rounded,
+                  label: 'Active',
+                  value: '$activeCount',
+                  color: const Color(0xFF00BFA5),
+                  zeroReason: activeCount == 0 
+                      ? 'All devices off' 
+                      : null,
+                );
+              },
+              loading: () => _buildStatCard(
+                icon: Icons.power_settings_new_rounded,
+                label: 'Active',
+                value: '-',
+                color: const Color(0xFF00BFA5),
+              ),
+              error: (_, __) {
+                // Fallback to device count if sensor data unavailable
+                return devicesAsync.when(
               data: (devices) {
-                final activeCount = devices.where((d) => d.isOn).length;
+                final activeCount = devices.where((d) => !d.isHub && d.isOn).length;
                 return _buildStatCard(
                   icon: Icons.power_settings_new_rounded,
                   label: 'Active',
@@ -452,6 +525,8 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
                 value: '0',
                 color: const Color(0xFF00BFA5),
               ),
+                );
+              },
             ),
           ),
           const SizedBox(width: 12),
@@ -849,6 +924,21 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
   }
 
   Widget _buildDeviceListItem(DeviceModel device) {
+    // CRITICAL: Check if device is currently connected via Bluetooth
+    // Use direct service check for immediate state (provider may have delay)
+    final isBluetoothConnected = _bluetoothService.isConnected;
+    
+    final isConnected = device.isHub && 
+        isBluetoothConnected && 
+        _bluetoothService.connectedDeviceId == device.id;
+    final isDisconnected = device.isHub && !isConnected;
+
+    // For hub devices, show a reconnection widget instead of a regular device card
+    if (device.isHub) {
+      return _buildHubReconnectionCard(device, isConnected, isDisconnected);
+    }
+
+    // For non-hub devices, show regular device card
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -861,36 +951,29 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.1)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.blue.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(
+          color: Colors.white.withOpacity(0.1),
+          width: 1,
+        ),
       ),
       child: Row(
-        children: [
-          // Device icon
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: device.isOn
-                  ? Colors.blue.withOpacity(0.2)
-                  : Colors.white.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              device.icon,
-              color: device.isOn ? Colors.blue : Colors.white70,
-              size: 24,
-            ),
-          ),
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: device.isOn
+                      ? Colors.blue.withOpacity(0.2)
+                      : Colors.white.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  device.icon,
+                  color: device.isOn ? Colors.blue : Colors.white70,
+                  size: 24,
+                ),
+              ),
           const SizedBox(width: 16),
-
-          // Device info
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -914,13 +997,476 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
               ],
             ),
           ),
-
-          // Device control
           Switch(
             value: device.isOn,
             onChanged: (value) => _toggleDevice(device, value),
             activeThumbColor: Colors.blue,
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHubReconnectionCard(
+    DeviceModel hubDevice,
+    bool isConnected,
+    bool isDisconnected,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isConnected
+              ? [
+                  const Color(0xFF1A3A2A),
+                  const Color(0xFF0F1914),
+                ]
+              : [
+                  const Color(0xFF3A2A1A),
+                  const Color(0xFF19140F),
+                ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isConnected
+              ? Colors.green.withOpacity(0.5)
+              : Colors.orange.withOpacity(0.5),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: (isConnected ? Colors.green : Colors.orange).withOpacity(0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Hub icon with connection status
+          Stack(
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: isConnected
+                      ? Colors.green.withOpacity(0.2)
+                      : Colors.orange.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  Icons.router,
+                  color: isConnected ? Colors.green : Colors.orange,
+                  size: 32,
+                ),
+              ),
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  child: Container(
+                  width: 16,
+                  height: 16,
+                    decoration: BoxDecoration(
+                    color: isConnected ? Colors.green : Colors.orange,
+                      shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2.5),
+                  ),
+                  child: isConnected
+                      ? const Icon(
+                          Icons.check,
+                          size: 10,
+                          color: Colors.white,
+                        )
+                      : const Icon(
+                          Icons.close,
+                          size: 10,
+                          color: Colors.white,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(width: 16),
+
+          // Hub info and status
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hubDevice.name,
+                        style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                const SizedBox(height: 6),
+                      Text(
+                  isConnected
+                      ? 'Connected via Bluetooth'
+                      : 'Not connected to this room',
+                        style: TextStyle(
+                    fontSize: 13,
+                    color: isConnected
+                        ? Colors.green.shade200
+                        : Colors.orange.shade200,
+                          fontWeight: FontWeight.w500,
+                        ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  isConnected
+                      ? 'Hub is ready to control devices'
+                      : 'Tap to reconnect and control devices',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white.withOpacity(0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Reconnect button or connection indicator
+          if (isDisconnected)
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _isReconnecting ? null : () => _reconnectHub(hubDevice),
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.orange.withOpacity(0.5),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: _isReconnecting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
+                      ),
+                    )
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.bluetooth_searching,
+                              color: Colors.orange,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Reconnect',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.orange.shade200,
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 8,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.green.withOpacity(0.5),
+                  width: 1.5,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.check_circle,
+                    color: Colors.green,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Connected',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.green.shade200,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _reconnectHub(DeviceModel device) async {
+    // CRITICAL: Prevent multiple simultaneous reconnection attempts
+    if (_isReconnecting) {
+      Logger.warning('RoomDetailScreen: Reconnection already in progress');
+      return;
+    }
+
+    // CRITICAL: Check if already connected to this device
+    if (_bluetoothService.isConnected && 
+        _bluetoothService.connectedDeviceId == device.id) {
+      if (mounted) {
+        AppNotifications.showSnackBar(
+          context,
+          message: 'Already connected to ${device.name}',
+          type: AppNotificationType.info,
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _isReconnecting = true;
+    });
+
+    try {
+      Logger.info('RoomDetailScreen: Attempting to reconnect hub ${device.name} (${device.id})');
+
+      // CRITICAL: Ensure Bluetooth is ready before scanning
+      try {
+        await flutter_blue.FlutterBluePlus.turnOn();
+        await Future.delayed(const Duration(milliseconds: 500));
+      } catch (e) {
+        Logger.warning('RoomDetailScreen: Error ensuring Bluetooth is on: $e');
+      }
+
+      // Scan for the device
+      await flutter_blue.FlutterBluePlus.startScan(
+        timeout: const Duration(seconds: 10),
+        androidUsesFineLocation: false,
+      );
+
+      flutter_blue.BluetoothDevice? foundDevice;
+      final completer = Completer<flutter_blue.BluetoothDevice?>();
+      StreamSubscription<List<flutter_blue.ScanResult>>? subscription;
+      Timer? timeoutTimer;
+
+      subscription = flutter_blue.FlutterBluePlus.scanResults.listen((results) {
+        for (final result in results) {
+          if (result.device.remoteId.toString() == device.id) {
+            foundDevice = result.device;
+            if (!completer.isCompleted) {
+              completer.complete(foundDevice);
+            }
+            break;
+          }
+        }
+      });
+
+      // Set timeout to complete the completer if device not found
+      timeoutTimer = Timer(const Duration(seconds: 10), () {
+        if (!completer.isCompleted) {
+          completer.complete(null);
+        }
+      });
+
+      foundDevice = await completer.future;
+
+      timeoutTimer?.cancel();
+      await subscription.cancel();
+      await flutter_blue.FlutterBluePlus.stopScan();
+
+      if (foundDevice != null) {
+        final success = await _bluetoothService.connectToDevice(foundDevice!);
+        if (success && mounted) {
+          AppNotifications.showSnackBar(
+            context,
+            message: 'Successfully reconnected to ${device.name}',
+            type: AppNotificationType.success,
+          );
+        } else if (mounted) {
+          AppNotifications.showSnackBar(
+            context,
+            message: 'Failed to reconnect to ${device.name}',
+            type: AppNotificationType.error,
+          );
+        }
+      } else {
+        if (mounted) {
+          AppNotifications.showSnackBar(
+            context,
+            message: 'Device ${device.name} not found. Make sure it\'s powered on and nearby.',
+            type: AppNotificationType.error,
+          );
+        }
+      }
+    } catch (e) {
+      Logger.error('RoomDetailScreen: Error reconnecting hub: $e');
+      if (mounted) {
+        AppNotifications.showSnackBar(
+          context,
+          message: 'Reconnection error: ${e.toString()}',
+          type: AppNotificationType.error,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isReconnecting = false;
+        });
+      }
+    }
+  }
+
+  Widget _buildReconnectHubCard(DeviceModel hubDevice) {
+    final isBluetoothConnected = _bluetoothService.isConnected;
+    
+    final isConnected = isBluetoothConnected && 
+        _bluetoothService.connectedDeviceId == hubDevice.id;
+    final isDisconnected = !isConnected && !hubDevice.isOnline;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1A1F3A),
+            const Color(0xFF0F1419),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isConnected 
+              ? Colors.green.withOpacity(0.3)
+              : isDisconnected
+                  ? Colors.orange.withOpacity(0.3)
+                  : Colors.white.withOpacity(0.1),
+          width: isConnected || isDisconnected ? 2 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: (isConnected ? Colors.green : Colors.blue).withOpacity(0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Hub icon with connection status
+          Stack(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: isConnected
+                      ? Colors.green.withOpacity(0.2)
+                      : Colors.white.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  hubDevice.icon,
+                  color: isConnected ? Colors.green : Colors.white70,
+                  size: 24,
+                ),
+              ),
+              // Connection status indicator
+              Positioned(
+                right: 0,
+                top: 0,
+                child: Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: isConnected 
+                        ? Colors.green 
+                        : isDisconnected 
+                            ? Colors.orange 
+                            : Colors.grey,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 16),
+          
+          // Hub info
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hubDevice.name,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  isConnected 
+                      ? 'Connected' 
+                      : isDisconnected
+                          ? 'Disconnected'
+                          : 'Unknown',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isConnected 
+                        ? Colors.green.shade300 
+                        : isDisconnected
+                            ? Colors.orange.shade300
+                            : Colors.white70,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Reconnect button
+          if (isDisconnected)
+            IconButton(
+              icon: _isReconnecting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                      ),
+                    )
+                  : const Icon(Icons.bluetooth_searching, color: Colors.blue),
+              onPressed: _isReconnecting ? null : () => _reconnectHub(hubDevice),
+              tooltip: 'Reconnect',
+            )
+          else if (isConnected)
+            Icon(
+              Icons.check_circle,
+              color: Colors.green,
+              size: 24,
+            ),
         ],
       ),
     );
@@ -967,27 +1513,10 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
           ),
           const SizedBox(height: 8),
           const Text(
-            'Add devices to control them from here',
+            'Devices connected to the hub will appear here',
             style: TextStyle(
               fontSize: 13,
               color: Colors.white70,
-            ),
-          ),
-          const SizedBox(height: 20),
-          ElevatedButton.icon(
-            onPressed: _navigateToAddDevice,
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('Add Device'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 24,
-                vertical: 12,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
             ),
           ),
         ],
@@ -1060,7 +1589,229 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen>
           );
         },
         loading: () => const Center(child: LottieLoading.medium()),
-        error: (error, _) => Text('Failed to load automations: $error'),
+        error: (error, stackTrace) => _buildAutomationsError(error, stackTrace),
+      ),
+    );
+  }
+
+  /// Build a user-friendly error widget for automations loading failures
+  Widget _buildAutomationsError(Object error, StackTrace? stackTrace) {
+    // Log the error for debugging
+    Logger.error('RoomDetailScreen: Failed to load automations: $error', error, stackTrace);
+    
+    // Parse error message to determine type
+    final errorString = error.toString().toLowerCase();
+    final isPermissionError = errorString.contains('permission-denied') || 
+                              errorString.contains('permission denied');
+    final isNetworkError = errorString.contains('network') || 
+                          errorString.contains('connection') ||
+                          errorString.contains('timeout');
+    final isIndexError = errorString.contains('index');
+
+    // Determine user-friendly message based on error type
+    String title;
+    String message;
+    IconData icon;
+    Color iconColor;
+
+    if (isPermissionError) {
+      title = 'Access Restricted';
+      message = 'You don\'t have permission to view automations for this room. '
+                'Please contact your administrator or check your account settings.';
+      icon = Icons.lock_outline;
+      iconColor = Colors.orange;
+    } else if (isNetworkError) {
+      title = 'Connection Error';
+      message = 'Unable to load automations. Please check your internet connection and try again.';
+      icon = Icons.wifi_off;
+      iconColor = Colors.red;
+    } else if (isIndexError) {
+      title = 'Loading Automations';
+      message = 'Database index is being created. Please wait a few minutes and try again.';
+      icon = Icons.hourglass_empty;
+      iconColor = Colors.blue;
+    } else {
+      title = 'Error Loading Automations';
+      message = 'An unexpected error occurred while loading automations. Please try again.';
+      icon = Icons.error_outline;
+      iconColor = Colors.red;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1A1F3A),
+            const Color(0xFF0F1419),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: iconColor.withOpacity(0.3),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: iconColor.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Error icon
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              color: iconColor,
+              size: 32,
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Error title
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: iconColor,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          
+          // Error message
+          Text(
+            message,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Colors.white70,
+              height: 1.5,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          
+          // Retry button
+          ElevatedButton.icon(
+            onPressed: () {
+              // Invalidate the provider to trigger a retry
+              ref.invalidate(roomAutomationsProvider(widget.room.id));
+            },
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('Retry'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          
+          // Show technical details in debug mode
+          if (isPermissionError) ...[
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: () {
+                // Show technical details in a dialog
+                _showErrorDetailsDialog(error, stackTrace);
+              },
+              child: const Text(
+                'Show Details',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.white54,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Show error details dialog for debugging
+  void _showErrorDetailsDialog(Object error, StackTrace? stackTrace) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1F3A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.info_outline, color: Colors.blue),
+            SizedBox(width: 8),
+            Text(
+              'Error Details',
+              style: TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Error Message:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white70,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SelectableText(
+                error.toString(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              if (stackTrace != null) ...[
+                const SizedBox(height: 16),
+                const Text(
+                  'Stack Trace:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white70,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SelectableText(
+                  stackTrace.toString(),
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 10,
+                    fontFamily: 'monospace',
+                  ),
+                  maxLines: 10,
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close', style: TextStyle(color: Colors.blue)),
+          ),
+        ],
       ),
     );
   }

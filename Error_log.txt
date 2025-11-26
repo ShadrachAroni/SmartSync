@@ -1,0 +1,858 @@
+PS C:\Users\USER\Documents\Course work\year 4 sem 2\ICS Project II\Final Project\SmartSync\app> flutter run
+Launching lib\main.dart on RMX3834 in debug mode...
+I/flutter (25680): 📱 SmartSyncApp: App resumed, triggering hub reconnection...
+I/flutter (25680): 🐛 DEBUG: HubReconnectionService: Reconnection already in progress, skipping
+I/flutter (25680): 🔍 [DEBUG] HomeTab.build() called
+I/flutter (25680): 🐛 DEBUG: 🔍 [DEBUG] HomeTab.build() called
+I/flutter (25680): 🔍 [DEBUG] Watching providers...
+I/flutter (25680): 🔍 [DEBUG] currentUserProvider watched
+I/flutter (25680): 🔍 [DEBUG] bleConnectionProvider watched: null
+I/flutter (25680): 🐛 DEBUG: 🔍 [DEBUG] bleConnectionProvider watched: null
+I/flutter (25680): 🔍 [DEBUG] sensorStreamProvider watched
+I/flutter (25680): 🔍 [DEBUG] Building Scaffold
+I/flutter (25680): 🐛 DEBUG: 🔍 [DEBUG] Building Scaffold
+I/flutter (25680): 🔍 [DEBUG] _buildAppBarSafe called
+I/flutter (25680): 🔍 [DEBUG] _buildAppBar called
+I/flutter (25680): 🔍 [DEBUG] _buildBLEBannerSafe called
+I/flutter (25680): 🔍 [DEBUG] HomeTab.build() called
+I/flutter (25680): 🐛 DEBUG: 🔍 [DEBUG] HomeTab.build() called
+I/flutter (25680): 🔍 [DEBUG] Watching providers...
+I/flutter (25680): 🔍 [DEBUG] currentUserProvider watched
+I/flutter (25680): 🔍 [DEBUG] bleConnectionProvider watched: null
+I/flutter (25680): 🐛 DEBUG: 🔍 [DEBUG] bleConnectionProvider watched: null
+I/flutter (25680): 🔍 [DEBUG] sensorStreamProvider watched
+I/flutter (25680): 🔍 [DEBUG] Building Scaffold
+I/flutter (25680): 🐛 DEBUG: 🔍 [DEBUG] Building Scaffold
+I/flutter (25680): 🔍 [DEBUG] _buildAppBarSafe called
+I/flutter (25680): 🔍 [DEBUG] _buildAppBar called
+I/flutter (25680): 🔍 [DEBUG] _buildBLEBannerSafe called
+I/flutter (25680): ❌ ERROR: 🚨 CRITICAL: UI thread blocked for 196ms (1125.0% over target)
+Running Gradle task 'assembleDebug'...                             14.6s
+✓ Built build\app\outputs\flutter-apk\app-debug.apk
+Installing build\app\outputs\flutter-apk\app-debug.apk...          23.1s
+D/FlutterJNI(28519): Beginning load of flutter...
+D/FlutterJNI(28519): flutter (null) was loaded normally!
+I/flutter (28519): [IMPORTANT:flutter/shell/platform/android/android_context_vk_impeller.cc(62)] Using the Impeller rendering backend (Vulkan).
+D/FlutterGeolocator(28519): Attaching Geolocator to activity
+I/flutter (28519): 🚀 ========== APP STARTUP BEGIN ==========
+I/flutter (28519): 🚀 Timestamp: 2025-11-26T07:13:48.282474
+I/flutter (28519): 📱 Step 1: Ensuring Flutter binding initialized...
+I/flutter (28519): ✅ Step 1: Flutter binding initialized
+I/flutter (28519): ℹ️ INFO: UI Thread Monitor: Started
+I/flutter (28519): ✅ UI Thread Monitor: Started
+I/flutter (28519): ✅ Black Screen Diagnostic: Started
+I/flutter (28519): 📱 Step 2: Loading environment variables...
+I/flutter (28519): ✅ Step 2: Environment variables loaded
+I/flutter (28519): 📱 Step 3: Initializing Firebase...
+I/flutter (28519): 📱 Step 3: No existing Firebase apps, initializing new instance...
+D/FlutterGeolocator(28519): Creating service.
+D/FlutterGeolocator(28519): Binding to location service.
+D/FlutterGeolocator(28519): Geolocator foreground service connected
+D/FlutterGeolocator(28519): Initializing Geolocator services
+D/FlutterGeolocator(28519): Flutter engine connected. Connected engine count 1
+I/flutter (28519): ✅ Step 3: Firebase initialized: [DEFAULT]
+I/flutter (28519): 📱 Step 4: Refreshing auth state...
+I/flutter (28519): 📱 Step 4: User found (wgeYs2NDL9Z4BKabaJ6S7gkwS5X2), reloading...
+W/System  (28519): Ignoring header X-Firebase-Locale because its value was null.
+W/LocalRequestInterceptor(28519): Error getting App Check token; using placeholder token instead. Error: com.google.firebase.FirebaseException: No AppCheckProvider installed.
+I/flutter (28519): ✅ Step 4: Auth state refreshed for user: wgeYs2NDL9Z4BKabaJ6S7gkwS5X2
+I/flutter (28519): 📱 Step 5: Initializing Firebase App Check...
+I/flutter (28519): 📱 Step 5: Debug mode: true
+I/flutter (28519): 📱 Step 5: Activating App Check with timeout (5s)...
+D/com.google.firebase.appcheck.debug.internal.DebugAppCheckProvider(28519): Enter this debug secret into the allow list in the Firebase Console for your project: 8be4f36b-37bc-4e4d-ad05-c3f4af1ba523
+I/flutter (28519): ✅ Step 5: Firebase App Check initialized successfully
+I/flutter (28519): 📱 Step 6: Setting system UI overlay style...
+I/flutter (28519): ✅ Step 6: System UI overlay style set
+I/flutter (28519): 📱 Step 7: Scheduling ML Service pre-initialization (non-blocking)...
+I/flutter (28519): 📱 Step 8: Starting runApp...
+Syncing files to device RMX3834...                                 328ms
+I/flutter (28519): ✅ Step 8: runApp called successfully
+I/flutter (28519): ✅ ========== APP STARTUP COMPLETE ==========
+
+Flutter run key commands.
+r Hot reload. 🔥🔥🔥
+R Hot restart.
+h List all available interactive commands.
+d Detach (terminate "flutter run" but leave application running).
+c Clear the screen
+q Quit (terminate the application on the device).
+
+A Dart VM Service on RMX3834 is available at: http://127.0.0.1:58632/-zmjEIsePSM=/
+The Flutter DevTools debugger and profiler on RMX3834 is available at:
+http://127.0.0.1:9100?uri=http://127.0.0.1:58632/-zmjEIsePSM=/
+I/flutter (28519): 📱 SmartSyncApp: initState called
+I/flutter (28519): 📱 SmartSyncApp: build() called
+I/flutter (28519): 📱 SmartSyncApp: Watching authStateProvider...
+I/flutter (28519): 📱 SmartSyncApp: Auth state received: AsyncLoading<User?>
+I/flutter (28519): 📱 SmartSyncApp: Auth state loading...
+I/flutter (28519): 📱 SmartSyncApp: Building MaterialApp...
+I/flutter (28519): 📱 SmartSyncApp: Auth state loading - showing SplashScreen
+I/flutter (28519): 📱 SmartSyncApp: Creating MaterialApp with home widget: SplashScreen
+I/flutter (28519): ✅ SmartSyncApp: MaterialApp created successfully
+I/flutter (28519): 📱 SmartSyncApp: build() called
+I/flutter (28519): 📱 SmartSyncApp: Watching authStateProvider...
+I/flutter (28519): 📱 SmartSyncApp: Auth state received: AsyncData<User?>
+I/flutter (28519): 📱 SmartSyncApp: Auth state data - user: wgeYs2NDL9Z4BKabaJ6S7gkwS5X2
+I/flutter (28519): 📱 SmartSyncApp: Building MaterialApp...
+I/flutter (28519): 📱 SmartSyncApp: Auth data received - user: wgeYs2NDL9Z4BKabaJ6S7gkwS5X2
+I/flutter (28519): 📱 SmartSyncApp: User authenticated and verified - showing HomeScreen
+I/flutter (28519): 📱 SmartSyncApp: Creating MaterialApp with home widget: HomeScreen
+I/flutter (28519): ✅ SmartSyncApp: MaterialApp created successfully
+I/flutter (28519): 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🔍 [DEBUG] Watching providers...
+I/flutter (28519): 🔍 [DEBUG] currentUserProvider watched
+I/flutter (28519): 🔍 [DEBUG] bleConnectionProvider watched: null
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] bleConnectionProvider watched: null
+I/flutter (28519): 🔍 [DEBUG] sensorStreamProvider watched
+I/flutter (28519): 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🔍 [DEBUG] _buildAppBarSafe called
+I/flutter (28519): 🔍 [DEBUG] _buildAppBar called
+I/flutter (28519): 🔍 [DEBUG] _buildBLEBannerSafe called
+I/flutter (28519): 📱 SmartSyncApp: First frame rendered, initializing services...
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Initialized
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Persistent reconnection started (checks every 30s)
+I/flutter (28519): ✅ SmartSyncApp: Hub reconnection service initialized
+I/flutter (28519): ℹ️ INFO: Initializing ML Service...
+I/flutter (28519): ℹ️ INFO: Local TFLite inference disabled. Using server-side predictions.
+I/flutter (28519): 📱 Step 7: Starting ML Service pre-initialization...
+I/flutter (28519): ℹ️ INFO: Initializing ML Service...
+I/flutter (28519): ℹ️ INFO: Local TFLite inference disabled. Using server-side predictions.
+I/flutter (28519): 🐛 DEBUG: StorageService: Initialized successfully
+I/Choreographer(28519): Skipped 211 frames!  The application may be doing too much work on its main thread.
+I/mali_gralloc(28519): register: id=0x2a70000032f, importpid=-1
+I/OpenGLRenderer(28519): Davey! duration=3469ms; Flags=1, FrameTimelineVsyncId=589204, IntendedVsync=3555197266673, Vsync=3558631707554, InputEventId=0, HandleInputStart=3558645169184, AnimationStart=3558645171761, PerformTraversalsStart=3558645172723, DrawStart=3558647183569, FrameDeadline=3555213933340, FrameInterval=3558644430146, FrameStartTime=16276971, SyncQueued=3558650033492, SyncStart=3558650187800, IssueDrawCommandsStart=3558652145838, SwapBuffers=3558663248761, FrameCompleted=3558667281607, DequeueBufferDuration=4504385, QueueBufferDuration=626231, GpuCompleted=3558667281607, SwapBuffersCompleted=3558666008223, DisplayPresentTime=511106914817, CommandSubmissionCompleted=3558663248761,
+I/flutter (28519): 🐛 DEBUG: StorageService: Saved bool settings.notifications = false
+I/flutter (28519): 🐛 DEBUG: StorageService: Saved bool settings.caregiver = false
+I/flutter (28519): ℹ️ INFO: WeatherService: Location permission check timed out, skipping location request
+I/flutter (28519): ℹ️ INFO: WeatherService: No valid coordinates available (lat: 0.0, lon: 0.0)
+I/flutter (28519): ℹ️ INFO: WeatherService: Attempting to use default location as last resort
+I/flutter (28519): 🐛 DEBUG: StorageService: Saved bool settings.auto_mode = false
+I/flutter (28519): 🐛 DEBUG: StorageService: Saved bool notifications.health = false
+I/flutter (28519): 🐛 DEBUG: StorageService: Saved bool notifications.motion = false
+I/flutter (28519): 🐛 DEBUG: StorageService: Saved bool notifications.battery = false
+I/flutter (28519): 🐛 DEBUG: StorageService: Saved bool notifications.firmware = false
+I/flutter (28519): ❌ ERROR: 🚨 CRITICAL: UI thread blocked for 934ms (5737.5% over target)
+W/DynamiteModule(28519): Local module descriptor class for com.google.android.gms.providerinstaller.dynamite not found.
+I/DynamiteModule(28519): Considering local module com.google.android.gms.providerinstaller.dynamite:0 and remote module com.google.android.gms.providerinstaller.dynamite:0
+W/ProviderInstaller(28519): Failed to load providerinstaller module: No acceptable module com.google.android.gms.providerinstaller.dynamite found. Local version is 0 and remote version is 0.
+D/nativeloader(28519): Configuring clns-6 for other apk /system/framework/org.apache.http.legacy.jar. target_sdk_version=36, uses_libraries=ALL, library_path=/data/app/~~84NUOFvOojz4DL-CzCzbHQ==/com.google.android.gms-E9-8DZDRBV62SGy25nUiwQ==/lib/arm64:/data/app/~~84NUOFvOojz4DL-CzCzbHQ==/com.google.android.gms-E9-8DZDRBV62SGy25nUiwQ==/base.apk!/lib/arm64-v8a, permitted_path=/data:/mnt/expand:/data/user/0/com.google.android.gms
+D/nativeloader(28519): Configuring clns-7 for other apk /system/framework/com.android.media.remotedisplay.jar. target_sdk_version=36, uses_libraries=ALL, library_path=/data/app/~~84NUOFvOojz4DL-CzCzbHQ==/com.google.android.gms-E9-8DZDRBV62SGy25nUiwQ==/lib/arm64:/data/app/~~84NUOFvOojz4DL-CzCzbHQ==/com.google.android.gms-E9-8DZDRBV62SGy25nUiwQ==/base.apk!/lib/arm64-v8a, permitted_path=/data:/mnt/expand:/data/user/0/com.google.android.gms
+W/c.smartsync_app(28519): Loading /data/misc/apexdata/com.android.art/dalvik-cache/arm64/system@framework@com.android.location.provider.jar@classes.odex non-executable as it requires an image which we failed to load
+D/nativeloader(28519): Configuring clns-8 for other apk /system/framework/com.android.location.provider.jar. target_sdk_version=36, uses_libraries=ALL, library_path=/data/app/~~84NUOFvOojz4DL-CzCzbHQ==/com.google.android.gms-E9-8DZDRBV62SGy25nUiwQ==/lib/arm64:/data/app/~~84NUOFvOojz4DL-CzCzbHQ==/com.google.android.gms-E9-8DZDRBV62SGy25nUiwQ==/base.apk!/lib/arm64-v8a, permitted_path=/data:/mnt/expand:/data/user/0/com.google.android.gms
+D/nativeloader(28519): Configuring clns-9 for other apk /data/app/~~84NUOFvOojz4DL-CzCzbHQ==/com.google.android.gms-E9-8DZDRBV62SGy25nUiwQ==/base.apk. target_sdk_version=36, uses_libraries=, library_path=/data/app/~~84NUOFvOojz4DL-CzCzbHQ==/com.google.android.gms-E9-8DZDRBV62SGy25nUiwQ==/lib/arm64:/data/app/~~84NUOFvOojz4DL-CzCzbHQ==/com.google.android.gms-E9-8DZDRBV62SGy25nUiwQ==/base.apk!/lib/arm64-v8a, permitted_path=/data:/mnt/expand:/data/user/0/com.google.android.gms
+I/Choreographer(28519): Skipped 53 frames!  The application may be doing too much work on its main thread.
+I/mali_gralloc(28519): register: id=0x2a700000330, importpid=-1
+I/OpenGLRenderer(28519): Davey! duration=896ms; Flags=0, FrameTimelineVsyncId=589234, IntendedVsync=3558657925368, Vsync=3559522770252, InputEventId=0, HandleInputStart=3559538578530, AnimationStart=3559538580953, PerformTraversalsStart=3559538582030, DrawStart=3559540450183, FrameDeadline=3558697205134, FrameInterval=3559538143953, FrameStartTime=16317828, SyncQueued=3559540654568, SyncStart=3559540753299, IssueDrawCommandsStart=3559540865183, SwapBuffers=3559547158299, FrameCompleted=3559554810722, DequeueBufferDuration=3973461, QueueBufferDuration=4799500, GpuCompleted=3559551352376, SwapBuffersCompleted=3559554810722, DisplayPresentTime=511109228081, CommandSubmissionCompleted=3559547158299,
+V/SomeArgsObtain(28519): sPoolSize = 1,spool is:com.android.internal.os.SomeArgs@c613318
+E/GoogleApiManager(28519): Failed to get service from broker.
+E/GoogleApiManager(28519): java.lang.SecurityException: Unknown calling package name 'com.google.android.gms'.
+E/GoogleApiManager(28519):      at android.os.Parcel.createExceptionOrNull(Parcel.java:3079)
+E/GoogleApiManager(28519):      at android.os.Parcel.createException(Parcel.java:3063)
+E/GoogleApiManager(28519):      at android.os.Parcel.readException(Parcel.java:3046)
+E/GoogleApiManager(28519):      at android.os.Parcel.readException(Parcel.java:2988)
+E/GoogleApiManager(28519):      at bcyk.a(:com.google.android.gms@254534029@25.45.34 (190400-831602148):36)
+E/GoogleApiManager(28519):      at bcwl.z(:com.google.android.gms@254534029@25.45.34 (190400-831602148):143)
+E/GoogleApiManager(28519):      at bcct.run(:com.google.android.gms@254534029@25.45.34 (190400-831602148):42)
+E/GoogleApiManager(28519):      at android.os.Handler.handleCallback(Handler.java:958)
+E/GoogleApiManager(28519):      at android.os.Handler.dispatchMessage(Handler.java:99)
+E/GoogleApiManager(28519):      at cpli.ms(:com.google.android.gms@254534029@25.45.34 (190400-831602148):1)
+E/GoogleApiManager(28519):      at cpli.dispatchMessage(:com.google.android.gms@254534029@25.45.34 (190400-831602148):5)
+E/GoogleApiManager(28519):      at android.os.Looper.loopOnce(Looper.java:205)
+E/GoogleApiManager(28519):      at android.os.Looper.loop(Looper.java:294)
+E/GoogleApiManager(28519):      at android.os.HandlerThread.run(HandlerThread.java:67)
+W/GoogleApiManager(28519): Not showing notification since connectionResult is not user-facing: ConnectionResult{statusCode=DEVELOPER_ERROR, resolution=null, message=null, clientMethodKey=null}
+W/FlagRegistrar(28519): Failed to register com.google.android.gms.providerinstaller#com.smartsync.smartsync_app
+W/FlagRegistrar(28519): fuut: 17: 17: API: Phenotype.API is not available on this device. Connection failed with: ConnectionResult{statusCode=DEVELOPER_ERROR, resolution=null, message=null, clientMethodKey=null}
+W/FlagRegistrar(28519):         at fuuv.a(:com.google.android.gms@254534029@25.45.34 (190400-831602148):13)
+W/FlagRegistrar(28519):         at gsdl.d(:com.google.android.gms@254534029@25.45.34 (190400-831602148):3)
+W/FlagRegistrar(28519):         at gsdn.run(:com.google.android.gms@254534029@25.45.34 (190400-831602148):130)
+W/FlagRegistrar(28519):         at gsfu.execute(:com.google.android.gms@254534029@25.45.34 (190400-831602148):1)
+W/FlagRegistrar(28519):         at gsdv.f(:com.google.android.gms@254534029@25.45.34 (190400-831602148):1)
+W/FlagRegistrar(28519):         at gsdv.m(:com.google.android.gms@254534029@25.45.34 (190400-831602148):99)
+W/FlagRegistrar(28519):         at gsdv.r(:com.google.android.gms@254534029@25.45.34 (190400-831602148):17)
+W/FlagRegistrar(28519):         at fnly.hz(:com.google.android.gms@254534029@25.45.34 (190400-831602148):35)
+W/FlagRegistrar(28519):         at fbab.run(:com.google.android.gms@254534029@25.45.34 (190400-831602148):12)
+W/FlagRegistrar(28519):         at gsfu.execute(:com.google.android.gms@254534029@25.45.34 (190400-831602148):1)
+W/FlagRegistrar(28519):         at fbac.b(:com.google.android.gms@254534029@25.45.34 (190400-831602148):18)
+W/FlagRegistrar(28519):         at fbar.b(:com.google.android.gms@254534029@25.45.34 (190400-831602148):36)
+W/FlagRegistrar(28519):         at fbat.d(:com.google.android.gms@254534029@25.45.34 (190400-831602148):25)
+W/FlagRegistrar(28519):         at bcac.c(:com.google.android.gms@254534029@25.45.34 (190400-831602148):9)
+W/FlagRegistrar(28519):         at bccr.q(:com.google.android.gms@254534029@25.45.34 (190400-831602148):48)
+W/FlagRegistrar(28519):         at bccr.d(:com.google.android.gms@254534029@25.45.34 (190400-831602148):10)
+W/FlagRegistrar(28519):         at bccr.g(:com.google.android.gms@254534029@25.45.34 (190400-831602148):185)
+W/FlagRegistrar(28519):         at bccr.onConnectionFailed(:com.google.android.gms@254534029@25.45.34 (190400-831602148):2)
+W/FlagRegistrar(28519):         at bcct.run(:com.google.android.gms@254534029@25.45.34 (190400-831602148):70)
+W/FlagRegistrar(28519):         at android.os.Handler.handleCallback(Handler.java:958)
+W/FlagRegistrar(28519):         at android.os.Handler.dispatchMessage(Handler.java:99)
+W/FlagRegistrar(28519):         at cpli.ms(:com.google.android.gms@254534029@25.45.34 (190400-831602148):1)
+W/FlagRegistrar(28519):         at cpli.dispatchMessage(:com.google.android.gms@254534029@25.45.34 (190400-831602148):5)
+W/FlagRegistrar(28519):         at android.os.Looper.loopOnce(Looper.java:205)
+W/FlagRegistrar(28519):         at android.os.Looper.loop(Looper.java:294)
+W/FlagRegistrar(28519):         at android.os.HandlerThread.run(HandlerThread.java:67)
+W/FlagRegistrar(28519): Caused by: bbyj: 17: API: Phenotype.API is not available on this device. Connection failed with: ConnectionResult{statusCode=DEVELOPER_ERROR, resolution=null, message=null, clientMethodKey=null}
+W/FlagRegistrar(28519):         at bcvx.a(:com.google.android.gms@254534029@25.45.34 (190400-831602148):15)
+W/FlagRegistrar(28519):         at bcaf.a(:com.google.android.gms@254534029@25.45.34 (190400-831602148):1)
+W/FlagRegistrar(28519):         at bcac.c(:com.google.android.gms@254534029@25.45.34 (190400-831602148):5)
+W/FlagRegistrar(28519):         ... 12 more
+W/WindowOnBackDispatcher(28519): OnBackInvokedCallback is not enabled for the application.
+W/WindowOnBackDispatcher(28519): Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+D/ProfileInstaller(28519): Installing profile for com.smartsync.smartsync_app
+D/nativeloader(28519): Load /data/app/~~84NUOFvOojz4DL-CzCzbHQ==/com.google.android.gms-E9-8DZDRBV62SGy25nUiwQ==/base.apk!/lib/arm64-v8a/libconscrypt_gmscore_jni.so using class loader ns clns-9 (caller=/data/app/~~84NUOFvOojz4DL-CzCzbHQ==/com.google.android.gms-E9-8DZDRBV62SGy25nUiwQ==/base.apk): ok
+V/NativeCrypto(28519): Registering com/google/android/gms/org/conscrypt/NativeCrypto's 328 native methods...
+I/c.smartsync_app(28519): hiddenapi: Accessing hidden method Ljava/security/spec/ECParameterSpec;->getCurveName()Ljava/lang/String; (runtime_flags=0, domain=core-platform, api=unsupported) from Lcom/google/android/gms/org/conscrypt/Platform; (domain=app) using reflection: allowed
+I/ProviderInstaller(28519): Installed default security provider GmsCore_OpenSSL
+V/SomeArgsRecycle(28519): sPoolSize = 1,spool is:com.android.internal.os.SomeArgs@c613318
+I/flutter (28519): 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🔍 [DEBUG] Watching providers...
+I/flutter (28519): 🔍 [DEBUG] currentUserProvider watched
+I/flutter (28519): 🔍 [DEBUG] bleConnectionProvider watched: null
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] bleConnectionProvider watched: null
+I/flutter (28519): 🔍 [DEBUG] sensorStreamProvider watched
+I/flutter (28519): 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🔍 [DEBUG] _buildAppBarSafe called
+I/flutter (28519): 🔍 [DEBUG] _buildAppBar called
+I/flutter (28519): 🔍 [DEBUG] _buildBLEBannerSafe called
+I/c.smartsync_app(28519): hiddenapi: Accessing hidden field Ljava/net/Socket;->impl:Ljava/net/SocketImpl; (runtime_flags=0, domain=core-platform, api=unsupported) from Lcom/google/android/gms/org/conscrypt/Platform; (domain=app) using reflection: allowed
+I/flutter (28519): ℹ️ INFO: UnregisteredHubScanner: Starting periodic scan for unregistered hubs
+I/flutter (28519): ✅ SmartSyncApp: Unregistered hub scanner started
+I/c.smartsync_app(28519): hiddenapi: Accessing hidden method Ljava/security/spec/ECParameterSpec;->setCurveName(Ljava/lang/String;)V (runtime_flags=0, domain=core-platform, api=unsupported) from Lcom/google/android/gms/org/conscrypt/Platform; (domain=app) using reflection: allowed
+I/c.smartsync_app(28519): Background concurrent mark compact GC freed 9150KB AllocSpace bytes, 38(1572KB) LOS objects, 80% free, 6100KB/29MB, paused 5.147ms,3.780ms total 77.168ms
+I/flutter (28519): 🐛 DEBUG: StorageService: Saved bool permissions.notification_configured = true
+W/WindowOnBackDispatcher(28519): OnBackInvokedCallback is not enabled for the application.
+W/WindowOnBackDispatcher(28519): Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+I/flutter (28519): ℹ️ INFO: WeatherService: Using default location weather data (location permission unavailable)
+I/flutter (28519): ℹ️ INFO: No server-side ML models found (local models will be used)
+I/flutter (28519): ✅ SUCCESS: ML Service initialized
+I/flutter (28519): ✅ SUCCESS: Monitoring service initialized for wgeYs2NDL9Z4BKabaJ6S7gkwS5X2
+I/flutter (28519): ℹ️ INFO: No server-side ML models found (local models will be used)
+I/flutter (28519): ✅ SUCCESS: ML Service initialized
+I/flutter (28519): ✅ Step 7: ML Service pre-initialized successfully
+I/flutter (28519): 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🔍 [DEBUG] Watching providers...
+I/flutter (28519): 🔍 [DEBUG] currentUserProvider watched
+I/flutter (28519): 🔍 [DEBUG] bleConnectionProvider watched: null
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] bleConnectionProvider watched: null
+I/flutter (28519): 🔍 [DEBUG] sensorStreamProvider watched
+I/flutter (28519): 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🔍 [DEBUG] _buildAppBarSafe called
+I/flutter (28519): 🔍 [DEBUG] _buildAppBar called
+I/flutter (28519): 🔍 [DEBUG] _buildBLEBannerSafe called
+I/flutter (28519): 🐛 DEBUG: StorageService: Saved bool permissions.location_configured = true
+I/flutter (28519): 🐛 DEBUG: StorageService: Saved bool permissions.first_run_complete = true
+I/flutter (28519): ❌ ERROR: 🚨 CRITICAL: UI thread blocked for 177ms (1006.3% over target)
+E/GoogleApiManager(28519): Failed to get service from broker.
+E/GoogleApiManager(28519): java.lang.SecurityException: Unknown calling package name 'com.google.android.gms'.
+E/GoogleApiManager(28519):      at android.os.Parcel.createExceptionOrNull(Parcel.java:3079)
+E/GoogleApiManager(28519):      at android.os.Parcel.createException(Parcel.java:3063)
+E/GoogleApiManager(28519):      at android.os.Parcel.readException(Parcel.java:3046)
+E/GoogleApiManager(28519):      at android.os.Parcel.readException(Parcel.java:2988)
+E/GoogleApiManager(28519):      at bcyk.a(:com.google.android.gms@254534029@25.45.34 (190400-831602148):36)
+E/GoogleApiManager(28519):      at bcwl.z(:com.google.android.gms@254534029@25.45.34 (190400-831602148):143)
+E/GoogleApiManager(28519):      at bcct.run(:com.google.android.gms@254534029@25.45.34 (190400-831602148):42)
+E/GoogleApiManager(28519):      at android.os.Handler.handleCallback(Handler.java:958)
+E/GoogleApiManager(28519):      at android.os.Handler.dispatchMessage(Handler.java:99)
+E/GoogleApiManager(28519):      at cpli.ms(:com.google.android.gms@254534029@25.45.34 (190400-831602148):1)
+E/GoogleApiManager(28519):      at cpli.dispatchMessage(:com.google.android.gms@254534029@25.45.34 (190400-831602148):5)
+E/GoogleApiManager(28519):      at android.os.Looper.loopOnce(Looper.java:205)
+E/GoogleApiManager(28519):      at android.os.Looper.loop(Looper.java:294)
+E/GoogleApiManager(28519):      at android.os.HandlerThread.run(HandlerThread.java:67)
+W/GoogleApiManager(28519): Not showing notification since connectionResult is not user-facing: ConnectionResult{statusCode=DEVELOPER_ERROR, resolution=null, message=null, clientMethodKey=null}
+I/flutter (28519): [FBP] stopScan: already stopped
+I/flutter (28519): ℹ️ INFO: BluetoothService: Resetting connection state
+I/flutter (28519): [FBP] stopScan: already stopped
+I/flutter (28519): ℹ️ INFO: BluetoothService: Cleared last connected device reference
+I/flutter (28519): [FBP] stopScan: already stopped
+I/flutter (28519): ℹ️ INFO: BluetoothService: Connection state fully reset
+I/flutter (28519): ℹ️ INFO: Starting BLE scan...
+I/flutter (28519): ℹ️ INFO: Starting BLE scan...
+D/[FBP-Android](28519): [FBP] onMethodCall: flutterRestart
+D/[FBP-Android](28519): [FBP] initializing BluetoothAdapter
+D/CompatibilityChangeReporter(28519): Compat change id reported: 263076149; UID 10256; state: ENABLED
+D/[FBP-Android](28519): [FBP] disconnectAllDevices(flutterRestart)
+D/[FBP-Android](28519): [FBP] connectedPeripherals: 0
+D/[FBP-Android](28519): [FBP] onMethodCall: isSupported
+D/[FBP-Android](28519): [FBP] onMethodCall: getAdapterState
+D/[FBP-Android](28519): [FBP] onMethodCall: startScan
+D/BluetoothAdapter(28519): isLeEnabled(): ON
+D/BluetoothLeScanner(28519): onScannerRegistered() - status=0 scannerId=2 mScannerId=0
+I/flutter (28519): ℹ️ INFO: 🔍 Discovered BLE device: name="", id=50:F0:F8:7B:38:18, rssi=-55
+I/flutter (28519): ℹ️ INFO:   ⚠️ No service UUIDs in advertisement (common for ESP32)
+I/flutter (28519): ℹ️ INFO:   🏭 Manufacturer data: 1 bytes, IDs: 76
+I/flutter (28519): ℹ️ INFO:   ℹ️ Including unnamed device (RSSI: -55) - may need connection to discover UUID
+I/flutter (28519): ℹ️ INFO: ✅ Found SmartSync device: "" (ID: 50:F0:F8:7B:38:18, RSSI: -55, matched by: unnamed BLE device (potential ESP32 - no UUID in scan))
+I/flutter (28519): ℹ️ INFO:   ℹ️ Including unnamed device (RSSI: -55) - may need connection to discover UUID
+I/flutter (28519): 🐛 DEBUG: Updated device info for "" (RSSI: -55)
+I/flutter (28519): ℹ️ INFO: 🔍 Discovered BLE device: name="", id=DA:6C:5C:74:E2:6A, rssi=-60
+I/flutter (28519): ℹ️ INFO:   ⚠️ No service UUIDs in advertisement (common for ESP32)
+I/flutter (28519): ℹ️ INFO:   🏭 Manufacturer data: 1 bytes, IDs: 76
+I/flutter (28519): ℹ️ INFO:   ℹ️ Including unnamed device (RSSI: -60) - may need connection to discover UUID
+I/flutter (28519): ℹ️ INFO: ✅ Found SmartSync device: "" (ID: DA:6C:5C:74:E2:6A, RSSI: -60, matched by: unnamed BLE device (potential ESP32 - no UUID in scan))
+I/flutter (28519): ℹ️ INFO:   ℹ️ Including unnamed device (RSSI: -55) - may need connection to discover UUID
+I/flutter (28519): 🐛 DEBUG: Updated device info for "" (RSSI: -55)
+I/flutter (28519): ℹ️ INFO:   ℹ️ Including unnamed device (RSSI: -60) - may need connection to discover UUID
+I/flutter (28519): 🐛 DEBUG: Updated device info for "" (RSSI: -60)
+I/flutter (28519): ℹ️ INFO: 🔍 Discovered BLE device: name="SmartSync", id=EC:E3:34:8D:32:2E, rssi=-88
+I/flutter (28519): ℹ️ INFO:   📋 Service UUIDs (2): 4fafc201-1fb5-459e-8fcc-c5c9c331914b, 4fafc201-1fb5-459e-8fcc-c5c9c331914b
+I/flutter (28519): ℹ️ INFO:   ✅ MATCHES SmartSync UUID!
+I/flutter (28519): ℹ️ INFO:   ℹ️ No manufacturer data
+I/flutter (28519): ℹ️ INFO:   ✅ Found matching service UUID: 4fafc201-1fb5-459e-8fcc-c5c9c331914b
+I/flutter (28519): ℹ️ INFO: ✅ Found SmartSync device: "SmartSync" (ID: EC:E3:34:8D:32:2E, RSSI: -88, matched by: service UUID (exact match))
+D/[FBP-Android](28519): [FBP] onMethodCall: stopScan
+D/BluetoothAdapter(28519): isLeEnabled(): ON
+I/flutter (28519): [FBP] stopScan: already stopped
+I/flutter (28519): ℹ️ INFO: Scan complete. Found 3 SmartSync device(s) out of 6 total BLE device(s) scanned
+I/flutter (28519): ❌ ERROR: 🚨 CRITICAL: UI thread blocked for 148ms (825.0% over target)
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Persistent reconnection check - attempting to reconnect...
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Found 1 hub device(s)
+I/flutter (28519): 🐛 DEBUG: HubReconnectionService: Hub SmartSync (EC:E3:34:8D:32:2E) is disconnected
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Attempting to reconnect 1 disconnected hub(s)
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Attempting to reconnect hub: SmartSync
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Attempting to reconnect hub: SmartSync (EC:E3:34:8D:32:2E)
+D/[FBP-Android](28519): [FBP] onMethodCall: startScan
+D/BluetoothAdapter(28519): isLeEnabled(): ON
+D/BluetoothLeScanner(28519): onScannerRegistered() - status=0 scannerId=2 mScannerId=0
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Found hub "SmartSync" (ID: EC:E3:34:8D:32:2E)
+D/[FBP-Android](28519): [FBP] onMethodCall: stopScan
+D/BluetoothAdapter(28519): isLeEnabled(): ON
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Found hub SmartSync, attempting connection...
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Attempting direct connection...
+D/[FBP-Android](28519): [FBP] onMethodCall: isSupported
+I/flutter (28519): ℹ️ INFO: Reconnecting to SmartSync...
+I/flutter (28519): ℹ️ INFO: BluetoothService: Connection attempt 1/3
+D/[FBP-Android](28519): [FBP] onMethodCall: connect
+D/CompatibilityChangeReporter(28519): Compat change id reported: 265103382; UID 10256; state: ENABLED
+D/BluetoothGatt(28519): connect() - device: XX:XX:XX:XX:32:2E, auto: false
+D/BluetoothGatt(28519): registerApp()
+D/BluetoothGatt(28519): registerApp() - UUID=b1a7eca3-d0b4-4ca4-b78a-7e3ab09daa80
+D/BluetoothGatt(28519): onClientRegistered() - status=0 clientIf=6
+I/flutter (28519): ℹ️ INFO: Connecting to SmartSync...
+I/flutter (28519): 🔍 [DEBUG] Starting connection to device: SmartSync
+I/flutter (28519): ℹ️ INFO: 🔍 [DEBUG] Starting connection to device: SmartSync
+I/flutter (28519): ⚠️ WARNING: BluetoothService: Connection already in progress, ignoring duplicate request
+I/flutter (28519): 🔍 [DEBUG] Connection result: false
+I/flutter (28519): ℹ️ INFO: 🔍 [DEBUG] Connection result: false
+I/flutter (28519): 🔍 [DEBUG] Widget still mounted, updating state
+I/flutter (28519): 🔍 [DEBUG] State updated
+I/flutter (28519): 🔍 [DEBUG] Preparing to navigate back to home screen
+I/flutter (28519): ℹ️ INFO: 🔍 [DEBUG] Preparing to navigate back to home screen
+I/flutter (28519): 🔍 [DEBUG] Delay completed, checking if mounted
+I/flutter (28519): 🔍 [DEBUG] Widget and context mounted, calling Navigator.pop()
+I/flutter (28519): ℹ️ INFO: 🔍 [DEBUG] Calling Navigator.pop()
+I/flutter (28519): 🔍 [DEBUG] Cannot pop - no routes to pop
+I/flutter (28519): ⚠️ WARNING: 🔍 [DEBUG] Cannot pop - no routes to pop
+I/flutter (28519): 🔍 [DEBUG] Pushed home route as fallback
+I/flutter (28519): 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🔍 [DEBUG] Watching providers...
+I/flutter (28519): 🔍 [DEBUG] currentUserProvider watched
+I/flutter (28519): 🔍 [DEBUG] bleConnectionProvider watched: false
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] bleConnectionProvider watched: false
+I/flutter (28519): 🔍 [DEBUG] sensorStreamProvider watched
+I/flutter (28519): 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🔍 [DEBUG] _buildAppBarSafe called
+I/flutter (28519): 🔍 [DEBUG] _buildAppBar called
+I/flutter (28519): 🔍 [DEBUG] _buildBLEBannerSafe called
+W/WindowOnBackDispatcher(28519): OnBackInvokedCallback is not enabled for the application.
+W/WindowOnBackDispatcher(28519): Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+I/flutter (28519): 🐛 DEBUG: StorageService: Saved bool permissions.location_configured = true
+D/BluetoothGatt(28519): onClientConnectionState() - status=0 clientIf=6 device=EC:E3:34:8D:32:2E
+D/[FBP-Android](28519): [FBP] onConnectionStateChange:connected
+D/[FBP-Android](28519): [FBP]   status: SUCCESS
+I/flutter (28519): 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🔍 [DEBUG] Watching providers...
+I/flutter (28519): 🔍 [DEBUG] currentUserProvider watched
+I/flutter (28519): 🔍 [DEBUG] bleConnectionProvider watched: false
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] bleConnectionProvider watched: false
+I/flutter (28519): 🔍 [DEBUG] sensorStreamProvider watched
+I/flutter (28519): 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🔍 [DEBUG] _buildAppBarSafe called
+I/flutter (28519): 🔍 [DEBUG] _buildAppBar called
+I/flutter (28519): 🔍 [DEBUG] _buildBLEBannerSafe called
+D/[FBP-Android](28519): [FBP] onMethodCall: requestMtu
+D/BluetoothGatt(28519): configureMTU() - device: XX:XX:XX:XX:32:2E mtu: 512
+I/flutter (28519): ℹ️ INFO: UnregisteredHubScanner: Scanning for unregistered hubs...
+D/[FBP-Android](28519): [FBP] onMethodCall: startScan
+D/BluetoothAdapter(28519): isLeEnabled(): ON
+D/BluetoothLeScanner(28519): onScannerRegistered() - status=0 scannerId=2 mScannerId=0
+D/BluetoothGatt(28519): onConnectionUpdated() - Device=EC:E3:34:8D:32:2E interval=6 latency=0 timeout=500 status=0
+I/flutter (28519): ❌ ERROR: 🚨 CRITICAL: UI thread blocked for 120ms (650.0% over target)
+D/BluetoothGatt(28519): onConfigureMTU() - Device=EC:E3:34:8D:32:2E mtu=255 status=0
+D/[FBP-Android](28519): [FBP] onMtuChanged:
+D/[FBP-Android](28519): [FBP]   mtu: 255
+D/[FBP-Android](28519): [FBP]   status: GATT_SUCCESS (0)
+I/flutter (28519): ℹ️ INFO: BluetoothService: Connection successful on attempt 1
+I/flutter (28519): ℹ️ INFO: BluetoothService: Clearing previous device state for new hub: EC:E3:34:8D:32:2E
+I/flutter (28519): ℹ️ INFO: BluetoothService: Previous device state cleared successfully
+I/flutter (28519): 🔍 [DEBUG] Starting service discovery...
+I/flutter (28519): ℹ️ INFO: 🔍 Starting service discovery...
+D/[FBP-Android](28519): [FBP] onMethodCall: discoverServices
+D/BluetoothGatt(28519): discoverServices() - device: XX:XX:XX:XX:32:2E
+I/flutter (28519): 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🔍 [DEBUG] Watching providers...
+I/flutter (28519): 🔍 [DEBUG] currentUserProvider watched
+I/flutter (28519): 🔍 [DEBUG] bleConnectionProvider watched: true
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] bleConnectionProvider watched: true
+I/flutter (28519): 🔍 [DEBUG] sensorStreamProvider watched
+I/flutter (28519): 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🔍 [DEBUG] _buildAppBarSafe called
+I/flutter (28519): 🔍 [DEBUG] _buildAppBar called
+I/flutter (28519): 🔍 [DEBUG] _buildBLEBannerSafe called
+D/BluetoothGatt(28519): onSearchComplete() = Device=EC:E3:34:8D:32:2E Status=0
+D/[FBP-Android](28519): [FBP] onServicesDiscovered:
+D/[FBP-Android](28519): [FBP]   count: 3
+D/[FBP-Android](28519): [FBP]   status: 0GATT_SUCCESS
+D/BluetoothGatt(28519): onConnectionUpdated() - Device=EC:E3:34:8D:32:2E interval=36 latency=0 timeout=500 status=0
+I/flutter (28519): 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🔍 [DEBUG] Watching providers...
+I/flutter (28519): 🔍 [DEBUG] currentUserProvider watched
+I/flutter (28519): 🔍 [DEBUG] bleConnectionProvider watched: true
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] bleConnectionProvider watched: true
+I/flutter (28519): 🔍 [DEBUG] sensorStreamProvider watched
+I/flutter (28519): 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🔍 [DEBUG] _buildAppBarSafe called
+I/flutter (28519): 🔍 [DEBUG] _buildAppBar called
+I/flutter (28519): 🔍 [DEBUG] _buildBLEBannerSafe called
+D/[FBP-Android](28519): [FBP] onMethodCall: setNotifyValue
+D/BluetoothGatt(28519): setCharacteristicNotification() - uuid: 00002a05-0000-1000-8000-00805f9b34fb enable: true
+D/[FBP-Android](28519): [FBP] onDescriptorWrite:
+D/[FBP-Android](28519): [FBP]   chr: 2a05
+D/[FBP-Android](28519): [FBP]   desc: 2902
+D/[FBP-Android](28519): [FBP]   status: GATT_SUCCESS (0)
+I/flutter (28519): 🔍 [DEBUG] Service discovery completed: 3 service(s) found
+I/flutter (28519): ℹ️ INFO: 🔍 Service discovery completed: 3 service(s) found
+I/flutter (28519): 📋 [BLE] ========== SERVICE DISCOVERY ==========
+I/flutter (28519): 📋 [BLE] Discovered 3 service(s) on device
+I/flutter (28519): ℹ️ INFO: 📋 Discovered 3 service(s) on device:
+I/flutter (28519): ℹ️ INFO:   🔹 Service: 1800 (2 characteristics)
+I/flutter (28519):     - [BLE] Characteristic: 2a00
+I/flutter (28519): 🐛 DEBUG:     - Characteristic: 2a00
+I/flutter (28519):     - [BLE] Characteristic: 2a01
+I/flutter (28519): 🐛 DEBUG:     - Characteristic: 2a01
+I/flutter (28519): ℹ️ INFO:   🔹 Service: 1801 (1 characteristics)
+I/flutter (28519):     - [BLE] Characteristic: 2a05
+I/flutter (28519): 🐛 DEBUG:     - Characteristic: 2a05
+I/flutter (28519): ℹ️ INFO:   🔹 Service: 4fafc201-1fb5-459e-8fcc-c5c9c331914b (2 characteristics)
+I/flutter (28519):   ✅ [BLE] FOUND SmartSync service! UUID: 4fafc201-1fb5-459e-8fcc-c5c9c331914b
+I/flutter (28519): ℹ️ INFO:   ✅ FOUND SmartSync service!
+I/flutter (28519):     - [BLE] Characteristic: beb5483f-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519): 🐛 DEBUG:     - Characteristic: beb5483f-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519):     - [BLE] Characteristic: beb5483e-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519): 🐛 DEBUG:     - Characteristic: beb5483e-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519): 📋 [BLE] All service UUIDs:
+I/flutter (28519): 📋 [BLE] Looking for: 4fafc201-1fb5-459e-8fcc-c5c9c331914b
+I/flutter (28519): 📋 [BLE] =========================================
+I/flutter (28519): ℹ️ INFO: ✅ Found SmartSync service: 4fafc201-1fb5-459e-8fcc-c5c9c331914b
+I/flutter (28519): ℹ️ INFO:   📋 Checking 2 characteristic(s)...
+I/flutter (28519): ℹ️ INFO:   ✅ Found TX characteristic: beb5483f-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519): ℹ️ INFO: Enabling BLE data stream subscription
+I/flutter (28519): 🔍 [DEBUG] Enabling BLE data stream subscription
+I/flutter (28519): 🔍 [DEBUG] Previous subscription cancelled
+D/[FBP-Android](28519): [FBP] onMethodCall: setNotifyValue
+D/BluetoothGatt(28519): setCharacteristicNotification() - uuid: beb5483f-36e1-4688-b7f5-ea07361b26a8 enable: true
+D/[FBP-Android](28519): [FBP] onDescriptorWrite:
+D/[FBP-Android](28519): [FBP]   chr: beb5483f-36e1-4688-b7f5-ea07361b26a8
+D/[FBP-Android](28519): [FBP]   desc: 2902
+D/[FBP-Android](28519): [FBP]   status: GATT_SUCCESS (0)
+D/[FBP-Android](28519): [FBP] onCharacteristicChanged:
+D/[FBP-Android](28519): [FBP]   chr: beb5483f-36e1-4688-b7f5-ea07361b26a8
+D/[FBP-Android](28519): [FBP] onCharacteristicChanged:
+D/[FBP-Android](28519): [FBP]   chr: beb5483f-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519): 🔍 [DEBUG] setNotifyValue(true) completed
+I/flutter (28519): 🔍 [DEBUG] BLE data stream subscription created
+I/flutter (28519): ℹ️ INFO: ✅ BLE data stream subscription active - ready to receive sensor data
+I/flutter (28519): ℹ️ INFO:   ✅ Found RX characteristic: beb5483e-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519): 🔍 [BLE] Verifying device is SmartSync hub...
+I/flutter (28519): ℹ️ INFO: Verifying connected device is SmartSync hub
+I/flutter (28519): ✅ [BLE] Device verified - SmartSync service UUID found
+I/flutter (28519): 📋 [BLE] ========== CONNECTION SUMMARY ==========
+I/flutter (28519):   - Device ID: EC:E3:34:8D:32:2E
+I/flutter (28519):   - Device Name: SmartSync
+I/flutter (28519):   - SmartSync Service Found: true
+I/flutter (28519):   - Using Fallback Connection: false
+I/flutter (28519):   - RX Characteristic: beb5483e-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519):   - TX Characteristic: beb5483f-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519):   - Hub Verified: true
+I/flutter (28519):   - Verification Method: SmartSync service UUID found
+I/flutter (28519): 📋 [BLE] =========================================
+I/flutter (28519): ℹ️ INFO: Connection Summary - Device: SmartSync, Verified: true (SmartSync service UUID found)
+I/flutter (28519): ✅ SUCCESS: Reconnected successfully
+D/[FBP-Android](28519): [FBP] onCharacteristicChanged:
+D/[FBP-Android](28519): [FBP]   chr: beb5483f-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519): 🔍 [DEBUG] Connection established, starting timers and services
+I/flutter (28519): ℹ️ INFO: 🔍 [DEBUG] Connection established, starting timers and services
+I/flutter (28519): 🔍 [DEBUG] Activity recorded
+I/flutter (28519): ✅ SUCCESS: HubReconnectionService: Successfully reconnected hub: SmartSync
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Successfully reconnected to SmartSync, connection stabilized
+I/flutter (28519): ℹ️ INFO: BluetoothService: Syncing schedules to device...
+I/flutter (28519): ℹ️ INFO: BluetoothService: MonitoringService initialized for data collection
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+I/flutter (28519): ✅ SUCCESS: BluetoothService: Synced 0 schedule(s) to device
+I/flutter (28519): ℹ️ INFO: ApplianceStateService: State loaded - Fan: 0, LED: 0, Security: false, AutoMode: false
+I/flutter (28519): ℹ️ INFO: BluetoothService: Restoring appliance state from Firebase
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/[FBP-Android](28519): [FBP] onMethodCall: writeCharacteristic
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/[FBP-Android](28519): [FBP] onCharacteristicChanged:
+D/[FBP-Android](28519): [FBP]   chr: beb5483f-36e1-4688-b7f5-ea07361b26a8
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+I/flutter (28519): ℹ️ INFO: ApplianceStateService: State loaded - Fan: 0, LED: 0, Security: false, AutoMode: false
+I/flutter (28519): 🔍 [DEBUG] Heartbeat timer started
+I/flutter (28519): 🔍 [DEBUG] Keepalive timer started
+I/flutter (28519): 🔍 [DEBUG] Sensor polling started
+I/flutter (28519): 🔍 [DEBUG] Inactivity watchdog started
+I/flutter (28519): ℹ️ INFO: BluetoothService: Connection maintenance timers started after stabilization delay
+I/flutter (28519): ✅ SUCCESS: HubReconnectionService: Finished reconnection attempts
+I/flutter (28519): ℹ️ INFO: ApplianceStateService: State loaded - Fan: 0, LED: 0, Security: false, AutoMode: false
+E/[FBP-Android](28519): [FBP] onCharacteristicWrite:
+E/[FBP-Android](28519): [FBP]   chr: beb5483e-36e1-4688-b7f5-ea07361b26a8
+E/[FBP-Android](28519): [FBP]   status: GATT_ERROR (133)
+D/BluetoothGatt(28519): onClientConnectionState() - status=8 clientIf=6 device=EC:E3:34:8D:32:2E
+D/[FBP-Android](28519): [FBP] onConnectionStateChange:disconnected
+D/[FBP-Android](28519): [FBP]   status: LINK_SUPERVISION_TIMEOUT
+D/BluetoothGatt(28519): close()
+D/BluetoothGatt(28519): unregisterApp() - mClientIf=6
+I/flutter (28519): ❌ ERROR: Send command error: GATT_ERROR (133) - Device may have disconnected
+D/[FBP-Android](28519): [FBP] onMethodCall: writeCharacteristic
+D/[FBP-Android](28519): [FBP] onMethodCall: stopScan
+D/BluetoothAdapter(28519): isLeEnabled(): ON
+I/flutter (28519): ℹ️ INFO: Connection statistics: 0/1 packets processed, 4 dropped, 0 parse errors (0.0% success rate)
+D/[FBP-Android](28519): [FBP] onMethodCall: writeCharacteristic
+I/flutter (28519): ℹ️ INFO: BluetoothService: Appliance state restored - Fan: 0, LED: 0, Security: false, AutoMode: false
+I/flutter (28519): 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🔍 [DEBUG] Watching providers...
+I/flutter (28519): 🔍 [DEBUG] currentUserProvider watched
+I/flutter (28519): 🔍 [DEBUG] bleConnectionProvider watched: false
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] bleConnectionProvider watched: false
+I/flutter (28519): 🔍 [DEBUG] sensorStreamProvider watched
+I/flutter (28519): 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🔍 [DEBUG] _buildAppBarSafe called
+I/flutter (28519): 🔍 [DEBUG] _buildAppBar called
+I/flutter (28519): 🔍 [DEBUG] _buildBLEBannerSafe called
+I/flutter (28519): ✅ SUCCESS: Local notifications initialized
+D/CompatibilityChangeReporter(28519): Compat change id reported: 160794467; UID 10256; state: ENABLED
+I/flutter (28519): ℹ️ INFO: Local notification shown: ⚠️ Device Disconnected
+I/flutter (28519): ❌ ERROR: 🚨 CRITICAL: UI thread blocked for 109ms (581.3% over target)
+I/flutter (28519): ℹ️ INFO: NotificationService: Saved notification to alerts: ⚠️ Device Disconnected
+V/SomeArgsObtain(28519): sPoolSize = 1,spool is:com.android.internal.os.SomeArgs@c613318
+V/SomeArgsRecycle(28519): sPoolSize = 1,spool is:com.android.internal.os.SomeArgs@c613318
+I/flutter (28519): [FBP] stopScan: already stopped
+I/flutter (28519): 🐛 DEBUG: UnregisteredHubScanner: No unregistered hubs found
+I/flutter (28519): ℹ️ INFO: BluetoothService: Connection grace period ended, monitoring active
+V/SomeArgsObtain(28519): sPoolSize = 1,spool is:com.android.internal.os.SomeArgs@c613318
+V/SomeArgsRecycle(28519): sPoolSize = 1,spool is:com.android.internal.os.SomeArgs@c613318
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Force reconnect requested
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Found 1 hub device(s)
+I/flutter (28519): 🐛 DEBUG: HubReconnectionService: Hub SmartSync (EC:E3:34:8D:32:2E) is disconnected
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Attempting to reconnect 1 disconnected hub(s)
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Attempting to reconnect hub: SmartSync
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Attempting to reconnect hub: SmartSync (EC:E3:34:8D:32:2E)
+D/[FBP-Android](28519): [FBP] onMethodCall: startScan
+D/BluetoothAdapter(28519): isLeEnabled(): ON
+D/BluetoothLeScanner(28519): onScannerRegistered() - status=0 scannerId=2 mScannerId=0
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Found hub "SmartSync" (ID: EC:E3:34:8D:32:2E)
+D/[FBP-Android](28519): [FBP] onMethodCall: stopScan
+D/BluetoothAdapter(28519): isLeEnabled(): ON
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Found hub SmartSync, attempting connection...
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Attempting direct connection...
+D/[FBP-Android](28519): [FBP] onMethodCall: isSupported
+I/flutter (28519): ℹ️ INFO: Reconnecting to SmartSync...
+I/flutter (28519): ℹ️ INFO: BluetoothService: Connection attempt 1/3
+D/[FBP-Android](28519): [FBP] onMethodCall: connect
+D/BluetoothGatt(28519): connect() - device: XX:XX:XX:XX:32:2E, auto: false
+D/BluetoothGatt(28519): registerApp()
+D/BluetoothGatt(28519): registerApp() - UUID=4a389d26-7806-462c-9bfd-bf1ca7d0a9fd
+D/BluetoothGatt(28519): onClientRegistered() - status=0 clientIf=6
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BluetoothGatt(28519): onClientConnectionState() - status=0 clientIf=6 device=EC:E3:34:8D:32:2E
+D/[FBP-Android](28519): [FBP] onConnectionStateChange:connected
+D/[FBP-Android](28519): [FBP]   status: SUCCESS
+D/[FBP-Android](28519): [FBP] onMethodCall: requestMtu
+D/BluetoothGatt(28519): configureMTU() - device: XX:XX:XX:XX:32:2E mtu: 512
+D/BluetoothGatt(28519): onConnectionUpdated() - Device=EC:E3:34:8D:32:2E interval=6 latency=0 timeout=500 status=0
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BluetoothGatt(28519): onConfigureMTU() - Device=EC:E3:34:8D:32:2E mtu=255 status=0
+D/[FBP-Android](28519): [FBP] onMtuChanged:
+D/[FBP-Android](28519): [FBP]   mtu: 255
+D/[FBP-Android](28519): [FBP]   status: GATT_SUCCESS (0)
+I/flutter (28519): ℹ️ INFO: BluetoothService: Connection successful on attempt 1
+I/flutter (28519): ℹ️ INFO: BluetoothService: Clearing previous device state for new hub: EC:E3:34:8D:32:2E
+I/flutter (28519): ℹ️ INFO: BluetoothService: Previous device state cleared successfully
+I/flutter (28519): 🔍 [DEBUG] Starting service discovery...
+I/flutter (28519): ℹ️ INFO: 🔍 Starting service discovery...
+D/[FBP-Android](28519): [FBP] onMethodCall: discoverServices
+D/BluetoothGatt(28519): discoverServices() - device: XX:XX:XX:XX:32:2E
+I/flutter (28519): 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🔍 [DEBUG] Watching providers...
+I/flutter (28519): 🔍 [DEBUG] currentUserProvider watched
+I/flutter (28519): 🔍 [DEBUG] bleConnectionProvider watched: true
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] bleConnectionProvider watched: true
+I/flutter (28519): 🔍 [DEBUG] sensorStreamProvider watched
+I/flutter (28519): 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🔍 [DEBUG] _buildAppBarSafe called
+I/flutter (28519): 🔍 [DEBUG] _buildAppBar called
+D/BluetoothGatt(28519): onSearchComplete() = Device=EC:E3:34:8D:32:2E Status=0
+I/flutter (28519): 🔍 [DEBUG] _buildBLEBannerSafe called
+D/[FBP-Android](28519): [FBP] onServicesDiscovered:
+D/[FBP-Android](28519): [FBP]   count: 3
+D/[FBP-Android](28519): [FBP]   status: 0GATT_SUCCESS
+D/BluetoothGatt(28519): onConnectionUpdated() - Device=EC:E3:34:8D:32:2E interval=36 latency=0 timeout=500 status=0
+I/flutter (28519): 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🔍 [DEBUG] Watching providers...
+I/flutter (28519): 🔍 [DEBUG] currentUserProvider watched
+I/flutter (28519): 🔍 [DEBUG] bleConnectionProvider watched: true
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] bleConnectionProvider watched: true
+I/flutter (28519): 🔍 [DEBUG] sensorStreamProvider watched
+I/flutter (28519): 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🔍 [DEBUG] _buildAppBarSafe called
+I/flutter (28519): 🔍 [DEBUG] _buildAppBar called
+I/flutter (28519): 🔍 [DEBUG] _buildBLEBannerSafe called
+D/[FBP-Android](28519): [FBP] onMethodCall: setNotifyValue
+D/BluetoothGatt(28519): setCharacteristicNotification() - uuid: 00002a05-0000-1000-8000-00805f9b34fb enable: true
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/[FBP-Android](28519): [FBP] onDescriptorWrite:
+D/[FBP-Android](28519): [FBP]   chr: 2a05
+D/[FBP-Android](28519): [FBP]   desc: 2902
+D/[FBP-Android](28519): [FBP]   status: GATT_SUCCESS (0)
+I/flutter (28519): 🔍 [DEBUG] Service discovery completed: 3 service(s) found
+I/flutter (28519): ℹ️ INFO: 🔍 Service discovery completed: 3 service(s) found
+I/flutter (28519): 📋 [BLE] ========== SERVICE DISCOVERY ==========
+I/flutter (28519): 📋 [BLE] Discovered 3 service(s) on device
+I/flutter (28519): ℹ️ INFO: 📋 Discovered 3 service(s) on device:
+I/flutter (28519): ℹ️ INFO:   🔹 Service: 1800 (2 characteristics)
+I/flutter (28519):     - [BLE] Characteristic: 2a00
+I/flutter (28519): 🐛 DEBUG:     - Characteristic: 2a00
+I/flutter (28519):     - [BLE] Characteristic: 2a01
+I/flutter (28519): 🐛 DEBUG:     - Characteristic: 2a01
+I/flutter (28519): ℹ️ INFO:   🔹 Service: 1801 (1 characteristics)
+I/flutter (28519):     - [BLE] Characteristic: 2a05
+I/flutter (28519): 🐛 DEBUG:     - Characteristic: 2a05
+I/flutter (28519): ℹ️ INFO:   🔹 Service: 4fafc201-1fb5-459e-8fcc-c5c9c331914b (2 characteristics)
+I/flutter (28519):   ✅ [BLE] FOUND SmartSync service! UUID: 4fafc201-1fb5-459e-8fcc-c5c9c331914b
+I/flutter (28519): ℹ️ INFO:   ✅ FOUND SmartSync service!
+I/flutter (28519):     - [BLE] Characteristic: beb5483f-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519): 🐛 DEBUG:     - Characteristic: beb5483f-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519):     - [BLE] Characteristic: beb5483e-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519): 🐛 DEBUG:     - Characteristic: beb5483e-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519): 📋 [BLE] All service UUIDs:
+I/flutter (28519): 📋 [BLE] Looking for: 4fafc201-1fb5-459e-8fcc-c5c9c331914b
+I/flutter (28519): 📋 [BLE] =========================================
+I/flutter (28519): ℹ️ INFO: ✅ Found SmartSync service: 4fafc201-1fb5-459e-8fcc-c5c9c331914b
+I/flutter (28519): ℹ️ INFO:   📋 Checking 2 characteristic(s)...
+I/flutter (28519): ℹ️ INFO:   ✅ Found TX characteristic: beb5483f-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519): ℹ️ INFO: Enabling BLE data stream subscription
+I/flutter (28519): 🔍 [DEBUG] Enabling BLE data stream subscription
+I/flutter (28519): 🔍 [DEBUG] Previous subscription cancelled
+D/[FBP-Android](28519): [FBP] onMethodCall: setNotifyValue
+D/BluetoothGatt(28519): setCharacteristicNotification() - uuid: beb5483f-36e1-4688-b7f5-ea07361b26a8 enable: true
+D/[FBP-Android](28519): [FBP] onDescriptorWrite:
+D/[FBP-Android](28519): [FBP]   chr: beb5483f-36e1-4688-b7f5-ea07361b26a8
+D/[FBP-Android](28519): [FBP]   desc: 2902
+D/[FBP-Android](28519): [FBP]   status: GATT_SUCCESS (0)
+I/flutter (28519): 🔍 [DEBUG] setNotifyValue(true) completed
+I/flutter (28519): 🔍 [DEBUG] BLE data stream subscription created
+I/flutter (28519): ℹ️ INFO: ✅ BLE data stream subscription active - ready to receive sensor data
+I/flutter (28519): ℹ️ INFO:   ✅ Found RX characteristic: beb5483e-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519): 🔍 [BLE] Verifying device is SmartSync hub...
+I/flutter (28519): ℹ️ INFO: Verifying connected device is SmartSync hub
+I/flutter (28519): ✅ [BLE] Device verified - SmartSync service UUID found
+I/flutter (28519): 📋 [BLE] ========== CONNECTION SUMMARY ==========
+I/flutter (28519):   - Device ID: EC:E3:34:8D:32:2E
+I/flutter (28519):   - Device Name: SmartSync
+I/flutter (28519):   - SmartSync Service Found: true
+I/flutter (28519):   - Using Fallback Connection: false
+I/flutter (28519):   - RX Characteristic: beb5483e-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519):   - TX Characteristic: beb5483f-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519):   - Hub Verified: true
+I/flutter (28519):   - Verification Method: SmartSync service UUID found
+I/flutter (28519): 📋 [BLE] =========================================
+I/flutter (28519): ℹ️ INFO: Connection Summary - Device: SmartSync, Verified: true (SmartSync service UUID found)
+I/flutter (28519): ✅ SUCCESS: Reconnected successfully
+I/flutter (28519): 🔍 [DEBUG] Connection established, starting timers and services
+I/flutter (28519): ℹ️ INFO: 🔍 [DEBUG] Connection established, starting timers and services
+I/flutter (28519): 🔍 [DEBUG] Activity recorded
+I/flutter (28519): ✅ SUCCESS: HubReconnectionService: Successfully reconnected hub: SmartSync
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Successfully reconnected to SmartSync, connection stabilized
+I/flutter (28519): ℹ️ INFO: BluetoothService: Syncing schedules to device...
+I/flutter (28519): ℹ️ INFO: BluetoothService: MonitoringService initialized for data collection
+I/flutter (28519): ✅ SUCCESS: BluetoothService: Synced 0 schedule(s) to device
+I/flutter (28519): ℹ️ INFO: ApplianceStateService: State loaded - Fan: 0, LED: 0, Security: false, AutoMode: false
+I/flutter (28519): ℹ️ INFO: BluetoothService: Restoring appliance state from Firebase
+D/[FBP-Android](28519): [FBP] onMethodCall: writeCharacteristic
+I/flutter (28519): ℹ️ INFO: ApplianceStateService: State loaded - Fan: 0, LED: 0, Security: false, AutoMode: false
+D/[FBP-Android](28519): [FBP] onCharacteristicChanged:
+D/[FBP-Android](28519): [FBP]   chr: beb5483f-36e1-4688-b7f5-ea07361b26a8
+I/flutter (28519): 🔍 [DEBUG] Heartbeat timer started
+I/flutter (28519): 🔍 [DEBUG] Keepalive timer started
+I/flutter (28519): 🔍 [DEBUG] Sensor polling started
+I/flutter (28519): 🔍 [DEBUG] Inactivity watchdog started
+I/flutter (28519): ℹ️ INFO: BluetoothService: Connection maintenance timers started after stabilization delay
+I/flutter (28519): ✅ SUCCESS: HubReconnectionService: Finished reconnection attempts
+I/flutter (28519): ❌ ========== UNHANDLED ERROR IN MAIN ==========
+I/flutter (28519): ❌ Error: Looking up a deactivated widget's ancestor is unsafe.
+I/flutter (28519): At this point the state of the widget's element tree is no longer stable.
+I/flutter (28519): To safely refer to a widget's ancestor in its dispose() method, save a reference to the ancestor by calling dependOnInheritedWidgetOfExactType() in the widget's didChangeDependencies() method.
+I/flutter (28519): ❌ Stack: #0      Element._debugCheckStateIsActiveForAncestorLookup.<anonymous closure> (package:flutter/src/widgets/framework.dart:4954:9)
+I/flutter (28519): #1      Element._debugCheckStateIsActiveForAncestorLookup (package:flutter/src/widgets/framework.dart:4968:6)
+I/flutter (28519): #2      Element.findAncestorWidgetOfExactType (package:flutter/src/widgets/framework.dart:5029:12)
+I/flutter (28519): #3      debugCheckHasScaffoldMessenger.<anonymous closure> (package:flutter/src/material/debug.dart:181:17)
+I/flutter (28519): #4      debugCheckHasScaffoldMessenger (package:flutter/src/material/debug.dart:195:4)
+I/flutter (28519): #5      ScaffoldMessenger.of (package:flutter/src/material/scaffold.dart:157:12)
+I/flutter (28519): #6      AppNotifications.showSnackBar (package:smartsync_app/core/widgets/app_notifications.dart:62:23)
+I/flutter (28519): #7      _HomeTabState._buildBLEBanner.<anonymous closure>.<anonymous closure>.<anonymous closure> (package:smartsync_app/screens/home/home_screen.dart:905:48)
+I/flutter (28519): <asynchronous suspension>
+I/flutter (28519):
+I/flutter (28519): ❌ ============================================
+I/flutter (28519): ℹ️ INFO: ApplianceStateService: State loaded - Fan: 0, LED: 0, Security: false, AutoMode: false
+I/flutter (28519): ℹ️ INFO: BluetoothService: Connection grace period ended, monitoring active
+E/[FBP-Android](28519): [FBP] onCharacteristicWrite:
+E/[FBP-Android](28519): [FBP]   chr: beb5483e-36e1-4688-b7f5-ea07361b26a8
+E/[FBP-Android](28519): [FBP]   status: GATT_ERROR (133)
+D/BluetoothGatt(28519): onClientConnectionState() - status=8 clientIf=6 device=EC:E3:34:8D:32:2E
+D/[FBP-Android](28519): [FBP] onConnectionStateChange:disconnected
+D/[FBP-Android](28519): [FBP]   status: LINK_SUPERVISION_TIMEOUT
+D/BluetoothGatt(28519): close()
+D/BluetoothGatt(28519): unregisterApp() - mClientIf=6
+I/flutter (28519): ❌ ERROR: Send command error: GATT_ERROR (133) - Device may have disconnected [Repeated 2x]
+I/flutter (28519): [FBP] stopScan: already stopped
+D/[FBP-Android](28519): [FBP] onMethodCall: writeCharacteristic
+I/flutter (28519): 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] HomeTab.build() called
+I/flutter (28519): 🔍 [DEBUG] Watching providers...
+I/flutter (28519): 🔍 [DEBUG] currentUserProvider watched
+I/flutter (28519): 🔍 [DEBUG] bleConnectionProvider watched: false
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] bleConnectionProvider watched: false
+I/flutter (28519): 🔍 [DEBUG] sensorStreamProvider watched
+I/flutter (28519): 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🐛 DEBUG: 🔍 [DEBUG] Building Scaffold
+I/flutter (28519): 🔍 [DEBUG] _buildAppBarSafe called
+I/flutter (28519): 🔍 [DEBUG] _buildAppBar called
+I/flutter (28519): 🔍 [DEBUG] _buildBLEBannerSafe called
+I/flutter (28519): ℹ️ INFO: BluetoothService: Appliance state restored - Fan: 0, LED: 0, Security: false, AutoMode: false
+I/flutter (28519): ℹ️ INFO: Local notification shown: ⚠️ Device Disconnected
+D/[FBP-Android](28519): [FBP] onMethodCall: writeCharacteristic
+I/flutter (28519): ❌ ERROR: 🚨 CRITICAL: UI thread blocked for 123ms (668.8% over target)
+V/SomeArgsObtain(28519): sPoolSize = 1,spool is:com.android.internal.os.SomeArgs@c613318
+V/SomeArgsRecycle(28519): sPoolSize = 1,spool is:com.android.internal.os.SomeArgs@c613318
+I/flutter (28519): ℹ️ INFO: NotificationService: Saved notification to alerts: ⚠️ Device Disconnected
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Persistent reconnection check - attempting to reconnect...
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Found 1 hub device(s)
+I/flutter (28519): 🐛 DEBUG: HubReconnectionService: Hub SmartSync (EC:E3:34:8D:32:2E) is disconnected
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Attempting to reconnect 1 disconnected hub(s)
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Attempting to reconnect hub: SmartSync
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Attempting to reconnect hub: SmartSync (EC:E3:34:8D:32:2E)
+D/[FBP-Android](28519): [FBP] onMethodCall: startScan
+D/BluetoothAdapter(28519): isLeEnabled(): ON
+D/BluetoothLeScanner(28519): onScannerRegistered() - status=0 scannerId=2 mScannerId=0
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Found hub "SmartSync" (ID: EC:E3:34:8D:32:2E)
+D/[FBP-Android](28519): [FBP] onMethodCall: stopScan
+D/BluetoothAdapter(28519): isLeEnabled(): ON
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Found hub SmartSync, attempting connection...
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Attempting direct connection...
+D/[FBP-Android](28519): [FBP] onMethodCall: isSupported
+I/flutter (28519): ℹ️ INFO: Reconnecting to SmartSync...
+I/flutter (28519): ℹ️ INFO: BluetoothService: Connection attempt 1/3
+D/[FBP-Android](28519): [FBP] onMethodCall: connect
+D/BluetoothGatt(28519): connect() - device: XX:XX:XX:XX:32:2E, auto: false
+D/BluetoothGatt(28519): registerApp()
+D/BluetoothGatt(28519): registerApp() - UUID=fb272ecd-8c48-4257-9714-778d0427e266
+D/BluetoothGatt(28519): onClientRegistered() - status=0 clientIf=6
+V/SomeArgsObtain(28519): sPoolSize = 1,spool is:com.android.internal.os.SomeArgs@c613318
+V/SomeArgsRecycle(28519): sPoolSize = 1,spool is:com.android.internal.os.SomeArgs@c613318
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BluetoothGatt(28519): onClientConnectionState() - status=133 clientIf=6 device=EC:E3:34:8D:32:2E
+D/[FBP-Android](28519): [FBP] onConnectionStateChange:disconnected
+D/[FBP-Android](28519): [FBP]   status: ANDROID_SPECIFIC_ERROR
+D/BluetoothGatt(28519): close()
+D/BluetoothGatt(28519): unregisterApp() - mClientIf=6
+I/flutter (28519): ⚠️ WARNING: GATT error 133 detected on attempt 1, attempting recovery...
+D/[FBP-Android](28519): [FBP] onMethodCall: disconnect
+D/[FBP-Android](28519): [FBP] already disconnected
+I/flutter (28519): ℹ️ INFO: Retrying connection after GATT error recovery (attempt 2)...
+I/flutter (28519): ℹ️ INFO: BluetoothService: Connection attempt 2/3
+D/[FBP-Android](28519): [FBP] onMethodCall: connect
+D/BluetoothGatt(28519): connect() - device: XX:XX:XX:XX:32:2E, auto: false
+D/BluetoothGatt(28519): registerApp()
+D/BluetoothGatt(28519): registerApp() - UUID=675021cb-dc52-433e-bde5-4ed456c58c02
+D/BluetoothGatt(28519): onClientRegistered() - status=0 clientIf=6
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Force reconnect requested
+W/WindowOnBackDispatcher(28519): OnBackInvokedCallback is not enabled for the application.
+W/WindowOnBackDispatcher(28519): Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+I/flutter (28519): ❌ ERROR: 🚨 CRITICAL: UI thread blocked for 176ms (1000.0% over target)
+I/flutter (28519): ℹ️ INFO: Connecting to SmartSync...
+I/flutter (28519): 🔍 [DEBUG] Starting connection to device: SmartSync
+I/flutter (28519): ℹ️ INFO: 🔍 [DEBUG] Starting connection to device: SmartSync
+I/flutter (28519): ⚠️ WARNING: BluetoothService: Connection already in progress, ignoring duplicate request
+I/flutter (28519): 🔍 [DEBUG] Connection result: false
+I/flutter (28519): ℹ️ INFO: 🔍 [DEBUG] Connection result: false
+I/flutter (28519): 🔍 [DEBUG] Widget still mounted, updating state
+I/flutter (28519): 🔍 [DEBUG] State updated
+I/flutter (28519): 🔍 [DEBUG] Preparing to navigate back to home screen
+I/flutter (28519): ℹ️ INFO: 🔍 [DEBUG] Preparing to navigate back to home screen
+I/flutter (28519): 🔍 [DEBUG] Delay completed, checking if mounted
+I/flutter (28519): 🔍 [DEBUG] Widget and context mounted, calling Navigator.pop()
+I/flutter (28519): ℹ️ INFO: 🔍 [DEBUG] Calling Navigator.pop()
+I/flutter (28519): 🔍 [DEBUG] Navigator.pop() completed
+I/flutter (28519): ℹ️ INFO: 🔍 [DEBUG] Navigator.pop() completed successfully
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+D/BLASTBufferQueue(28519): [SurfaceView[com.smartsync.smartsync_app/com.smartsync.smartsync_app.MainActivity]#1](f:1,a:4) Can not acquire next buffer (WTC=false), ret=2
+I/flutter (28519): ℹ️ INFO: HubReconnectionService: Force reconnect requested
+W/WindowOnBackDispatcher(28519): OnBackInvokedCallback is not enabled for the application.
+W/WindowOnBackDispatcher(28519): Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+I/flutter (28519): ❌ ERROR: 🚨 CRITICAL: UI thread blocked for 125ms (681.3% over target)
+I/flutter (28519): [FBP] connection timeout
+D/[FBP-Android](28519): [FBP] onMethodCall: disconnect
+D/[FBP-Android](28519): [FBP] disconnect: cancelling connection in progress
+D/BluetoothGatt(28519): cancelOpen() - device: XX:XX:XX:XX:32:2E
+D/BluetoothGatt(28519): close()
+D/BluetoothGatt(28519): unregisterApp() - mClientIf=6
+I/flutter (28519): ⚠️ WARNING: Connection timeout on attempt 2
+D/[FBP-Android](28519): [FBP] onMethodCall: disconnect
+D/[FBP-Android](28519): [FBP] already disconnected
+I/flutter (28519): ℹ️ INFO: Retrying connection after timeout (attempt 3)...
+I/flutter (28519): ℹ️ INFO: BluetoothService: Connection attempt 3/3
+D/[FBP-Android](28519): [FBP] onMethodCall: connect
+D/BluetoothGatt(28519): connect() - device: XX:XX:XX:XX:32:2E, auto: false
+D/BluetoothGatt(28519): registerApp()
+D/BluetoothGatt(28519): registerApp() - UUID=8cce9621-92f5-4c80-87f8-9cd99a25278c
+D/BluetoothGatt(28519): onClientRegistered() - status=0 clientIf=6

@@ -138,7 +138,7 @@ class TFLiteService {
         Logger.error('   [DEBUG]    ============================================');
         Logger.error('   [DEBUG]    DIAGNOSTIC INFORMATION:');
         Logger.error('   [DEBUG]    1. This model uses FlexConv2D which requires Select TF Ops');
-        Logger.error('   [DEBUG]    2. Ensure org.tensorflow:tensorflow-lite-select-tf-ops:2.15.0 is in build.gradle');
+        Logger.error('   [DEBUG]    2. Ensure org.tensorflow:tensorflow-lite-select-tf-ops:2.16.1 is in build.gradle');
         Logger.error('   [DEBUG]    3. Check logcat for "TfliteFlutterPlugin" messages');
         Logger.error('   [DEBUG]    4. Look for "SUCCESS: Loaded Select TF Ops library" in logcat');
         Logger.error('   [DEBUG]    5. If library failed to load, rebuild app: flutter clean && flutter build apk');
@@ -217,7 +217,7 @@ class TFLiteService {
   /// Predict schedules using local TFLite model
   ///
   /// Input: 24 hours of sensor data (8 features per hour)
-  /// Output: Fan speed and LED brightness predictions
+  /// Output: Fan speed and ambient light predictions
   Future<List<SchedulePrediction>> predictSchedulesLocal(
     String userId,
     String deviceId,

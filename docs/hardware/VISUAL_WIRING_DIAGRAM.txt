@@ -1,0 +1,251 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    SMART SYNC WIRING DIAGRAM (NO BUCK CONVERTER)             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           POWER SUPPLY SETUP                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    USB-C Cable (5V)                   12V Adapter (12V)
+         │                                    │
+         │                                    │
+         ▼                                    ▼
+    ┌─────────┐                         ┌──────────┐
+    │  ESP32  │                         │  12V     │
+    │  USB-C  │                         │ Adapter  │
+    └─────────┘                         └──────────┘
+         │                                    │
+         │                                    │
+         │ 5V                                 │ 12V+
+         │                                    │
+         ▼                                    ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │              BREADBOARD (830 tie points)                 │
+    │                                                          │
+    │  LEFT SIDE                    RIGHT SIDE                │
+    │  ┌─────┐  ┌─────┐            ┌─────┐  ┌─────┐          │
+    │  │ 5V  │  │ GND │            │ 3.3V│  │ GND │          │
+    │  └─────┘  └─────┘            └─────┘  └─────┘          │
+    │     │        │                  │        │             │
+    │     └────────┴──────────────────┴────────┘             │
+    │                    (Common Ground)                      │
+    └─────────────────────────────────────────────────────────┘
+                              │
+                              │ (12V adapter negative)
+                              ▼
+                         Ground Rail
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         COMPONENT CONNECTIONS                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+ESP32-32U (Center of Breadboard)
+═══════════════════════════════════════════════════════════════════════════════
+│ Pin      │ Connection                    │ Wire Type │ Notes                │
+├──────────┼───────────────────────────────┼───────────┼──────────────────────┤
+│ 5V       │ → Left Red Rail (5V)         │ M-M       │ From USB             │
+│ 3.3V     │ → Right Red Rail (3.3V)      │ M-M       │ ESP32 regulator      │
+│ GND      │ → Ground Rail                │ M-M       │ Common ground         │
+│ GPIO4    │ → DHT22 DAT                  │ M-M       │ +10kΩ pull-up        │
+│ GPIO5    │ → SRF05 TRIG                 │ F-M       │ Direct                │
+│ GPIO18   │ → SRF05 ECHO (via divider)   │ F-M       │ Voltage divider       │
+│ GPIO19   │ → PIR OUT                    │ F-M       │ Direct                │
+│ GPIO21   │ → I2C SDA (LCD + RTC)        │ F-M       │ Shared bus            │
+│ GPIO22   │ → I2C SCL (LCD + RTC)        │ F-M       │ Shared bus            │
+│ GPIO23   │ → Active Buzzer (+)          │ M-M       │ Optional 330Ω         │
+│ GPIO13   │ → MOSFET Gate (Fan)          │ M-M       │ +330Ω + 10kΩ pull-down│
+│ GPIO14   │ → RGB Red                    │ M-M       │ +330Ω                 │
+│ GPIO26   │ → RGB Blue                   │ M-M       │ +330Ω                 │
+│ GPIO27   │ → RGB Green                  │ M-M       │ +330Ω                 │
+│ GPIO25   │ → Green LED 1                │ M-M       │ +330Ω                 │
+│ GPIO32   │ → Green LED 2                │ M-M       │ +330Ω                 │
+│ GPIO33   │ → Green LED 3                │ M-M       │ +330Ω                 │
+└──────────┴───────────────────────────────┴───────────┴──────────────────────┘
+
+
+DHT22 Sensor
+═══════════════════════════════════════════════════════════════════════════════
+    VCC ──────[M-M]──────→ 3.3V Rail
+    GND ──────[M-M]──────→ Ground Rail
+    DAT ──────[M-M]──────→ GPIO4
+            │
+            └──[10kΩ Resistor]──→ 3.3V Rail (Pull-up)
+
+
+HY-SRF05 Ultrasonic Sensor
+═══════════════════════════════════════════════════════════════════════════════
+    VCC ──────[F-M]──────→ 5V Rail
+    GND ──────[F-M]──────→ Ground Rail
+    TRIG ─────[F-M]──────→ GPIO5
+    
+    ECHO ─────[F-M]──────→ [10kΩ Resistor] ──┐
+                                              ├──→ GPIO18
+    Ground ──────────────────────────────────┘
+              [10kΩ Resistor]
+    (Voltage Divider: 5V → 2.5V)
+
+
+PIR Motion Sensor
+═══════════════════════════════════════════════════════════════════════════════
+    VCC ──────[F-M]──────→ 5V Rail
+    GND ──────[F-M]──────→ Ground Rail
+    OUT ──────[F-M]──────→ GPIO19
+
+
+DS3231 RTC Module
+═══════════════════════════════════════════════════════════════════════════════
+    VCC ──────[F-M]──────→ 5V Rail
+    GND ──────[F-M]──────→ Ground Rail
+    SDA ──────[F-M]──────→ GPIO21 (I2C - shared with LCD)
+    SCL ──────[F-M]──────→ GPIO22 (I2C - shared with LCD)
+
+
+20×4 LCD with I2C Adapter
+═══════════════════════════════════════════════════════════════════════════════
+    VCC ──────[F-M]──────→ 5V Rail
+    GND ──────[F-M]──────→ Ground Rail
+    SDA ──────[F-M]──────→ GPIO21 (I2C - shared with RTC)
+    SCL ──────[F-M]──────→ GPIO22 (I2C - shared with RTC)
+    
+    Note: The 16-pin adapter connects to LCD, exposes only 4 pins (VCC, GND, SDA, SCL)
+
+
+Active Buzzer
+═══════════════════════════════════════════════════════════════════════════════
+    (+) ──────[M-M]──────→ GPIO23 (Optional: add 330Ω resistor)
+    (-) ──────[M-M]──────→ Ground Rail
+
+
+RGB LED (Common Cathode)
+═══════════════════════════════════════════════════════════════════════════════
+    Cathode ───────────────→ Ground Rail
+    Red ──────[330Ω]──────→ GPIO14
+    Green ────[330Ω]──────→ GPIO27
+    Blue ─────[330Ω]──────→ GPIO26
+
+
+Green LEDs (3x)
+═══════════════════════════════════════════════════════════════════════════════
+    LED 1:  Anode ──[330Ω]──→ 5V Rail    Cathode ──[M-M]──→ GPIO25
+    LED 2:  Anode ──[330Ω]──→ 5V Rail    Cathode ──[M-M]──→ GPIO32
+    LED 3:  Anode ──[330Ω]──→ 5V Rail    Cathode ──[M-M]──→ GPIO33
+
+
+12V Fan + MOSFET (IRFZ44N) - SPECIAL WIRING
+═══════════════════════════════════════════════════════════════════════════════
+    
+    12V Adapter (+) ────[F-F]──→ Fan Red Wire
+                                    │
+                                    │
+    12V Adapter (-) ────[F-F]──→ Ground Rail (COMMON GROUND!)
+                                    │
+                                    │
+    Fan Black Wire ────[F-M]──→ MOSFET Drain
+                                    │
+    MOSFET Gate ──────[330Ω]──→ GPIO13
+                    │
+                    └──[10kΩ]──→ Ground Rail (Pull-down)
+                                    │
+    MOSFET Source ──────────────────┘
+    
+    ⚠️ CRITICAL: 12V adapter negative MUST connect to breadboard ground!
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         RESISTOR USAGE SUMMARY                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+3 × 330Ω Resistors:
+  ✓ RGB LED: Red, Green, Blue cathodes (3 resistors)
+  ✓ Green LEDs: 3 LEDs × 1 resistor each = 3 resistors
+  ✓ Active Buzzer: Optional 1 resistor
+  ✓ MOSFET Gate: 1 resistor (330Ω or 100Ω)
+  Total: 7-8 resistors needed (you have 3, may need more or reuse)
+
+3 × 10kΩ Resistors:
+  ✓ DHT22: 1 pull-up resistor (DAT to 3.3V)
+  ✓ SRF05: 2 resistors for voltage divider (ECHO protection)
+  ✓ MOSFET: 1 pull-down resistor (Gate to Ground)
+  Total: 4 resistors needed (you have 3, may need 1 more or adjust)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         WIRE TYPE USAGE GUIDE                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+M-M (Male-to-Male):
+  • ESP32 pins → Breadboard
+  • Breadboard power rails
+  • Ground connections
+  • Resistor connections
+  • LED connections
+  • Buzzer connections
+
+F-M (Female-to-Male):
+  • DHT22 sensor (if it has male pins)
+  • PIR sensor (male pins)
+  • Ultrasonic sensor (male pins)
+  • RTC module (male pins)
+  • LCD I2C adapter (if it has male pins)
+
+F-F (Female-to-Female):
+  • 12V adapter to fan connections
+  • 12V adapter ground to breadboard ground
+  • Extending wires for remote components
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         BREADBOARD LAYOUT SUGGESTION                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌─────────────────────────────────────────────────────────┐
+    │  LEFT POWER RAILS    │    CENTER SECTION    │  RIGHT POWER RAILS │
+    │  5V  │  GND         │                      │  3.3V │  GND       │
+    ├──────┼───────────────┼──────────────────────┼────────┼────────────┤
+    │      │              │                      │        │            │
+    │      │    ESP32     │                      │        │            │
+    │      │   (mounted   │                      │        │            │
+    │      │   across     │                      │        │            │
+    │      │   center)    │                      │        │            │
+    │      │              │                      │        │            │
+    │      │  ┌────────┐  │                      │        │            │
+    │      │  │        │  │                      │        │            │
+    │      │  │ ESP32  │  │                      │        │            │
+    │      │  │        │  │                      │        │            │
+    │      │  └────────┘  │                      │        │            │
+    │      │              │                      │        │            │
+    │      │  Sensors:    │                      │        │            │
+    │      │  • DHT22     │                      │        │            │
+    │      │  • PIR       │                      │        │            │
+    │      │  • SRF05     │                      │        │            │
+    │      │  • RTC       │                      │        │            │
+    │      │  • LCD       │                      │        │            │
+    │      │  • LEDs      │                      │        │            │
+    │      │  • Buzzer    │                      │        │            │
+    │      │  • MOSFET    │                      │        │            │
+    └──────┴──────────────┴──────────────────────┴────────┴────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         CRITICAL CONNECTIONS CHECKLIST                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+□ ESP32 GND → Ground Rail
+□ 12V Adapter (-) → Ground Rail (COMMON GROUND!)
+□ All component GND pins → Ground Rail
+□ Left and Right ground rails connected together
+□ DHT22 has 10kΩ pull-up resistor
+□ SRF05 ECHO has voltage divider (2×10kΩ)
+□ MOSFET Gate has 10kΩ pull-down resistor
+□ All LEDs have 330Ω current-limiting resistors
+□ I2C devices (LCD + RTC) share SDA/SCL pins
+□ Fan red wire → 12V adapter positive
+□ Fan black wire → MOSFET Drain
+□ MOSFET Source → Ground Rail
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                              END OF DIAGRAM
+═══════════════════════════════════════════════════════════════════════════════
+

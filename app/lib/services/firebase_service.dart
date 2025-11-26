@@ -89,12 +89,13 @@ class FirebaseService {
             .toList());
   }
 
-  Future<void> addRoom(String userId, RoomModel room) async {
-    await _firestore
+  Future<String> addRoom(String userId, RoomModel room) async {
+    final docRef = await _firestore
         .collection('users')
         .doc(userId)
         .collection('rooms')
         .add(room.toMap());
+    return docRef.id;
   }
 
   Future<void> updateRoom(
@@ -133,6 +134,9 @@ class FirebaseService {
     await batch.commit();
   }
 
+  // Get Firestore instance (for direct access when needed)
+  FirebaseFirestore get firestore => _firestore;
+
   Future<void> addDeviceToRoom(
       String userId, String roomId, String deviceId) async {
     final roomRef = _firestore
@@ -141,10 +145,18 @@ class FirebaseService {
         .collection('rooms')
         .doc(roomId);
 
+    // Check if room exists first
+    final roomDoc = await roomRef.get();
+    if (!roomDoc.exists) {
+      throw Exception('Room $roomId does not exist for user $userId');
+    }
+
+    // Update the room's deviceIds array
     await roomRef.update({
       'deviceIds': FieldValue.arrayUnion([deviceId]),
     });
 
+    // Also update the device's roomId
     await assignDeviceToRoom(deviceId, roomId);
   }
 
@@ -402,76 +414,125 @@ class FirebaseService {
       final today = DateTime.now();
       final startOfDay = DateTime(today.year, today.month, today.day);
 
-      // Get all devices in the room
+      // Get all devices in the room to find the hub device
       final devicesSnapshot = await _firestore
           .collection('devices')
           .where('userId', isEqualTo: userId)
           .where('roomId', isEqualTo: roomId)
           .get();
 
-      double totalEnergy = 0.0;
-
+      // Find the hub device (sensor logs are stored with hub device ID)
+      String? hubDeviceId;
       for (var deviceDoc in devicesSnapshot.docs) {
+        final deviceData = deviceDoc.data();
+        if (deviceData['isHub'] == true || deviceData['type'] == 'hub') {
+          hubDeviceId = deviceDoc.id;
+          break;
+        }
+      }
+
+      // If no hub found, try to find any device that might be the hub
+      // or use the first device as fallback
+      if (hubDeviceId == null && devicesSnapshot.docs.isNotEmpty) {
+        // Try to find a device that has sensor logs
+        for (var deviceDoc in devicesSnapshot.docs) {
+          final testLogs = await _firestore
+              .collection('sensor_logs')
+              .where('deviceId', isEqualTo: deviceDoc.id)
+              .where('userId', isEqualTo: userId)
+              .where('timestamp', isGreaterThan: Timestamp.fromDate(startOfDay))
+              .limit(1)
+              .get();
+          if (testLogs.docs.isNotEmpty) {
+            hubDeviceId = deviceDoc.id;
+            break;
+          }
+        }
+      }
+
+      // If still no hub found, query by userId only (sensor logs have userId)
+      if (hubDeviceId == null) {
+        // Query all sensor logs for this user and room (if roomId is stored in logs)
+        // Since roomId might not be in sensor logs, we'll query by userId
         final logs = await _firestore
             .collection('sensor_logs')
-            .where('deviceId', isEqualTo: deviceDoc.id)
+            .where('userId', isEqualTo: userId)
             .where('timestamp', isGreaterThan: Timestamp.fromDate(startOfDay))
             .orderBy('timestamp', descending: false)
             .get();
 
-        if (logs.docs.isEmpty) continue;
+        if (logs.docs.isEmpty) return 0.0;
 
-        // Sort logs by timestamp
-        final sortedLogs = logs.docs.toList()
-          ..sort((a, b) {
-            final aTime = (a.data()['timestamp'] as Timestamp?)?.toDate() ??
-                DateTime.now();
-            final bTime = (b.data()['timestamp'] as Timestamp?)?.toDate() ??
-                DateTime.now();
-            return aTime.compareTo(bTime);
-          });
-
-        // Calculate energy for each time interval
-        for (int i = 0; i < sortedLogs.length; i++) {
-          final data = sortedLogs[i].data();
-          final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
-
-          if (timestamp == null) continue;
-
-          // Calculate power in kW
-          final fanSpeed = (data['fanSpeed'] as num?)?.toInt() ?? 0;
-          final ledBrightness = (data['ledBrightness'] as num?)?.toInt() ?? 0;
-
-          final fanPowerKw = (fanSpeed / 255.0) * 0.05; // 0-0.05 kW
-          final ledPowerKw = (ledBrightness / 255.0) * 0.01; // 0-0.01 kW
-          final totalPowerKw = fanPowerKw + ledPowerKw;
-
-          // Calculate time duration
-          Duration duration;
-          if (i < sortedLogs.length - 1) {
-            final nextTimestamp =
-                (sortedLogs[i + 1].data()['timestamp'] as Timestamp?)?.toDate();
-            if (nextTimestamp != null) {
-              duration = nextTimestamp.difference(timestamp);
-            } else {
-              duration = const Duration(minutes: 5);
-            }
-          } else {
-            duration = DateTime.now().difference(timestamp);
-            if (duration.isNegative || duration.inMinutes > 60) {
-              duration = const Duration(minutes: 5);
-            }
-          }
-
-          final hours = duration.inSeconds.clamp(60, 3600) / 3600.0;
-          totalEnergy += totalPowerKw * hours;
-        }
+        // Calculate energy from all logs (assuming they're from this room's hub)
+        return _calculateEnergyFromLogs(logs.docs);
       }
 
-      return totalEnergy;
+      // Query sensor logs by hub device ID
+      final logs = await _firestore
+          .collection('sensor_logs')
+          .where('deviceId', isEqualTo: hubDeviceId)
+          .where('userId', isEqualTo: userId)
+          .where('timestamp', isGreaterThan: Timestamp.fromDate(startOfDay))
+          .orderBy('timestamp', descending: false)
+          .get();
+
+      if (logs.docs.isEmpty) return 0.0;
+
+      return _calculateEnergyFromLogs(logs.docs);
     } catch (e) {
       return 0.0;
     }
+  }
+
+  /// Helper method to calculate energy from sensor log documents
+  double _calculateEnergyFromLogs(List<QueryDocumentSnapshot<Map<String, dynamic>>> logs) {
+    // Sort logs by timestamp
+    final sortedLogs = logs.toList()
+      ..sort((a, b) {
+        final aTime = (a.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+        final bTime = (b.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+        return aTime.compareTo(bTime);
+      });
+
+    double totalEnergy = 0.0;
+
+    // Calculate energy for each time interval
+    for (int i = 0; i < sortedLogs.length; i++) {
+      final data = sortedLogs[i].data();
+      final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
+
+      if (timestamp == null) continue;
+
+      // Calculate power in kW
+      final fanSpeed = (data['fanSpeed'] as num?)?.toInt() ?? 0;
+      final ledBrightness = (data['ledBrightness'] as num?)?.toInt() ?? 0;
+
+      final fanPowerKw = (fanSpeed / 255.0) * 0.05; // 0-0.05 kW
+      final ledPowerKw = (ledBrightness / 255.0) * 0.01; // 0-0.01 kW
+      final totalPowerKw = fanPowerKw + ledPowerKw;
+
+      // Calculate time duration
+      Duration duration;
+      if (i < sortedLogs.length - 1) {
+        final nextTimestamp =
+            (sortedLogs[i + 1].data()['timestamp'] as Timestamp?)?.toDate();
+        if (nextTimestamp != null) {
+          duration = nextTimestamp.difference(timestamp);
+        } else {
+          duration = const Duration(minutes: 5);
+        }
+      } else {
+        duration = DateTime.now().difference(timestamp);
+        if (duration.isNegative || duration.inMinutes > 60) {
+          duration = const Duration(minutes: 5);
+        }
+      }
+
+      final hours = duration.inSeconds.clamp(60, 3600) / 3600.0;
+      totalEnergy += totalPowerKw * hours;
+    }
+
+    return totalEnergy;
   }
 
   // ==================== ALERTS ====================
@@ -645,7 +706,20 @@ class FirebaseService {
                   'id': doc.id,
                   ...doc.data(),
                 })
-            .toList());
+            .toList())
+        .handleError((error) {
+      // Handle Firestore errors gracefully
+      if (error.toString().contains('permission-denied') ||
+          error.toString().contains('permission denied')) {
+        throw Exception(
+            'Permission denied: You don\'t have access to view automations for this room.');
+      } else if (error.toString().contains('index')) {
+        throw Exception(
+            'Database index required. Please wait a few minutes for the index to be created automatically.');
+      }
+      // Re-throw other errors as-is
+      throw error;
+    });
   }
 
   Stream<List<Map<String, dynamic>>> getUserAutomations(String userId) {
@@ -722,6 +796,85 @@ class FirebaseService {
     }
 
     await batch.commit();
+  }
+
+  // ==================== HUB OPERATIONS ====================
+
+  /// Set a hub as the primary hub, unsetting all others
+  Future<void> setPrimaryHub(String userId, String hubId) async {
+    try {
+      // Get all rooms for this user
+      final roomsSnapshot = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('rooms')
+          .get();
+
+      final batch = _firestore.batch();
+      bool foundHubRoom = false;
+
+      // Unset primary status from all rooms and find the hub room
+      for (var doc in roomsSnapshot.docs) {
+        final data = doc.data();
+        if (data['hubId'] == hubId) {
+          foundHubRoom = true;
+          batch.update(doc.reference, {'isPrimaryHub': true});
+        } else if (data['hubId'] != null) {
+          // Unset primary status from other rooms with hubs
+          batch.update(doc.reference, {'isPrimaryHub': false});
+        }
+      }
+
+      if (!foundHubRoom) {
+        // If room not found, try to find it by querying again (might be a timing issue)
+        final hubRoomSnapshot = await _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('rooms')
+            .where('hubId', isEqualTo: hubId)
+            .limit(1)
+            .get();
+
+        if (hubRoomSnapshot.docs.isEmpty) {
+          throw Exception('Room with hubId $hubId not found. Please ensure the hub is assigned to a room first.');
+        }
+
+        batch.update(hubRoomSnapshot.docs.first.reference, {'isPrimaryHub': true});
+      }
+
+      await batch.commit();
+    } catch (e) {
+      // Log error but don't throw - this is not critical for hub registration
+      print('Error setting primary hub: $e');
+      rethrow;
+    }
+  }
+
+  /// Get the primary hub for a user
+  Future<String?> getPrimaryHub(String userId) async {
+    final roomsSnapshot = await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('rooms')
+        .where('isPrimaryHub', isEqualTo: true)
+        .limit(1)
+        .get();
+
+    if (roomsSnapshot.docs.isEmpty) return null;
+    return roomsSnapshot.docs.first.data()['hubId'] as String?;
+  }
+
+  /// Get hub by room ID
+  Future<String?> getHubByRoom(String userId, String roomId) async {
+    final roomDoc = await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('rooms')
+        .doc(roomId)
+        .get();
+
+    if (!roomDoc.exists) return null;
+    return roomDoc.data()?['hubId'] as String?;
   }
 
   // ==================== ROOM IMAGE UPLOAD ====================

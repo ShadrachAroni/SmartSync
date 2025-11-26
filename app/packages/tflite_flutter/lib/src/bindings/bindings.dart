@@ -42,7 +42,7 @@ final DynamicLibrary _dylib = () {
     print('   [DEBUG] Step 2: Attempting to load Select TF Ops library...');
     print('   [DEBUG]    This library is required for FlexConv2D operations');
     final flexLibNames = [
-      'libtensorflowlite_flex_jni.so',      // Most common for 2.15.0
+      'libtensorflowlite_flex_jni.so',      // Most common for 2.16.1
       'libtensorflowlite_select_tf_ops_jni.so',  // Alternative name
       'libtensorflowlite_flex.so',          // Sometimes without _jni suffix
     ];

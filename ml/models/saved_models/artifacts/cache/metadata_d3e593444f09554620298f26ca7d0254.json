@@ -1,0 +1,150 @@
+{
+  "config_hash": "d3e593444f09554620298f26ca7d0254",
+  "dataset_hash": "ac4d507f6be95eb46a8c3b91fee9669632afdc5dae93ba351c8944f66e66c4e4",
+  "shapes": {
+    "X_train": [
+      18000,
+      24,
+      47
+    ],
+    "y_train": [
+      18000,
+      2
+    ],
+    "X_val": [
+      5000,
+      24,
+      47
+    ],
+    "y_val": [
+      5000,
+      2
+    ],
+    "X_test": [
+      149,
+      24,
+      47
+    ],
+    "y_test": [
+      149,
+      2
+    ]
+  },
+  "feature_columns": [
+    "power_kw_mean",
+    "power_kw_max",
+    "power_kw_std",
+    "house_kw_mean",
+    "house_kw_max",
+    "generation_kw_mean",
+    "appliance_kw_mean",
+    "occupancy_signal_mean",
+    "occupancy_signal_sum",
+    "temperature_c_mean",
+    "temperature_c_max",
+    "temperature_c_min",
+    "humidity_pct_mean",
+    "humidity_pct_max",
+    "hour_sin",
+    "hour_cos",
+    "day_of_week",
+    "is_weekend",
+    "month_sin",
+    "month_cos",
+    "day_of_week_sin",
+    "day_of_week_cos",
+    "power_kw_mean_roll6",
+    "power_kw_mean_roll24",
+    "power_kw_mean_roll6_std",
+    "house_kw_mean_roll6",
+    "house_kw_mean_roll24",
+    "house_kw_mean_roll6_std",
+    "temperature_c_mean_roll6",
+    "temperature_c_mean_roll24",
+    "temperature_c_mean_roll6_std",
+    "humidity_pct_mean_roll6",
+    "humidity_pct_mean_roll24",
+    "humidity_pct_mean_roll6_std",
+    "occupancy_signal_mean_roll6",
+    "occupancy_signal_mean_roll24",
+    "occupancy_signal_mean_roll6_std",
+    "temp_humidity_interaction",
+    "power_occupancy_interaction",
+    "temperature_c_mean_diff",
+    "temperature_c_mean_pct_change",
+    "humidity_pct_mean_diff",
+    "humidity_pct_mean_pct_change",
+    "power_kw_mean_diff",
+    "power_kw_mean_pct_change",
+    "fan_speed_lag1",
+    "led_brightness_lag1"
+  ],
+  "target_columns": [
+    "fan_speed",
+    "led_brightness"
+  ],
+  "created_at": "2025-11-25T13:55:36.848609",
+  "config": {
+    "seed": 42,
+    "sequence_length": 24,
+    "prediction_horizon": 1,
+    "batch_size": 12,
+    "epochs": 80,
+    "learning_rate": 0.002,
+    "validation_split": 0.2,
+    "test_split": 0.15,
+    "datasets": [
+      "HomeC.csv",
+      "aruba.csv",
+      "tulum.csv",
+      "electricity_cleaned.csv",
+      "smart_home_dataset.csv"
+    ],
+    "conv_filters": [
+      64,
+      32
+    ],
+    "kernel_size": 3,
+    "dropout": 0.2,
+    "l2_regularization": 0.0001,
+    "gradient_clip_norm": 1.0,
+    "use_lr_schedule": true,
+    "lr_patience": 10,
+    "lr_factor": 0.5,
+    "lr_min": 1e-06,
+    "early_stopping_patience": 20,
+    "use_data_augmentation": false,
+    "input_noise_std": 0.0,
+    "targets": [
+      "fan_speed",
+      "led_brightness"
+    ],
+    "max_target_value": 255,
+    "normalize_targets_per_dataset": true,
+    "use_temporal_split": true,
+    "validate_no_leakage": false,
+    "auto_recover": true,
+    "max_recovery_attempts": 5,
+    "use_synthetic_boost": true,
+    "synthetic_days": 90,
+    "synthetic_scenarios": [
+      "balanced",
+      "heat_wave",
+      "humid_evening",
+      "night_shift",
+      "stormy"
+    ],
+    "time_limit_minutes": 55,
+    "max_train_sequences": 18000,
+    "max_eval_sequences": 5000,
+    "balance_target_means": true,
+    "target_mean_center": 0.5,
+    "min_target_std": 0.18,
+    "reduce_target_correlation": true,
+    "target_mae_threshold": 0.22,
+    "target_r2_threshold": 0.35,
+    "min_variance_ratio": 0.45,
+    "optimal_patience": 2,
+    "optimal_min_epochs": 10
+  }
+}

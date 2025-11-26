@@ -61,9 +61,8 @@ android {
 
 
 dependencies {
-    // Using 2.15.0 - latest stable version that supports Select TF Ops
-    // Note: CAST v5 support may require model reconversion or newer TFLite runtime
-    def tflite_version = "2.15.0"
+    // Use TensorFlow Lite 2.16.1 which adds CAST v5 + flex op support
+    def tflite_version = "2.16.1"
     
     implementation("org.tensorflow:tensorflow-lite:${tflite_version}")
     implementation("org.tensorflow:tensorflow-lite-gpu:${tflite_version}")

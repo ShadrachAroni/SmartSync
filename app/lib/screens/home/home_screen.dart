@@ -1,6 +1,7 @@
 // app/lib/screens/home/home_screen.dart - COMPLETELY RESTRUCTURED
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -21,8 +22,10 @@ import '../../core/widgets/lottie_loading.dart';
 import '../../core/utils/logger.dart';
 import '../../core/widgets/weather_time_widget.dart';
 import '../../core/widgets/error_boundary.dart';
+import '../../core/utils/permissions.dart';
 import '../../services/appliance_state_service.dart';
 import '../../services/ml_service.dart';
+import '../../services/hub_reconnection_service.dart';
 
 // ==================== PROVIDERS ====================
 
@@ -58,6 +61,23 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _currentIndex = 0;
+  bool _permissionsChecked = false;
+  final PermissionCoordinator _permissionCoordinator = PermissionCoordinator();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _runPermissionFlow());
+  }
+
+  Future<void> _runPermissionFlow() async {
+    if (_permissionsChecked || !mounted) return;
+    _permissionsChecked = true;
+    await _permissionCoordinator.ensureInitialPermissionsFlow(
+      context: context,
+      isMounted: () => mounted,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -232,16 +252,47 @@ class _HomeTabState extends ConsumerState<HomeTab> {
 
   @override
   Widget build(BuildContext context) {
+    print('🔍 [DEBUG] HomeTab.build() called');
+    Logger.debug('🔍 [DEBUG] HomeTab.build() called');
+    
     final user = FirebaseAuth.instance.currentUser;
 
     if (user == null) {
+      print('🔍 [DEBUG] No user, returning login message');
       return const Center(child: Text('Please login'));
     }
 
-    // Use read for providers that don't need to trigger rebuilds
+    // Watch providers that need to trigger rebuilds when they change
+    print('🔍 [DEBUG] Watching providers...');
+    try {
     final currentUserAsync = ref.watch(currentUserProvider);
-    final bleConnection = ref.read(bleConnectionProvider);
-    final sensorData = ref.watch(sensorStreamProvider);
+      print('🔍 [DEBUG] currentUserProvider watched');
+    } catch (e) {
+      Logger.error('🔍 [DEBUG] Error watching currentUserProvider: $e');
+      print('🔍 [DEBUG] currentUserProvider error: $e');
+    }
+    
+    try {
+      final bleConnection = ref.watch(bleConnectionProvider); // FIXED: Changed from read to watch so UI updates on connection change
+      print('🔍 [DEBUG] bleConnectionProvider watched: ${bleConnection.value}');
+      Logger.debug('🔍 [DEBUG] bleConnectionProvider watched: ${bleConnection.value}');
+    } catch (e) {
+      Logger.error('🔍 [DEBUG] Error watching bleConnectionProvider: $e');
+      print('🔍 [DEBUG] bleConnectionProvider error: $e');
+    }
+    
+    AsyncValue<SensorData?> sensorData;
+    try {
+      sensorData = ref.watch(sensorStreamProvider);
+      print('🔍 [DEBUG] sensorStreamProvider watched');
+    } catch (e) {
+      Logger.error('🔍 [DEBUG] Error watching sensorStreamProvider: $e');
+      print('🔍 [DEBUG] sensorStreamProvider error: $e');
+      sensorData = const AsyncValue.loading();
+    }
+    
+    final currentUserAsync = ref.watch(currentUserProvider);
+    final bleConnection = ref.watch(bleConnectionProvider);
 
     // Use listen for side effects instead of whenData in build
     ref.listen<AsyncValue<SensorData?>>(
@@ -270,11 +321,16 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       },
     );
 
-    return Scaffold(
+    print('🔍 [DEBUG] Building Scaffold');
+    Logger.debug('🔍 [DEBUG] Building Scaffold');
+    
+    try {
+      return Scaffold(
       backgroundColor: const Color(0xFF0A0E27),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: () async {
+              print('🔍 [DEBUG] RefreshIndicator triggered');
             // Refresh all providers
             ref.invalidate(energyConsumptionProvider(user.uid));
             ref.invalidate(sensorStreamProvider);
@@ -284,14 +340,14 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           },
           child: CustomScrollView(
             slivers: [
-              _buildAppBar(currentUserAsync, bleConnection),
+              _buildAppBarSafe(currentUserAsync, bleConnection),
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildBLEBanner(bleConnection),
+                      _buildBLEBannerSafe(bleConnection),
                       const SizedBox(height: 20),
                       const WeatherTimeWidget(),
                       const SizedBox(height: 20),
@@ -300,6 +356,8 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                       _buildSectionHeader('Environmental Status'),
                       const SizedBox(height: 16),
                       _buildSensorGrid(sensorData),
+                      const SizedBox(height: 16),
+                      _buildHeatIndexAndComfortCards(sensorData),
                       const SizedBox(height: 24),
                       _buildGlobalControlCard(bleConnection),
                       const SizedBox(height: 24),
@@ -307,23 +365,71 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                       const SizedBox(height: 16),
                       _buildCallCaregiverButton(),
                       const SizedBox(height: 32),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (e, stackTrace) {
+      Logger.error('🔍 [DEBUG] HomeTab.build() error: $e', e, stackTrace);
+      print('🔍 [DEBUG] HomeTab.build() exception: $e');
+      print('🔍 [DEBUG] Stack trace: $stackTrace');
+      
+      // Return error widget instead of crashing
+      return Scaffold(
+        backgroundColor: const Color(0xFF0A0E27),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, color: Colors.red, size: 48),
+              const SizedBox(height: 16),
+              Text(
+                'Error building home screen',
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                e.toString(),
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   // ==================== APP BAR ====================
+
+  Widget _buildAppBarSafe(
+    AsyncValue currentUserAsync,
+    AsyncValue<bool> bleConnection,
+  ) {
+    try {
+      print('🔍 [DEBUG] _buildAppBarSafe called');
+      return _buildAppBar(currentUserAsync, bleConnection);
+    } catch (e, stackTrace) {
+      Logger.error('🔍 [DEBUG] _buildAppBarSafe error: $e', e, stackTrace);
+      print('🔍 [DEBUG] _buildAppBarSafe exception: $e');
+      print('🔍 [DEBUG] Stack trace: $stackTrace');
+      return SliverAppBar(
+        title: const Text('Error loading app bar'),
+        backgroundColor: Colors.red,
+      );
+    }
+  }
 
   Widget _buildAppBar(
     AsyncValue currentUserAsync,
     AsyncValue<bool> bleConnection,
   ) {
+    print('🔍 [DEBUG] _buildAppBar called');
     return SliverAppBar(
       expandedHeight: 140,
       floating: false,
@@ -721,6 +827,18 @@ class _HomeTabState extends ConsumerState<HomeTab> {
 
   // ==================== BLE BANNER ====================
 
+  Widget _buildBLEBannerSafe(AsyncValue<bool> bleConnection) {
+    try {
+      print('🔍 [DEBUG] _buildBLEBannerSafe called');
+      return _buildBLEBanner(bleConnection);
+    } catch (e, stackTrace) {
+      Logger.error('🔍 [DEBUG] _buildBLEBannerSafe error: $e', e, stackTrace);
+      print('🔍 [DEBUG] _buildBLEBannerSafe exception: $e');
+      print('🔍 [DEBUG] Stack trace: $stackTrace');
+      return const SizedBox.shrink();
+    }
+  }
+
   Widget _buildBLEBanner(AsyncValue<bool> bleConnection) {
     return bleConnection.when(
       data: (isConnected) => !isConnected
@@ -736,49 +854,89 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: Colors.orange.withOpacity(0.3)),
               ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Row(
                 children: [
                   Icon(
                     Icons.bluetooth_disabled,
                     color: Colors.orange,
-                    size: 24,
+                      size: 20,
                   ),
-                  const SizedBox(width: 12),
+                    const SizedBox(width: 8),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
+                      child: Text(
                           'Device Disconnected',
                           style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
                             color: Colors.orange,
                           ),
                         ),
-                        Text(
-                          'Connect to your SmartSync device',
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        // Force reconnect to registered hub
+                        final hubReconnectionService = HubReconnectionService();
+                        if (mounted) {
+                          AppNotifications.showSnackBar(
+                            context,
+                            message: 'Reconnecting...',
+                            type: AppNotificationType.info,
+                          );
+                        }
+                        final success = await hubReconnectionService.forceReconnect();
+                        if (mounted) {
+                          if (success) {
+                            AppNotifications.showSnackBar(
+                              context,
+                              message: 'Reconnected!',
+                              type: AppNotificationType.success,
+                            );
+                          } else {
+                            AppNotifications.showSnackBar(
+                              context,
+                              message: 'Reconnection failed',
+                              type: AppNotificationType.warning,
+                            );
+                          }
+                        }
+                      },
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text(
+                        'Reconnect',
                           style: TextStyle(
+                          color: Colors.orange,
+                          fontWeight: FontWeight.bold,
                             fontSize: 12,
-                            color: Colors.orange.shade300,
                           ),
                         ),
-                      ],
                     ),
-                  ),
+                    const SizedBox(width: 4),
                   TextButton(
                     onPressed: () {
                       Navigator.of(context).pushNamed(Routes.deviceScan);
                     },
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
                     child: Text(
-                      'Connect',
+                        'Scan',
                       style: TextStyle(
-                        color: Colors.orange,
-                        fontWeight: FontWeight.bold,
+                          color: Colors.orange.shade300,
+                          fontWeight: FontWeight.normal,
+                          fontSize: 12,
                       ),
                     ),
                   ),
                 ],
+                    ),
               ),
             )
           : const SizedBox.shrink(),
@@ -924,14 +1082,21 @@ class _HomeTabState extends ConsumerState<HomeTab> {
 
   Future<void> _handleGlobalToggle(bool turnOn) async {
     final bleService = ref.read(bluetoothServiceProvider);
+    final targetFan = turnOn ? 128 : 0;
+    final targetLed = turnOn ? 128 : 0;
+    final targetSecurity = turnOn;
     if (!bleService.isConnected) {
       // Save state even if not connected
       final stateService = ApplianceStateService();
       await stateService.saveApplianceState(
-        fanSpeed: turnOn ? 128 : 0,
-        ledBrightness: turnOn ? 128 : 0,
-        securityEnabled: turnOn,
+        fanSpeed: targetFan,
+        ledBrightness: targetLed,
+        securityEnabled: targetSecurity,
       );
+
+      if (mounted) {
+        setState(() => _allAppliancesOn = turnOn);
+      }
 
       AppNotifications.showSnackBar(
         context,
@@ -944,12 +1109,14 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     try {
       if (turnOn) {
         // Turn on all devices to 50%
-        await bleService.setFanSpeed(128).timeout(const Duration(seconds: 5));
         await bleService
-            .setLEDBrightness(128)
+            .setFanSpeed(targetFan)
             .timeout(const Duration(seconds: 5));
         await bleService
-            .setSecurityEnabled(true)
+            .setLEDBrightness(targetLed)
+            .timeout(const Duration(seconds: 5));
+        await bleService
+            .setSecurityEnabled(targetSecurity)
             .timeout(const Duration(seconds: 5));
 
         if (mounted) {
@@ -963,10 +1130,10 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         // Turn off all devices
         await bleService.setFanSpeed(0).timeout(const Duration(seconds: 5));
         await bleService
-            .setLEDBrightness(0)
+            .setLEDBrightness(targetLed)
             .timeout(const Duration(seconds: 5));
         await bleService
-            .setSecurityEnabled(false)
+            .setSecurityEnabled(targetSecurity)
             .timeout(const Duration(seconds: 5));
 
         if (mounted) {
@@ -976,6 +1143,16 @@ class _HomeTabState extends ConsumerState<HomeTab> {
             type: AppNotificationType.success,
           );
         }
+      }
+      final stateService = ApplianceStateService();
+      await stateService.saveApplianceState(
+        fanSpeed: targetFan,
+        ledBrightness: targetLed,
+        securityEnabled: targetSecurity,
+      );
+
+      if (mounted) {
+        setState(() => _allAppliancesOn = turnOn);
       }
     } catch (e) {
       if (mounted) {
@@ -1034,6 +1211,14 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       data: (sensorData) {
         if (sensorData == null) {
           return _buildDefaultSensorGrid();
+        }
+
+        // CRITICAL: Check if sensor data is stale (older than 30 seconds)
+        // If stale, show fallback to prevent blank/confused LCD display
+        final dataAge = DateTime.now().difference(sensorData.timestamp);
+        if (dataAge.inSeconds > 30) {
+          Logger.warning('HomeTab: Sensor data is stale (${dataAge.inSeconds}s old), showing fallback');
+          return _buildStaleSensorGrid(sensorData);
         }
 
         return GridView.count(
@@ -1334,6 +1519,54 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     );
   }
 
+  // CRITICAL: Fallback sensor grid for stale data to prevent blank/confused LCD
+  Widget _buildStaleSensorGrid(SensorData? lastKnownData) {
+    // Use last known values with "stale" indicator, or defaults if no previous data
+    final temp = lastKnownData?.temperature ?? 22.0;
+    final humidity = lastKnownData?.humidity ?? 50.0;
+    final motion = lastKnownData?.motionDetected ?? false;
+    final distance = lastKnownData?.distance ?? 100.0;
+    
+    return GridView.count(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisCount: 2,
+      crossAxisSpacing: 16,
+      mainAxisSpacing: 16,
+      childAspectRatio: 1.1,
+      children: [
+        _buildAnimatedSensorCard(
+          animationPath: 'assets/animations/temperature.json',
+          title: 'Temperature',
+          value: '${temp.toStringAsFixed(1)}°C',
+          subtitle: 'Last known',
+          color: const Color(0xFFFF6B6B),
+        ),
+        _buildAnimatedSensorCard(
+          animationPath: 'assets/animations/humidity.json',
+          title: 'Humidity',
+          value: '${humidity.toStringAsFixed(0)}%',
+          subtitle: 'Last known',
+          color: const Color(0xFF4ECDC4),
+        ),
+        _buildMotionSensorCard(
+          motionDetected: motion,
+          title: 'Motion',
+          value: motion ? 'Detected' : 'No Motion',
+          subtitle: 'Last known',
+          color: const Color(0xFFFFE66D),
+        ),
+        _buildAnimatedSensorCard(
+          animationPath: 'assets/animations/distance.json',
+          title: 'Proximity',
+          value: '${distance.toStringAsFixed(0)} cm',
+          subtitle: 'Last known',
+          color: const Color(0xFFA8E6CF),
+        ),
+      ],
+    );
+  }
+
   String _getTemperatureStatus(double temp) {
     if (temp < 18) return 'Cold';
     if (temp < 24) return 'Comfortable';
@@ -1359,6 +1592,228 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     if (humidity < 50) return 'Comfortable';
     if (humidity < 70) return 'Moderate';
     return 'Humid';
+  }
+
+  // ==================== HEAT INDEX AND COMFORT CARDS ====================
+
+  Widget _buildHeatIndexAndComfortCards(
+      AsyncValue<SensorData?> sensorDataAsync) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stackVertical = constraints.maxWidth < 420;
+        return sensorDataAsync.when(
+          data: (sensorData) {
+            return _buildHeatComfortLayout(
+              vertical: stackVertical,
+              heatIndex: sensorData?.heatIndex,
+              comfortLevel: sensorData?.comfortLevel,
+            );
+          },
+          loading: () => _buildHeatComfortLayout(
+            vertical: stackVertical,
+            heatIndex: null,
+            comfortLevel: null,
+          ),
+          error: (_, __) => _buildHeatComfortLayout(
+            vertical: stackVertical,
+            heatIndex: null,
+            comfortLevel: null,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHeatComfortLayout({
+    required bool vertical,
+    required double? heatIndex,
+    required String? comfortLevel,
+  }) {
+    const gap = 16.0;
+    final heatCard = vertical
+        ? _buildHeatIndexCard(heatIndex)
+        : Expanded(child: _buildHeatIndexCard(heatIndex));
+    final comfortCard = vertical
+        ? _buildComfortStatCard(comfortLevel)
+        : Expanded(child: _buildComfortStatCard(comfortLevel));
+
+    if (vertical) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          heatCard,
+          const SizedBox(height: gap),
+          comfortCard,
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        heatCard,
+        const SizedBox(width: gap),
+        comfortCard,
+      ],
+    );
+  }
+
+  Widget _buildHeatIndexCard(double? heatIndex) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 500),
+      builder: (context, animValue, child) {
+        return Transform.scale(
+          scale: animValue,
+          child: Opacity(
+            opacity: animValue,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF1A1F3A),
+                    const Color(0xFF0F1419),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.orange.withOpacity(0.2),
+                    blurRadius: 15,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          '🔥',
+                          style: TextStyle(fontSize: 24),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Heat Index',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      heatIndex != null && !heatIndex.isNaN
+                          ? '${heatIndex.toStringAsFixed(1)} °C'
+                          : '-- °C',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildComfortStatCard(String? comfortLevel) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 500),
+      builder: (context, animValue, child) {
+        // Determine color based on comfort level
+        Color cardColor;
+        if (comfortLevel == null) {
+          cardColor = Colors.grey;
+        } else if (comfortLevel.contains('Comfortable')) {
+          cardColor = Colors.green;
+        } else if (comfortLevel.contains('Acceptable') ||
+            comfortLevel.contains('Moderate')) {
+          cardColor = Colors.blue;
+        } else {
+          cardColor = Colors.orange;
+        }
+
+        return Transform.scale(
+          scale: animValue,
+          child: Opacity(
+            opacity: animValue,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF1A1F3A),
+                    const Color(0xFF0F1419),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: cardColor.withOpacity(0.3)),
+                boxShadow: [
+                  BoxShadow(
+                    color: cardColor.withOpacity(0.2),
+                    blurRadius: 15,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          '📊',
+                          style: TextStyle(fontSize: 24),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Comfort Stat',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      comfortLevel ?? 'No data',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: cardColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   // ==================== SOS BUTTON ====================
@@ -1713,4 +2168,5 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       ),
     );
   }
+
 }

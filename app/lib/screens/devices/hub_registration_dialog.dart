@@ -1,0 +1,833 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../models/device_model.dart';
+import '../../models/room_model.dart';
+import '../../services/firebase_service.dart';
+import '../../core/widgets/app_notifications.dart';
+import '../../core/widgets/lottie_loading.dart';
+import '../../core/utils/logger.dart';
+import '../../services/bluetooth_service.dart';
+import 'device_registration_dialog.dart'; // For userRoomsProvider
+
+class HubRegistrationDialog extends ConsumerStatefulWidget {
+  final String hubId; // BLE remoteId
+  final String hubName; // BLE advertisement name
+
+  const HubRegistrationDialog({
+    super.key,
+    required this.hubId,
+    required this.hubName,
+  });
+
+  @override
+  ConsumerState<HubRegistrationDialog> createState() =>
+      _HubRegistrationDialogState();
+
+  /// Show hub registration as a modal bottom sheet (simpler, no constraint issues)
+  static Future<bool?> show(
+    BuildContext context, {
+    required String hubId,
+    required String hubName,
+  }) {
+    return showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1A1F3A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+        ),
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: HubRegistrationDialog(
+            hubId: hubId,
+            hubName: hubName,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HubRegistrationDialogState
+    extends ConsumerState<HubRegistrationDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _hubNameController = TextEditingController();
+  final _newRoomNameController = TextEditingController();
+  String? _selectedRoomId;
+  bool _isSaving = false;
+  bool _createNewRoom = false;
+  bool _isPrimaryHub = false;
+  StreamSubscription<bool>? _connectionSubscription;
+  bool _isConnected = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-fill hub name from BLE advertisement
+    _hubNameController.text = widget.hubName.isNotEmpty
+        ? widget.hubName
+        : 'SmartSync Hub';
+    
+    // Monitor connection state during registration
+    final bluetoothService = BluetoothService();
+    _isConnected = bluetoothService.isConnected && 
+        bluetoothService.connectedDeviceId == widget.hubId;
+    
+    _connectionSubscription = bluetoothService.connectionStream.listen((connected) {
+      if (mounted) {
+        final currentConnected = bluetoothService.isConnected && 
+            bluetoothService.connectedDeviceId == widget.hubId;
+        
+        if (_isConnected && !currentConnected) {
+          // Connection lost during registration
+          Logger.warning('HubRegistrationDialog: Connection lost during registration');
+          if (mounted) {
+            AppNotifications.showSnackBar(
+              context,
+              message: 'Connection lost. Registration can still proceed - you can reconnect later.',
+              type: AppNotificationType.warning,
+            );
+            // DON'T reset connection state during registration - it's too aggressive
+            // Just update the UI state to reflect disconnection
+          }
+        }
+        setState(() {
+          _isConnected = currentConnected;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _connectionSubscription?.cancel();
+    _hubNameController.dispose();
+    _newRoomNameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveHub() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      AppNotifications.showSnackBar(
+        context,
+        message: 'Please log in to register hubs',
+        type: AppNotificationType.error,
+      );
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      // CRITICAL: Wrap entire save operation in timeout to prevent hanging
+      await () async {
+        final firebaseService = FirebaseService();
+
+        String roomId;
+        String roomName;
+
+      if (_createNewRoom) {
+        // Create new room
+        if (_newRoomNameController.text.trim().isEmpty) {
+          AppNotifications.showSnackBar(
+            context,
+            message: 'Please enter a room name',
+            type: AppNotificationType.error,
+          );
+          setState(() => _isSaving = false);
+          return;
+        }
+
+        roomName = _newRoomNameController.text.trim();
+        final newRoom = RoomModel(
+          id: '', // Will be generated by Firestore
+          name: roomName,
+          icon: 'home',
+          deviceIds: [],
+          hubId: widget.hubId,
+          isPrimaryHub: _isPrimaryHub,
+        );
+
+        // Add room to Firestore
+        roomId = await firebaseService.addRoom(user.uid, newRoom);
+        
+        // Update the room with hubId after creation (since we need the roomId first)
+        await firebaseService.updateRoom(user.uid, roomId, {
+          'hubId': widget.hubId,
+        });
+
+        Logger.info(
+            'HubRegistrationDialog: Created new room $roomId ($roomName) for hub ${widget.hubId}');
+      } else {
+        // Assign to existing room
+        if (_selectedRoomId == null || _selectedRoomId!.isEmpty) {
+          AppNotifications.showSnackBar(
+            context,
+            message: 'Please select a room',
+            type: AppNotificationType.error,
+          );
+          setState(() => _isSaving = false);
+          return;
+        }
+
+        roomId = _selectedRoomId!;
+
+        // Get room to get its name and check if it already has a hub
+        final rooms = await firebaseService.getUserRooms(user.uid).first;
+        final room = rooms.firstWhere((r) => r.id == roomId);
+        roomName = room.name;
+
+        // CONSTRAINT: Check if room already has a hub assigned
+        if (room.hubId != null && room.hubId!.isNotEmpty) {
+          // Get the existing hub name for better error message
+          String existingHubName = 'Unknown Hub';
+          try {
+            final existingHub = await firebaseService.getDeviceById(room.hubId!);
+            if (existingHub != null) {
+              existingHubName = existingHub.name;
+            }
+          } catch (e) {
+            Logger.warning('Could not get existing hub name: $e');
+          }
+
+          setState(() => _isSaving = false);
+          AppNotifications.showSnackBar(
+            context,
+            message: 'Room "$roomName" already has a hub assigned ($existingHubName). Each room can only have one hub. Please select a different room or remove the existing hub first.',
+            type: AppNotificationType.error,
+          );
+          return;
+        }
+
+        // Update room with hubId
+        await firebaseService.updateRoom(user.uid, roomId, {
+          'hubId': widget.hubId,
+        });
+
+        Logger.info(
+            'HubRegistrationDialog: Assigned hub ${widget.hubId} to existing room $roomId ($roomName)');
+      }
+
+      // If this is marked as primary, unmark other primary hubs and set this one
+      if (_isPrimaryHub) {
+        try {
+          // Small delay to ensure room is saved
+          await Future.delayed(const Duration(milliseconds: 100));
+          await firebaseService.setPrimaryHub(user.uid, widget.hubId);
+          Logger.info('HubRegistrationDialog: Set hub ${widget.hubId} as primary hub');
+        } catch (e) {
+          Logger.warning('HubRegistrationDialog: Failed to set primary hub: $e');
+          // Don't fail registration if primary hub setting fails - it's not critical
+        }
+      }
+
+      // Register the hub as a device
+      final hubDevice = DeviceModel(
+        id: widget.hubId,
+        name: _hubNameController.text.trim(),
+        type: DeviceType.hub,
+        roomId: roomId,
+        isOn: false,
+        value: 0,
+        isOnline: true,
+        lastSeen: DateTime.now(),
+        metadata: {
+          'bleName': widget.hubName,
+          'registeredAt': DateTime.now().toIso8601String(),
+          'isHub': true,
+        },
+        isHub: true,
+      );
+
+      await firebaseService.addDevice(user.uid, hubDevice);
+      Logger.info(
+          'HubRegistrationDialog: Hub device ${widget.hubId} registered in Firebase');
+
+      // Create virtual devices for fan and light that belong to this hub
+      final fanDevice = DeviceModel(
+        id: '${widget.hubId}_fan',
+        name: '$roomName Fan',
+        type: DeviceType.fan,
+        roomId: roomId,
+        isOn: false,
+        value: 0,
+        isOnline: true,
+        lastSeen: DateTime.now(),
+        metadata: {
+          'hubId': widget.hubId,
+          'isVirtual': true,
+        },
+        hubId: widget.hubId,
+      );
+
+      final lightDevice = DeviceModel(
+        id: '${widget.hubId}_light',
+        name: '$roomName Light',
+        type: DeviceType.light,
+        roomId: roomId,
+        isOn: false,
+        value: 0,
+        isOnline: true,
+        lastSeen: DateTime.now(),
+        metadata: {
+          'hubId': widget.hubId,
+          'isVirtual': true,
+        },
+        hubId: widget.hubId,
+      );
+
+      await firebaseService.addDevice(user.uid, fanDevice);
+      await firebaseService.addDevice(user.uid, lightDevice);
+      Logger.info(
+          'HubRegistrationDialog: Created virtual fan and light devices for hub ${widget.hubId}');
+
+      // Add all devices to room
+      await firebaseService.addDeviceToRoom(user.uid, roomId, widget.hubId);
+      await firebaseService.addDeviceToRoom(user.uid, roomId, fanDevice.id);
+      await firebaseService.addDeviceToRoom(user.uid, roomId, lightDevice.id);
+
+      if (mounted) {
+        // Send hub configuration to ESP32 if still connected (non-blocking with timeout)
+        // Don't block registration completion on this
+        Future.microtask(() async {
+          try {
+            final bluetoothService = BluetoothService();
+            if (bluetoothService.isConnected && 
+                bluetoothService.connectedDeviceId == widget.hubId) {
+              await bluetoothService.updateHubConfiguration().timeout(
+                const Duration(seconds: 5),
+              );
+            }
+          } catch (e) {
+            Logger.warning('Failed to send hub configuration to ESP32: $e');
+            // Don't fail registration if this fails
+          }
+        });
+        
+        // Close dialog first before showing notification to avoid context issues
+        Navigator.of(context).pop(true); // Return true to indicate success
+        
+        // Invalidate providers to refresh UI (after dialog closes)
+        Future.microtask(() {
+          ref.invalidate(userRoomsProvider);
+        });
+
+        // Show success message after a brief delay to ensure dialog is closed
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted && context.mounted) {
+            AppNotifications.showSnackBar(
+              context,
+              message: 'Hub registered successfully! All appliances assigned to $roomName.',
+              type: AppNotificationType.success,
+            );
+          }
+        });
+        }
+      }().timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw TimeoutException('Registration timed out after 30 seconds. Please try again.');
+        },
+      );
+    } catch (e, stackTrace) {
+      Logger.error('HubRegistrationDialog: Error saving hub: $e', e, stackTrace);
+      if (mounted) {
+        setState(() => _isSaving = false);
+        
+        // Show error message with timeout-specific handling
+        String errorMessage = 'Failed to register hub: ${e.toString()}';
+        if (e is TimeoutException) {
+          errorMessage = 'Registration timed out. Please check your connection and try again.';
+        }
+        
+        AppNotifications.showSnackBar(
+          context,
+          message: errorMessage,
+          type: AppNotificationType.error,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final roomsAsync = ref.watch(userRoomsProvider);
+
+    return Form(
+      key: _formKey,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: SizedBox(
+                width: constraints.maxWidth > 0 ? constraints.maxWidth : double.infinity,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                  // Header
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    mainAxisSize: MainAxisSize.max,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          'Register Hub',
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white70),
+                        onPressed: () => Navigator.of(context).pop(false),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'This ESP32 hub will control all appliances in its assigned room',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.white.withOpacity(0.7),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Hub ID (read-only)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.router, color: Colors.blue.shade300),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Hub ID',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white.withOpacity(0.7),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                widget.hubId,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.white,
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Hub Name
+                  TextFormField(
+                    controller: _hubNameController,
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                    decoration: InputDecoration(
+                      labelText: 'Hub Name',
+                      labelStyle:
+                          TextStyle(color: Colors.white.withOpacity(0.7)),
+                      hintText: 'e.g., Living Room Hub',
+                      hintStyle:
+                          TextStyle(color: Colors.white.withOpacity(0.5)),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.1),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(
+                          color: Colors.white.withOpacity(0.2),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF00BFA5),
+                          width: 2,
+                        ),
+                      ),
+                      prefixIcon: const Icon(Icons.label_outline,
+                          color: Color(0xFF00BFA5)),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Please enter a hub name';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Room Assignment Section
+                  Text(
+                    'Room Assignment',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Toggle between existing room and new room
+                  Row(
+                    mainAxisSize: MainAxisSize.max,
+                    children: [
+                      Flexible(
+                        child: ChoiceChip(
+                          label: const Text('Existing Room'),
+                          selected: !_createNewRoom,
+                          onSelected: (selected) {
+                            setState(() {
+                              _createNewRoom = !selected;
+                            });
+                          },
+                          selectedColor: const Color(0xFF00BFA5),
+                          labelStyle: TextStyle(
+                            color: _createNewRoom
+                                ? Colors.white70
+                                : Colors.white,
+                            fontWeight: _createNewRoom
+                                ? FontWeight.normal
+                                : FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Flexible(
+                        child: ChoiceChip(
+                          label: const Text('Create New Room'),
+                          selected: _createNewRoom,
+                          onSelected: (selected) {
+                            setState(() {
+                              _createNewRoom = selected;
+                            });
+                          },
+                          selectedColor: const Color(0xFF00BFA5),
+                          labelStyle: TextStyle(
+                            color: _createNewRoom
+                                ? Colors.white
+                                : Colors.white70,
+                            fontWeight: _createNewRoom
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Room Selection or New Room Name
+                  if (_createNewRoom) ...[
+                    TextFormField(
+                      controller: _newRoomNameController,
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                      decoration: InputDecoration(
+                        labelText: 'New Room Name',
+                        labelStyle:
+                            TextStyle(color: Colors.white.withOpacity(0.7)),
+                        hintText: 'e.g., Living Room, Bedroom',
+                        hintStyle:
+                            TextStyle(color: Colors.white.withOpacity(0.5)),
+                        filled: true,
+                        fillColor: Colors.white.withOpacity(0.1),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: Colors.white.withOpacity(0.2),
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF00BFA5),
+                            width: 2,
+                          ),
+                        ),
+                        prefixIcon: const Icon(Icons.room_outlined,
+                            color: Color(0xFF00BFA5)),
+                      ),
+                      validator: (value) {
+                        if (_createNewRoom &&
+                            (value == null || value.trim().isEmpty)) {
+                          return 'Please enter a room name';
+                        }
+                        return null;
+                      },
+                    ),
+                  ] else ...[
+                    roomsAsync.when(
+                      data: (rooms) {
+                        if (rooms.isEmpty) {
+                          return Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.orange.withOpacity(0.3),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.info_outline,
+                                    color: Colors.orange.shade300),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    'No rooms available. Please create a new room.',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.orange.shade200,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        return DropdownButtonFormField<String>(
+                          value: _selectedRoomId,
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 16),
+                          decoration: InputDecoration(
+                            labelText: 'Select Room',
+                            labelStyle:
+                                TextStyle(color: Colors.white.withOpacity(0.7)),
+                            hintText: 'Choose a room',
+                            hintStyle:
+                                TextStyle(color: Colors.white.withOpacity(0.5)),
+                            filled: true,
+                            fillColor: Colors.white.withOpacity(0.1),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                color: Colors.white.withOpacity(0.2),
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(
+                                color: Color(0xFF00BFA5),
+                                width: 2,
+                              ),
+                            ),
+                            prefixIcon: const Icon(Icons.room_outlined,
+                                color: Color(0xFF00BFA5)),
+                          ),
+                          dropdownColor: const Color(0xFF1A1F3A),
+                          items: rooms.map((room) {
+                            return DropdownMenuItem(
+                              value: room.id,
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.room,
+                                    color: Colors.white70,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      room.name,
+                                      style: const TextStyle(color: Colors.white),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  if (room.hubId != null) ...[
+                                    const SizedBox(width: 8),
+                                    Icon(
+                                      Icons.router,
+                                      size: 16,
+                                      color: Colors.orange.shade300,
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setState(() => _selectedRoomId = value);
+                          },
+                          validator: (value) {
+                            if (!_createNewRoom &&
+                                (value == null || value.isEmpty)) {
+                              return 'Please select a room';
+                            }
+                            return null;
+                          },
+                        );
+                      },
+                      loading: () => const Center(
+                        child: LottieLoading.medium(),
+                      ),
+                      error: (_, __) => Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.red.withOpacity(0.3),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline, color: Colors.red),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Failed to load rooms',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.red.shade200,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+
+                  // Primary Hub Checkbox
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.1),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Checkbox(
+                          value: _isPrimaryHub,
+                          onChanged: (value) {
+                            setState(() {
+                              _isPrimaryHub = value ?? false;
+                            });
+                          },
+                          activeColor: const Color(0xFF00BFA5),
+                        ),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Set as Primary Hub',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Designate this as the main control hub for your home',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white.withOpacity(0.7),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Action Buttons
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 12,
+                    children: [
+                      TextButton(
+                        onPressed: _isSaving
+                            ? null
+                            : () => Navigator.of(context).pop(false),
+                        child: Text(
+                          'Cancel',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.7),
+                          ),
+                        ),
+                      ),
+                      ElevatedButton(
+                        onPressed: _isSaving ? null : _saveHub,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF00BFA5),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 16,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: _isSaving
+                            ? const LottieLoading.small()
+                            : const Text('Register Hub'),
+                      ),
+                    ],
+                  ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+

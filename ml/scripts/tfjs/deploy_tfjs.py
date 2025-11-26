@@ -8,7 +8,7 @@ from firebase_admin import credentials, storage, firestore
 from pathlib import Path
 import json
 
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TFJS_DIR = PROJECT_ROOT / "models" / "tfjs"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 CRED_PATH = PROJECT_ROOT / "serviceAccountKey.json"
@@ -32,11 +32,13 @@ def initialize_firebase():
     
     return bucket, db
 
+MODEL_VERSION = "v2"
+
 def upload_tfjs_model(bucket, model_name):
     """Upload TFJS model directory to Storage"""
     print(f"\n📤 Uploading {model_name}...")
     
-    model_dir = TFJS_DIR / f"{model_name}_v1"
+    model_dir = TFJS_DIR / f"{model_name}_{MODEL_VERSION}"
     
     if not model_dir.exists():
         print(f"   ❌ Model directory not found: {model_dir}")
@@ -46,7 +48,7 @@ def upload_tfjs_model(bucket, model_name):
     
     # Upload all files in the model directory
     for file_path in model_dir.glob("*"):
-        blob_name = f"models/{model_name}_v1/{file_path.name}"
+        blob_name = f"models/{model_name}_{MODEL_VERSION}/{file_path.name}"
         blob = bucket.blob(blob_name)
         
         print(f"   Uploading {file_path.name}...")
@@ -101,7 +103,7 @@ def upload_scaler_json(bucket):
     }
     
     # Upload to Storage
-    blob = bucket.blob("models/schedule_predictor_v1/scaler.json")
+    blob = bucket.blob(f"models/schedule_predictor_{MODEL_VERSION}/scaler.json")
     blob.upload_from_string(
         json.dumps(scaler_json, indent=2),
         content_type='application/json'
@@ -123,7 +125,7 @@ def update_firestore_config(db, model_info, scaler_url):
         'lastUpdated': firestore.SERVER_TIMESTAMP,
         'models': {
             'schedule_predictor': {
-                'currentVersion': 'v1',
+                'currentVersion': MODEL_VERSION,
                 'format': 'tfjs',
                 'modelUrl': model_info['model_url'],
                 'scalerUrl': scaler_url,

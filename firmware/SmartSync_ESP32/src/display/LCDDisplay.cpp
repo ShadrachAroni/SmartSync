@@ -13,7 +13,10 @@ LCDDisplay::LCDDisplay()
       _initialized(false),
       _lastConnectionStatus(false),
       _lastUpdate(0),
-      _lastStatusChange(0) {
+      _lastStatusChange(0),
+      _roomName(""),
+      _isPrimaryHub(false),
+      _hubConfigChanged(false) {
 }
 
 LCDDisplay::~LCDDisplay() {
@@ -39,9 +42,9 @@ bool LCDDisplay::begin(uint8_t address, uint8_t cols, uint8_t rows) {
         delay(1000);
         
         _lcd->clear();
-        _showWelcome();
-        
         _initialized = true;
+        showWelcome();
+        
         _lastConnectionStatus = false;
         _lastStatusChange = millis();
         _lastUpdate = millis();
@@ -77,19 +80,53 @@ void LCDDisplay::setConnectionStatus(bool connected) {
     }
 }
 
+void LCDDisplay::setRoomName(const char* roomName) {
+    if (!_initialized) return;
+    String newRoomName = roomName ? String(roomName) : String("");
+    if (newRoomName != _roomName) {
+        _roomName = newRoomName;
+        _hubConfigChanged = true;
+        _updateConnectionDisplay();
+    }
+}
+
+void LCDDisplay::setIsPrimaryHub(bool isPrimary) {
+    if (!_initialized) return;
+    if (isPrimary != _isPrimaryHub) {
+        _isPrimaryHub = isPrimary;
+        _hubConfigChanged = true;
+        _updateConnectionDisplay();
+    }
+}
+
 void LCDDisplay::_updateConnectionDisplay() {
     if (!_initialized || _lcd == nullptr) return;
     
-    // Line 1: Title
+    // Line 1: Hub Type (Primary Hub or Room Name)
     _lcd->setCursor(0, 0);
-    _lcd->print("SmartSync Hub      ");
+    if (_isPrimaryHub) {
+        _lcd->print("*** MAIN HUB ***   ");
+    } else if (_roomName.length() > 0) {
+        // Show room name, truncate if too long
+        String displayText = "Room: " + _roomName;
+        if (displayText.length() > 20) {
+            displayText = displayText.substring(0, 17) + "...";
+        }
+        _lcd->print(displayText);
+        // Pad with spaces if needed
+        for (int i = displayText.length(); i < 20; i++) {
+            _lcd->print(" ");
+        }
+    } else {
+        _lcd->print("SmartSync Hub      ");
+    }
     
     // Line 2: Connection Status
     _lcd->setCursor(0, 1);
     if (_lastConnectionStatus) {
-        _lcd->print("Status: CONNECTED  ");
+        _lcd->print("BT: CONNECTED      ");
     } else {
-        _lcd->print("Status: PENDING    ");
+        _lcd->print("BT: DISCONNECTED   ");
     }
     
     // Line 3: Connection indicator
@@ -97,7 +134,16 @@ void LCDDisplay::_updateConnectionDisplay() {
     if (_lastConnectionStatus) {
         _lcd->print("[=====] Connected  ");
     } else {
-        // Animated pending indicator
+        // Show disconnected state clearly
+        _lcd->print("[-----] Disconnected");
+    }
+    
+    // Line 4: Additional info
+    _lcd->setCursor(0, 3);
+    if (_lastConnectionStatus) {
+        _lcd->print("Ready for commands ");
+    } else {
+        // Show that we're waiting for reconnection
         unsigned long elapsed = millis() - _lastStatusChange;
         int dotCount = (elapsed / 500) % 4;
         _lcd->print("Waiting");
@@ -108,14 +154,6 @@ void LCDDisplay::_updateConnectionDisplay() {
             _lcd->print(" ");
         }
         _lcd->print("        ");
-    }
-    
-    // Line 4: Additional info or blank
-    _lcd->setCursor(0, 3);
-    if (_lastConnectionStatus) {
-        _lcd->print("Ready for commands ");
-    } else {
-        _lcd->print("Scanning for device");
     }
 }
 

@@ -26,10 +26,10 @@ class TfliteFlutterPlugin: FlutterPlugin, MethodCallHandler {
     private fun loadSelectTFOpsLibraryStatic() {
       android.util.Log.i("TfliteFlutterPlugin", "=== Attempting to load Select TF Ops library (static) ===")
       
-      // The library name for tensorflow-lite-select-tf-ops:2.15.0
+      // The library name for tensorflow-lite-select-tf-ops:2.16.1
       // Try multiple possible names as they vary by version
       val libraryNames = listOf(
-        "tensorflowlite_flex_jni",           // Most common name for 2.15.0
+        "tensorflowlite_flex_jni",           // Most common name for 2.16.1
         "tensorflowlite_select_tf_ops_jni",  // Alternative name
         "tensorflowlite_flex"                 // Sometimes without _jni suffix
       )

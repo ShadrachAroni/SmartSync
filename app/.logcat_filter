@@ -1,0 +1,26 @@
+# Logcat filter to suppress verbose Android system logs
+# Usage: adb logcat | grep -v "BLASTBufferQueue"
+
+# Filter out BLASTBufferQueue logs (SurfaceView buffer management)
+# This is the main culprit causing log spam
+-BLASTBufferQueue
+
+# Filter out other verbose system logs
+-BufferQueue
+-SurfaceFlinger
+-GraphicBufferAllocator
+-EGL_emulation
+-OpenGLRenderer
+-HWUI
+-Skia
+-libEGL
+-Gralloc
+-native
+-RenderThread
+
+# Windows PowerShell command:
+# adb logcat | Select-String -Pattern "BLASTBufferQueue|BufferQueue|SurfaceFlinger" -NotMatch
+
+# Linux/Mac command:
+# adb logcat | grep -v "BLASTBufferQueue\|BufferQueue\|SurfaceFlinger\|GraphicBufferAllocator\|EGL_emulation\|OpenGLRenderer\|HWUI\|Skia\|libEGL\|Gralloc\|native\|RenderThread"
+
